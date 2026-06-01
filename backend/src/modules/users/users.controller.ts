@@ -61,9 +61,11 @@ export class UsersController {
   async updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body('status') status: string,
+    @Body('roleId') roleId: string,
+    @Body('permissions') permissions: string[],
     @CurrentUser('id') adminId: string,
   ) {
-    await this.usersService.updateStatus(id, status, adminId);
+    await this.usersService.updateStatus(id, status, roleId, permissions, adminId);
     return { message: `User status updated to ${status}` };
   }
 

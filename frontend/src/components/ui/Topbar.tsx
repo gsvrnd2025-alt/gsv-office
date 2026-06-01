@@ -1,4 +1,4 @@
-import { Menu, Bell, Sun, Moon, Search, Play, Server } from 'lucide-react';
+import { Menu, Bell, Sun, Moon, Search } from 'lucide-react';
 import { useAuthStore } from '../../store/auth.store';
 import { useThemeStore } from '../../store/theme.store';
 import { useState } from 'react';
@@ -17,7 +17,6 @@ export function Topbar({ onMenuClick }: TopbarProps) {
   const { user } = useAuthStore();
   const { theme, toggleTheme } = useThemeStore();
   const qc = useQueryClient();
-  const [demoMode, setDemoMode] = useState(() => localStorage.getItem('gsv-demo-mode') === 'true');
   const [showNotifications, setShowNotifications] = useState(false);
 
   // Queries
@@ -54,18 +53,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
     }
   });
 
-  const toggleDemoMode = () => {
-    const next = !demoMode;
-    setDemoMode(next);
-    if (next) {
-      localStorage.setItem('gsv-demo-mode', 'true');
-      toast.success('Offline Demo Mode Activated! 🧪');
-    } else {
-      localStorage.removeItem('gsv-demo-mode');
-      toast.success('Live API Mode Activated! ⚡ Connecting to backend...');
-    }
-    setTimeout(() => window.location.reload(), 600);
-  };
+
 
   const getGreeting = () => {
     const h = new Date().getHours();
@@ -103,30 +91,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
 
       {/* Right */}
       <div className={styles.right}>
-        {/* Demo Mode Toggle */}
-        <button
-          onClick={toggleDemoMode}
-          title={`Switch to ${demoMode ? 'Live Database' : 'Offline Demo'} Mode`}
-          style={{
-            background: demoMode ? 'rgba(99, 102, 241, 0.12)' : 'rgba(255, 255, 255, 0.03)',
-            color: demoMode ? '#6366f1' : 'var(--text-secondary)',
-            border: `1.5px solid ${demoMode ? 'rgba(99, 102, 241, 0.3)' : 'rgba(255, 255, 255, 0.08)'}`,
-            borderRadius: '10px',
-            fontSize: '11px',
-            fontWeight: 700,
-            padding: '6px 12px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            height: '34px',
-            cursor: 'pointer',
-            fontFamily: 'inherit',
-            transition: 'all 0.2s',
-          }}
-        >
-          {demoMode ? <Server size={14} /> : <Play size={14} />}
-          <span>{demoMode ? '🧪 Demo' : '⚡ Live'}</span>
-        </button>
+
 
         {/* Theme toggle */}
         <button className={styles.iconBtn} onClick={toggleTheme} title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>

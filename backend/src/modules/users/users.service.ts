@@ -107,15 +107,36 @@ export class UsersService {
     return this.sanitize(saved) as any;
   }
 
-  async updateStatus(id: string, status: string, updatedBy?: string): Promise<void> {
+  async updateStatus(id: string, status: string, roleId?: string, permissions?: string[], updatedBy?: string): Promise<void> {
     const user = await this.findById(id);
-    await this.usersRepo.update(id, { status: status as any });
+    
+    const updatePayload: any = { status: status as any };
+    if (roleId) {
+      updatePayload.roleId = roleId;
+    }
+    
+    await this.usersRepo.update(id, updatePayload);
+
+    if (permissions) {
+      // Clear existing overrides
+      await this.usersRepo.query(`DELETE FROM user_permissions WHERE user_id = $1`, [id]);
+      
+      // Insert new overrides
+      for (const permId of permissions) {
+        await this.usersRepo.query(
+          `INSERT INTO user_permissions (user_id, permission_id, granted) VALUES ($1, $2, true)
+           ON CONFLICT (user_id, permission_id) DO UPDATE SET granted = true`,
+          [id, permId]
+        );
+      }
+    }
+
     await this.auditService.log({
       userId: updatedBy,
       action: 'update',
       resourceType: 'user',
       resourceId: id,
-      description: `Status changed from ${user.status} to ${status}`,
+      description: `Status changed from ${user.status} to ${status} (Role: ${roleId || 'none'})`,
     });
   }
 

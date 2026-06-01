@@ -36,16 +36,6 @@ export default function RegisterPage() {
       toast.success('Registration successful! Awaiting admin approval. 🎉');
       navigate('/login');
     } catch (err: any) {
-      // Mock / Offline support
-      if (err.message === 'Network Error' || err.code === 'ERR_NETWORK' || err.response?.status === 502 || err.response?.status === 504 || err.response?.status === 500) {
-        localStorage.setItem('gsv-demo-mode', 'true');
-        try {
-          await authApi.register({ ...form });
-        } catch {}
-        toast.success('Registration Demo: Account submitted for approval! 🎉');
-        navigate('/login');
-        return;
-      }
       toast.error(err.response?.data?.message || 'Registration failed');
     } finally {
       setLoading(false);
