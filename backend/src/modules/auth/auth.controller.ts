@@ -62,6 +62,19 @@ export class AuthController {
     return this.authService.refreshAccessToken(token);
   }
 
+  @Public()
+  @Post('register')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Self-register a new employee' })
+  async register(@Body() dto: any) {
+    const user = await this.authService.register(dto);
+    return {
+      success: true,
+      message: 'Registration successful! Awaiting admin approval.',
+      data: user,
+    };
+  }
+
   @UseGuards(JwtAuthGuard)
   @Post('logout')
   @HttpCode(HttpStatus.OK)

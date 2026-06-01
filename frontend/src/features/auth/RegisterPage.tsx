@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Eye, EyeOff, LogIn, Lock, User, Mail, Phone, MapPin, Calendar, Briefcase, Building } from 'lucide-react';
-import { departmentsApi, usersApi } from '../../api';
+import { departmentsApi, authApi } from '../../api';
 import toast from 'react-hot-toast';
 import logoImg from '../../assets/gsvlogo.png';
 
@@ -31,8 +31,8 @@ export default function RegisterPage() {
     }
     setLoading(true);
     try {
-      // Create user with pending status
-      await usersApi.create({ ...form, status: 'pending' });
+      // Create user self-registration
+      await authApi.register({ ...form });
       toast.success('Registration successful! Awaiting admin approval. 🎉');
       navigate('/login');
     } catch (err: any) {
@@ -40,7 +40,7 @@ export default function RegisterPage() {
       if (err.message === 'Network Error' || err.code === 'ERR_NETWORK' || err.response?.status === 502 || err.response?.status === 504 || err.response?.status === 500) {
         localStorage.setItem('gsv-demo-mode', 'true');
         try {
-          await usersApi.create({ ...form, status: 'pending' });
+          await authApi.register({ ...form });
         } catch {}
         toast.success('Registration Demo: Account submitted for approval! 🎉');
         navigate('/login');

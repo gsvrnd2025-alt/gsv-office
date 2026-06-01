@@ -73,6 +73,44 @@ export class AuthService {
     };
   }
 
+  async register(dto: any) {
+    const loginId = dto.loginId || dto.email.split('@')[0];
+    const existing = await this.usersRepo.findOne({
+      where: [{ email: dto.email }, { loginId }],
+    });
+    if (existing) {
+      throw new BadRequestException(
+        existing.email === dto.email ? 'Email already in use' : 'Login ID already in use',
+      );
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, 12);
+    
+    // Generate employee ID
+    const count = await this.usersRepo.count({ withDeleted: true });
+    const employeeId = `EMP-${String(count + 1).padStart(4, '0')}`;
+
+    const user = this.usersRepo.create({
+      ...dto,
+      loginId,
+      passwordHash,
+      employeeId,
+      status: 'pending', // Self-registrations are pending admin approval
+    } as any) as any as User;
+
+    const saved = await this.usersRepo.save(user);
+
+    await this.auditService.log({
+      userId: saved.id,
+      action: 'create',
+      resourceType: 'user',
+      resourceId: saved.id,
+      description: `User self-registered: ${saved.loginId}`,
+    });
+
+    return this.sanitizeUser(saved);
+  }
+
   async refreshAccessToken(refreshTokenStr: string) {
     const tokenHash = this.hashToken(refreshTokenStr);
     const stored = await this.refreshTokenRepo.findOne({
