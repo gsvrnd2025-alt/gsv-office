@@ -14,7 +14,7 @@ description: >-
   — all running privately on your TrueNAS server.
 home: "https://github.com/gsv-office/gsv-office"
 host_mounts: []
-icon: "https://raw.githubusercontent.com/gsv-office/gsv-office-catalog/main/stable/gsv-office/icon.png"
+icon: "https://raw.githubusercontent.com/gsvrnd2025-alt/gsv-office-catalog/main/stable/gsv-office/icon.png"
 keywords:
   - office
   - erp
@@ -34,9 +34,9 @@ name: gsv-office
 run_as_context: []
 screenshots:
   - title: "Login Page"
-    url: "https://raw.githubusercontent.com/gsv-office/gsv-office-catalog/main/stable/gsv-office/screenshots/login.png"
+    url: "https://raw.githubusercontent.com/gsvrnd2025-alt/gsv-office-catalog/main/stable/gsv-office/screenshots/login.png"
   - title: "Dashboard"
-    url: "https://raw.githubusercontent.com/gsv-office/gsv-office-catalog/main/stable/gsv-office/screenshots/dashboard.png"
+    url: "https://raw.githubusercontent.com/gsvrnd2025-alt/gsv-office-catalog/main/stable/gsv-office/screenshots/dashboard.png"
 sources:
   - "https://github.com/gsv-office/gsv-office"
 title: "GSV Office"

@@ -6,11 +6,11 @@
 # ─── App Image Configuration ────────────────────────────────
 image:
   api:
-    repository: ghcr.io/gsv-office/gsv-office-api
+    repository: ghcr.io/gsvrnd2025-alt/gsv-office-api
     tag: "latest"
     pullPolicy: IfNotPresent
   nginx:
-    repository: ghcr.io/gsv-office/gsv-office-nginx
+    repository: ghcr.io/gsvrnd2025-alt/gsv-office-nginx
     tag: "latest"
     pullPolicy: IfNotPresent
 
