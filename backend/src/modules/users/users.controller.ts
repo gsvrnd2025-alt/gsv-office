@@ -60,11 +60,10 @@ export class UsersController {
   @ApiOperation({ summary: 'Update user status (active/inactive/blocked)' })
   async updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body('status') status: string,
-    @Body('roleId') roleId: string,
-    @Body('permissions') permissions: string[],
+    @Body() body: { status: string; roleId?: string; permissions?: string[] },
     @CurrentUser('id') adminId: string,
   ) {
+    const { status, roleId, permissions } = body;
     await this.usersService.updateStatus(id, status, roleId, permissions, adminId);
     return { message: `User status updated to ${status}` };
   }
