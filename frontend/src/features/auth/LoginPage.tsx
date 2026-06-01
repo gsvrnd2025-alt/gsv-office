@@ -21,7 +21,6 @@ export default function LoginPage() {
     try {
       const res = await authApi.login({ loginId, password });
       const { accessToken, user } = res.data.data;
-      localStorage.removeItem('gsv-demo-mode'); // Clear demo mode on successful real backend login!
       login(user, accessToken);
       toast.success(`Welcome back, ${user.fullName.split(' ')[0]}! 🎉`);
       navigate('/dashboard');
@@ -140,12 +139,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* Default credentials hint */}
-        <div style={{ marginTop: '24px', padding: '12px', background: 'rgba(99,102,241,0.1)', borderRadius: '10px', border: '1px solid rgba(99,102,241,0.2)' }}>
-          <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '12px', textAlign: 'center' }}>
-            Default admin: <strong style={{ color: 'rgba(255,255,255,0.9)' }}>admin</strong> / <strong style={{ color: 'rgba(255,255,255,0.9)' }}>Admin@GSV2024</strong>
-          </p>
-        </div>
+
         <div style={{ marginTop: '16px', textAlign: 'center' }}>
           <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px' }}>
             New to the workspace?{' '}
