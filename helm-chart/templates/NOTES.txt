@@ -1,0 +1,27 @@
+GSV Office has been successfully installed! 🎉
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  GSV Office — Enterprise Workspace Platform
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Access your workspace at:
+  → http://{{ .Values.app.url }}:{{ .Values.service.http.port }}
+  → https://{{ .Values.app.url }}:{{ .Values.service.https.port }}
+
+Default Admin Credentials:
+  Email:    {{ .Values.adminEmail }}
+  Password: {{ .Values.adminPassword }}
+
+⚠️  IMPORTANT: Change the admin password after first login!
+
+Features Available:
+  ✅ Team Chat (Real-time WebSocket)
+  ✅ Document & File Management
+  ✅ Helpdesk Ticketing
+  ✅ Billing & GST Invoicing
+  ✅ HR & Employee Management
+  ✅ Inventory & Purchase Orders
+  ✅ Audit Logs
+  ✅ Server Administration
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

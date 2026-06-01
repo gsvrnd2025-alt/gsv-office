@@ -1,0 +1,1208 @@
+import { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  Send, Plus, Search, MessageSquare, Hash, Phone, Video,
+  MoreVertical, Smile, Paperclip, CheckCheck, File,
+  Download, Folder, Volume2, ChevronRight, X, Users2,
+  Pin, ArrowRight, Mic, Sparkles, Copy, Trash2
+} from 'lucide-react';
+import { chatApi, usersApi, filesApi } from '../../api';
+import { useAuthStore } from '../../store/auth.store';
+import toast from 'react-hot-toast';
+import styles from './ChatPage.module.css';
+
+interface StagedFile {
+  name: string;
+  size: string;
+  blob: File;
+  type: string;
+}
+
+export default function ChatPage() {
+  const { conversationId } = useParams();
+  const navigate = useNavigate();
+  const { user } = useAuthStore();
+  const qc = useQueryClient();
+
+  // Standard states
+  const [message, setMessage] = useState('');
+  const [search, setSearch] = useState('');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'channels' | 'dms' | 'groups'>('all');
+  
+  // Custom states
+  const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
+  const [showEmoji, setShowEmoji] = useState(false);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [groupForm, setGroupForm] = useState({ name: '', description: '', members: [] as string[] });
+  
+  // Calling resonance state
+  const [incomingCall, setIncomingCall] = useState<string | null>(null);
+  const [activeCall, setActiveCall] = useState(false);
+  const [callingState, setCallingState] = useState<'idle' | 'calling' | 'connected'>('idle');
+
+  // WhatsApp-style Custom Features
+  const [showAttachmentsDropdown, setShowAttachmentsDropdown] = useState(false);
+  const [fileSearch, setFileSearch] = useState('');
+  
+  // 1. Mentions (@) popup
+  const [showMentions, setShowMentions] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState('');
+  
+  // 2. Message Pinning
+  const [pinnedMessage, setPinnedMessage] = useState<any>(null);
+
+  // 3. Message Forwarding
+  const [forwardingMsg, setForwardingMsg] = useState<any>(null);
+
+  // 4. Voice Recorder HUD Simulation
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const recordingTimerRef = useRef<any>(null);
+
+  // 5. Message Reactions Store (Local mock state)
+  const [messageReactions, setMessageReactions] = useState<Record<string, string[]>>({});
+
+  // 6. Bookmarks list
+  const [bookmarks, setBookmarks] = useState<any[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('gsv-bookmarks') || '[]');
+    } catch {
+      return [];
+    }
+  });
+
+  const handleAddBookmark = (msg: any) => {
+    const defaultName = msg.type === 'folder' ? 'GSV_Office_Init Folder' : 'Shared Document';
+    const favoriteName = prompt('Enter favorite name for this bookmark:', defaultName);
+    if (!favoriteName) return;
+
+    const newBookmark = {
+      id: `bookmark-${Date.now()}`,
+      favoriteName,
+      fileName: msg.type === 'folder' ? 'GSV_Office_Init' : 'System_Audit_Report.pdf',
+      type: msg.type,
+      content: msg.content,
+      createdAt: new Date().toISOString()
+    };
+    const updated = [...bookmarks, newBookmark];
+    setBookmarks(updated);
+    localStorage.setItem('gsv-bookmarks', JSON.stringify(updated));
+    toast.success('File bookmarked successfully! 🔖');
+  };
+
+  const handleRemoveBookmark = (id: string) => {
+    const updated = bookmarks.filter(b => b.id !== id);
+    setBookmarks(updated);
+    localStorage.setItem('gsv-bookmarks', JSON.stringify(updated));
+    toast.success('Bookmark removed');
+  };
+
+  const handleSaveToPC = async (fileName: string, content: string = 'GSV Office Mock SMB Shared Payload Content') => {
+    try {
+      if ('showSaveFilePicker' in window) {
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: fileName,
+        });
+        const writable = await handle.createWritable();
+        await writable.write(new Blob([content], { type: 'text/plain' }));
+        await writable.close();
+        toast.success('Saved to PC successfully! 💾');
+      } else {
+        const blob = new Blob([content], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        toast.success('Downloaded to PC successfully! 💾');
+      }
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        toast.error('Failed to save to PC');
+      }
+    }
+  };
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // React Queries
+  const { data: conversations = [] } = useQuery({
+    queryKey: ['conversations'],
+    queryFn: () => chatApi.getConversations().then(r => r.data?.data || r.data || []),
+    refetchInterval: 5000,
+  });
+
+  const { data: messages = [] } = useQuery({
+    queryKey: ['messages', conversationId],
+    queryFn: () => chatApi.getMessages(conversationId!).then(r => r.data?.data || r.data || []),
+    enabled: !!conversationId,
+    refetchInterval: 2000,
+  });
+
+  const { data: usersData } = useQuery({
+    queryKey: ['users', '', '', 1],
+    queryFn: () => usersApi.getAll().then(r => r.data?.data || r.data || []),
+  });
+
+  const users = usersData?.data ? usersData.data : (Array.isArray(usersData) ? usersData : []);
+  const otherUsers = users.filter((u: any) => u.id !== user?.id);
+
+  // Mutations
+  const sendMutation = useMutation({
+    mutationFn: async (payload: { content: string; type?: string; files?: any[] }) => {
+      let fileId = undefined;
+      let fileName = undefined;
+      let fileUrl = undefined;
+      let fileSize = undefined;
+      let mimeType = undefined;
+
+      if (payload.files && payload.files.length > 0) {
+        const staged = payload.files[0];
+        const fd = new FormData();
+        fd.append('file', staged.blob);
+        
+        try {
+          const uploadRes = await filesApi.upload(fd);
+          const fileData = uploadRes.data?.data || uploadRes.data;
+          if (fileData) {
+            fileId = fileData.id;
+            fileName = fileData.originalName || fileData.name;
+            fileUrl = fileData.storageUrl || fileData.url;
+            fileSize = fileData.size || fileData.sizeBytes;
+            mimeType = fileData.mimeType;
+          }
+        } catch (err) {
+          console.error('File upload failed in chat propagation:', err);
+          toast.error('File upload failed, sending text only.');
+        }
+      }
+
+      return chatApi.sendMessage(conversationId!, {
+        content: payload.content,
+        type: payload.type || 'text',
+        fileId,
+        fileName,
+        fileUrl,
+        fileSize,
+        mimeType
+      }).then(r => r.data?.data || r.data);
+    },
+    onSuccess: () => {
+      setMessage('');
+      setStagedFiles([]);
+      qc.invalidateQueries({ queryKey: ['messages', conversationId] });
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+    },
+    onError: () => toast.error('Failed to propagate chat signal'),
+  });
+
+  const createGroupMutation = useMutation({
+    mutationFn: (data: { name: string; description: string; type: string }) =>
+      chatApi.createConversation(data),
+    onSuccess: (res: any) => {
+      const newRoom = res.data?.data || res.data;
+      toast.success(`Group "${newRoom.name || 'Room'}" established! 🏢`);
+      setShowCreateGroup(false);
+      setGroupForm({ name: '', description: '', members: [] });
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+      if (newRoom.id) navigate(`/chat/${newRoom.id}`);
+    },
+    onError: () => toast.error('Failed to create department group'),
+  });
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Mentions monitoring
+  const handleInputChange = (val: string) => {
+    setMessage(val);
+    const lastWord = val.split(' ').pop() || '';
+    if (lastWord.startsWith('@')) {
+      setShowMentions(true);
+      setMentionQuery(lastWord.slice(1));
+    } else {
+      setShowMentions(false);
+    }
+  };
+
+  const selectMention = (u: any) => {
+    const words = message.split(' ');
+    words.pop(); // Remove the '@query'
+    setMessage([...words, `@${u.fullName} `].join(' '));
+    setShowMentions(false);
+  };
+
+  // Recording Visualizer Trigger
+  const startRecording = () => {
+    setIsRecording(true);
+    setRecordingSeconds(0);
+    recordingTimerRef.current = setInterval(() => {
+      setRecordingSeconds(s => s + 1);
+    }, 1000);
+    toast('🎤 Voice recorder HUD active. Fluctuating wave resonance initialized.');
+  };
+
+  const stopRecording = (discard = false) => {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+    }
+    setIsRecording(false);
+    
+    if (!discard) {
+      // Simulate sending voice audio file
+      sendMutation.mutate({
+        content: `🎤 Simulated Voice Note (${formatRecordTime(recordingSeconds)})`,
+        type: 'music'
+      });
+      toast.success('Voice message staged & sent successfully! 📻');
+    }
+    setRecordingSeconds(0);
+  };
+
+  const handleReaction = (msgId: string, emoji: string) => {
+    setMessageReactions(prev => {
+      const current = prev[msgId] || [];
+      if (current.includes(emoji)) {
+        return { ...prev, [msgId]: current.filter(e => e !== emoji) };
+      }
+      return { ...prev, [msgId]: [...current, emoji].slice(-3) }; // Keep top 3 reactions
+    });
+  };
+
+  const handleSend = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!message.trim() && stagedFiles.length === 0) return;
+    
+    if (stagedFiles.length > 0) {
+      const isFolder = stagedFiles.some(f => f.type === 'folder');
+      const attachmentType = isFolder ? 'folder' : stagedFiles[0].type;
+      
+      sendMutation.mutate({
+        content: message.trim() || `Sent staged ${stagedFiles.length} payload(s)`,
+        type: attachmentType,
+        files: stagedFiles
+      });
+      toast.success('Attachment payload propagated securely. 📦');
+    } else {
+      sendMutation.mutate({ content: message.trim() });
+    }
+  };
+
+  const handleForwardMessage = (targetConv: any) => {
+    if (!forwardingMsg) return;
+    chatApi.sendMessage(targetConv.id, {
+      content: `➡️ Forwarded Signal: ${forwardingMsg.content}`,
+      type: forwardingMsg.type
+    });
+    toast.success(`Message forwarded successfully to ${targetConv.name}`);
+    setForwardingMsg(null);
+  };
+
+  const startDM = async (targetUser: any) => {
+    const existing = conversations.find(
+      (c: any) => c.type === 'private' && c.name?.includes(targetUser.fullName)
+    );
+    if (existing) {
+      navigate(`/chat/${existing.id}`);
+      return;
+    }
+
+    createGroupMutation.mutate({
+      name: `DM with ${targetUser.fullName}`,
+      description: `Direct secure handshake with ${targetUser.fullName}`,
+      type: 'private'
+    });
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, isFolder = false) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) {
+      if (isFolder) {
+        const relativePath = (files[0] as any).webkitRelativePath || '';
+        const folderName = relativePath.split('/')[0] || 'Staged Folder';
+        const totalSize = files.reduce((acc, f) => acc + f.size, 0);
+        
+        const stagedFolder = {
+          name: `${folderName}/ (${files.length} files)`,
+          size: (totalSize / 1024 / 1024).toFixed(1) + ' MB',
+          blob: files[0],
+          type: 'folder'
+        };
+        setStagedFiles(prev => [...prev, stagedFolder]);
+        toast.success(`Folder "${folderName}" (${files.length} files) staged successfully! 📁`);
+      } else {
+        const staged = files.map(file => {
+          const ext = file.name.split('.').pop()?.toLowerCase() || '';
+          let type = 'file';
+          if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) type = 'photo';
+          else if (['mp4', 'mov', 'avi', 'mkv'].includes(ext)) type = 'video';
+          else if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) type = 'music';
+          
+          return {
+            name: file.name,
+            size: (file.size / 1024).toFixed(1) + ' KB',
+            blob: file,
+            type: type
+          };
+        });
+        setStagedFiles(prev => [...prev, ...staged]);
+        toast.success(`${files.length} file(s) staged.`);
+      }
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const items = e.clipboardData.items;
+    const files: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].kind === 'file') {
+        const file = items[i].getAsFile();
+        if (file) files.push(file);
+      }
+    }
+    if (files.length > 0) {
+      const staged = files.map(file => {
+        const ext = file.name.split('.').pop()?.toLowerCase() || '';
+        let type = 'file';
+        if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) type = 'photo';
+        else if (['mp4', 'mov', 'avi', 'mkv'].includes(ext)) type = 'video';
+        else if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) type = 'music';
+        
+        return {
+          name: file.name || `Pasted_Asset_${Date.now()}.${ext || 'png'}`,
+          size: (file.size / 1024).toFixed(1) + ' KB',
+          blob: file,
+          type: type
+        };
+      });
+      setStagedFiles(prev => [...prev, ...staged]);
+      toast.success(`${files.length} pasted file(s) staged successfully! 📋`);
+    }
+  };
+
+  const handleCallHandshake = (type: 'audio' | 'video') => {
+    setCallingState('calling');
+    setActiveCall(true);
+    toast(`Initiating secure ${type} handshake resonance... 📞`);
+    setTimeout(() => {
+      setCallingState('connected');
+      toast.success('Link Established! Nodal resonance synced.');
+    }, 2500);
+  };
+
+  const simulateIncomingCall = () => {
+    setIncomingCall(activeConv?.name || 'Jane Doe');
+  };
+
+  const filteredConvs = conversations.filter((c: any) => {
+    const matchSearch = c.name?.toLowerCase().includes(search.toLowerCase());
+    if (!matchSearch) return false;
+    
+    if (activeFilter === 'channels') return c.type === 'channel' || c.type === 'department';
+    if (activeFilter === 'dms') return c.type === 'private';
+    if (activeFilter === 'groups') return c.type === 'group';
+    return true;
+  });
+
+  const activeConv = conversations.find((c: any) => c.id === conversationId);
+  
+  // Sort messages chronologically: oldest first, newest last (WhatsApp style)
+  let sortedMessages = [...messages].sort((a: any, b: any) => {
+    const timeA = new Date(a.created_at || a.createdAt || 0).getTime();
+    const timeB = new Date(b.created_at || b.createdAt || 0).getTime();
+    return timeA - timeB;
+  });
+  if (fileSearch.trim()) {
+    const query = fileSearch.toLowerCase();
+    sortedMessages = sortedMessages.filter(
+      (m: any) => m.type !== 'text' && (
+        m.content?.toLowerCase().includes(query) || 
+        m.type?.toLowerCase().includes(query) ||
+        m.file_name?.toLowerCase().includes(query) ||
+        m.fileName?.toLowerCase().includes(query)
+      )
+    );
+  }
+
+  // Bytes Formatter helper
+  const formatBytes = (bytes: any) => {
+    const num = Number(bytes);
+    if (isNaN(num) || num <= 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(num) / Math.log(k));
+    return `${(num / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+  };
+
+  // Filter mentionable users
+  const filteredMentionUsers = otherUsers.filter((u: any) =>
+    u.fullName.toLowerCase().includes(mentionQuery.toLowerCase())
+  );
+
+  const formatRecordTime = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  };
+
+  // Text URL Link highlight parser
+  const renderMessageContent = (text: string) => {
+    if (!text) return '';
+    // Regex for URLs, emails, phone numbers
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/g;
+    const phoneRegex = /(\+?\d{1,3}[-.\s]?\d{3,4}[-.\s]?\d{4})/g;
+
+    const parts = text.split(/(\s+)/);
+    return parts.map((part, idx) => {
+      if (urlRegex.test(part)) {
+        return (
+          <a key={idx} href={part} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--brand-primary)', textDecoration: 'underline', fontWeight: 600 }}>
+            {part}
+          </a>
+        );
+      }
+      if (emailRegex.test(part)) {
+        return (
+          <a key={idx} href={`mailto:${part}`} style={{ color: 'var(--brand-primary)', fontWeight: 600 }}>
+            {part}
+          </a>
+        );
+      }
+      if (phoneRegex.test(part)) {
+        return (
+          <a key={idx} href={`tel:${part}`} style={{ color: 'var(--brand-primary)', fontWeight: 600 }}>
+            {part}
+          </a>
+        );
+      }
+      return part;
+    });
+  };
+
+  return (
+    <div className={styles.chatLayout} style={{ animation: 'slideUp 0.3s ease' }}>
+      
+      {/* Message Forwarding Selection Dialog */}
+      {forwardingMsg && (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card card-body" style={{ width: '360px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <ArrowRight size={16} style={{ color: 'var(--brand-primary)' }} /> Forward Message
+            </h3>
+            <p style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Choose a secure conversation node to forward the signal content</p>
+            
+            <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px', padding: '6px 0' }}>
+              {conversations.map((c: any) => (
+                <div
+                  key={c.id}
+                  className="dropdown-item"
+                  onClick={() => handleForwardMessage(c)}
+                  style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: '6px' }}
+                >
+                  <Hash size={14} style={{ color: 'var(--brand-primary)' }} />
+                  <span style={{ fontWeight: 600, fontSize: '12px' }}>{c.name}</span>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
+              <button className="btn btn-secondary btn-sm" onClick={() => setForwardingMsg(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sidebar */}
+      <div className={styles.convSidebar} style={{ borderRight: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.01)' }}>
+        <div className={styles.convHeader}>
+          <h2 className={styles.convTitle}>
+            <MessageSquare size={18} style={{ color: 'var(--brand-primary)' }} />
+            Node Matrix
+          </h2>
+          <button className="btn btn-primary btn-sm btn-icon" onClick={() => setShowCreateGroup(true)} title="Create group channel">
+            <Plus size={16} />
+          </button>
+        </div>
+
+        {/* Search */}
+        <div style={{ padding: '12px 16px' }}>
+          <div className="search-bar">
+            <Search size={14} style={{ position: 'absolute', left: '12px', color: 'var(--text-tertiary)' }} />
+            <input
+              type="text"
+              placeholder="Search rooms..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="form-control"
+              style={{ paddingLeft: '36px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
+            />
+          </div>
+        </div>
+
+        {/* Tab Filters */}
+        <div style={{ display: 'flex', gap: '4px', padding: '0 16px 12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          {[
+            { key: 'all', label: 'All' },
+            { key: 'channels', label: 'Channels' },
+            { key: 'dms', label: 'DMs' },
+            { key: 'groups', label: 'Groups' }
+          ].map(t => (
+            <button
+              key={t.key}
+              onClick={() => setActiveFilter(t.key as any)}
+              style={{
+                flex: 1, padding: '4px 0', fontSize: '10px', fontWeight: 700,
+                background: activeFilter === t.key ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
+                color: activeFilter === t.key ? '#6366f1' : 'var(--text-tertiary)',
+                border: `1px solid ${activeFilter === t.key ? 'rgba(99, 102, 241, 0.25)' : 'transparent'}`,
+                borderRadius: '6px', cursor: 'pointer', transition: 'all 0.2s', textTransform: 'uppercase'
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Conversations List */}
+        <div className={styles.convList} style={{ maxHeight: '25vh', overflowY: 'auto' }}>
+          {filteredConvs.map((conv: any) => (
+            <div
+              key={conv.id}
+              className={`${styles.convItem} ${conv.id === conversationId ? styles.active : ''}`}
+              onClick={() => navigate(`/chat/${conv.id}`)}
+              style={{
+                borderRadius: '8px', margin: '4px 8px', padding: '8px 12px',
+                borderLeft: conv.id === conversationId ? '4px solid #6366f1' : '4px solid transparent'
+              }}
+            >
+              <div className={`${styles.convAvatar} ${conv.type === 'group' || conv.type === 'department' ? styles.groupAvatar : ''}`} style={{ background: 'var(--gradient-brand)' }}>
+                {conv.type === 'group' || conv.type === 'department' ? <Hash size={16} /> : (conv.name?.charAt(0).toUpperCase() || 'U')}
+              </div>
+              <div className={styles.convMeta}>
+                <div className={styles.convName}>
+                  <span style={{ fontWeight: 600 }}>{conv.name || 'Secure DM'}</span>
+                </div>
+                <div className={styles.convPreview}>
+                  <span>{conv.last_message_preview || 'Ready to resonance.'}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Members Directory */}
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '16px 0 0 0', display: 'flex', flexDirection: 'column', flex: 1, overflowY: 'auto' }}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--brand-primary)', padding: '0 20px 8px 20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            👥 Teammate Directories DMs
+          </div>
+          <div style={{ overflowY: 'auto', flex: 1, maxHeight: '25vh' }}>
+            {otherUsers.map((u: any) => (
+              <div
+                key={u.id}
+                onClick={() => startDM(u)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '10px',
+                  padding: '8px 20px', cursor: 'pointer', transition: 'all 0.15s'
+                }}
+                className="hover-glass"
+              >
+                <div style={{ position: 'relative', flexShrink: 0 }}>
+                  <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(255,255,255,0.05)', border: '1.5px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, color: '#fff' }}>
+                    {initials(u.fullName)}
+                  </div>
+                  <span style={{ position: 'absolute', bottom: 0, right: 0, width: '7px', height: '7px', borderRadius: '50%', border: '1.5px solid var(--bg-card)', background: u.isOnline ? 'var(--brand-success)' : 'var(--text-tertiary)' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                  <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.fullName}</span>
+                  <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{u.isOnline ? '🟢 Online' : 'Offline'}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Bookmarks Collapsible */}
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '12px 0 0 0', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--brand-primary)', padding: '0 20px 8px 20px', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>🔖 Bookmarked Files</span>
+            <span className="badge badge-primary" style={{ fontSize: '9px', padding: '1px 4px' }}>{bookmarks.length}</span>
+          </div>
+          <div style={{ maxHeight: '120px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px', padding: '0 8px 12px 8px' }}>
+            {bookmarks.length === 0 ? (
+              <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', padding: '4px 12px' }}>No bookmarked files</div>
+            ) : (
+              bookmarks.map((b: any) => (
+                <div
+                  key={b.id}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '6px 10px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px',
+                    border: '1px solid rgba(255,255,255,0.04)', fontSize: '11px'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                    {b.type === 'folder' ? <Folder size={12} style={{ color: 'var(--brand-primary)', flexShrink: 0 }} /> : <File size={12} style={{ color: 'var(--brand-primary)', flexShrink: 0 }} />}
+                    <span style={{ fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={b.favoriteName}>
+                      {b.favoriteName}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <span onClick={() => handleSaveToPC(b.fileName)} title="Download" style={{ display: 'inline-flex', cursor: 'pointer' }}>
+                      <Download size={12} style={{ color: 'var(--brand-primary)' }} />
+                    </span>
+                    <span onClick={() => handleRemoveBookmark(b.id)} title="Remove Bookmark" style={{ display: 'inline-flex', cursor: 'pointer' }}>
+                      <X size={12} style={{ color: 'var(--brand-danger)' }} />
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Message Arena */}
+      {conversationId && activeConv ? (
+        <div className={styles.chatMain} style={{ background: 'rgba(0,0,0,0.2)' }}>
+          {/* Sticky Pinned Message Banner */}
+          {pinnedMessage && (
+            <div style={{
+              background: 'rgba(99, 102, 241, 0.08)',
+              borderBottom: '1.5px solid rgba(99, 102, 241, 0.25)',
+              backdropFilter: 'blur(8px)',
+              padding: '10px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              zIndex: 10
+            }} className="animate-slide-down">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                <Pin size={14} style={{ color: 'var(--brand-primary)', flexShrink: 0 }} />
+                <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--brand-primary)', flexShrink: 0 }}>Pinned Message:</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {pinnedMessage.content}
+                </span>
+              </div>
+              <button
+                onClick={() => setPinnedMessage(null)}
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-tertiary)', fontSize: '11px', cursor: 'pointer', fontWeight: 600 }}
+              >
+                ✕ Unpin
+              </button>
+            </div>
+          )}
+
+          {/* Header */}
+          <div className={styles.chatHeader} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+            <div className={styles.chatHeaderInfo}>
+              <div className={styles.convAvatar} style={{ background: 'var(--gradient-brand)' }}>
+                {activeConv.type === 'group' || activeConv.type === 'department' ? <Hash size={16} /> : (activeConv.name?.charAt(0).toUpperCase() || 'U')}
+              </div>
+              <div>
+                <div className={styles.chatName}>{activeConv.name || 'Secure DM'}</div>
+                <div className={styles.chatStatus}>
+                  <span className="status-dot online" style={{ width: '6px', height: '6px', background: activeConv.type === 'private' ? 'var(--brand-success)' : 'var(--brand-primary)' }} />
+                  {activeConv.type === 'private' ? '🟢 Online | Last seen recently' : 'Department Public Room'}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div className="search-bar" style={{ width: '160px', marginRight: '8px' }}>
+                <Search size={12} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }} />
+                <input
+                  type="text"
+                  placeholder="🔍 Search Files..."
+                  value={fileSearch}
+                  onChange={e => setFileSearch(e.target.value)}
+                  className="form-control"
+                  style={{ paddingLeft: '28px', height: '28px', fontSize: '11px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
+                />
+              </div>
+              <div className={styles.chatActions}>
+                <button className="btn btn-ghost btn-icon" onClick={() => handleCallHandshake('audio')} title="Audio Handshake"><Phone size={18} style={{ color: 'var(--brand-primary)' }} /></button>
+                <button className="btn btn-ghost btn-icon" onClick={() => handleCallHandshake('video')} title="Video Resonance"><Video size={18} style={{ color: 'var(--brand-primary)' }} /></button>
+                <button className="btn btn-ghost btn-icon" onClick={simulateIncomingCall} title="Simulate Call"><MoreVertical size={18} /></button>
+              </div>
+            </div>
+          </div>
+
+          {/* Messages list */}
+          <div className={styles.messagesArea} style={{ background: 'radial-gradient(rgba(99, 102, 241, 0.03) 1px, transparent 1px)', backgroundSize: '24px 24px' }}>
+            {sortedMessages.map((msg: any, i: number) => {
+              const isOwn = msg.sender_id === user?.id || msg.sender?.id === user?.id;
+              const senderName = msg.sender_name || msg.sender?.fullName || 'System Teammate';
+              const showAvatar = !isOwn && (i === 0 || sortedMessages[i - 1]?.sender_id !== msg.sender_id);
+              const hasAttachment = msg.type !== 'text' && msg.type !== undefined;
+
+              const reactions = messageReactions[msg.id] || [];
+
+              return (
+                <div key={msg.id || i} className={`${styles.messageBubbleWrapper} ${isOwn ? styles.own : ''}`}>
+                  {!isOwn && showAvatar && (
+                    <div className={styles.msgAvatar} style={{ background: 'var(--gradient-brand)' }}>
+                      {senderName.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  {!isOwn && !showAvatar && <div style={{ width: '28px' }} />}
+                  
+                  {/* Bubble Container */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: isOwn ? 'flex-end' : 'flex-start', position: 'relative' }}>
+                    
+                    {/* Message Bubble body */}
+                    <div className={`${styles.messageBubble} ${isOwn ? styles.ownBubble : styles.otherBubble}`} style={{ border: '1px solid rgba(255,255,255,0.06)', position: 'relative' }}>
+                      {!isOwn && showAvatar && (
+                        <div className={styles.senderName} style={{ color: 'var(--brand-primary)' }}>{senderName}</div>
+                      )}
+                      
+                      {/* Render text with live link highlight detection */}
+                      <div className={styles.messageText} style={{ lineHeight: 1.5 }}>
+                        {renderMessageContent(msg.content)}
+                      </div>
+
+                      {/* Rich attachments */}
+                      {hasAttachment && (
+                        <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {msg.type === 'photo' && (
+                            <div style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)', maxWidth: '280px' }}>
+                              <img src={msg.file_url || msg.fileUrl || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&q=80"} alt={msg.file_name || msg.fileName || "photo"} style={{ width: '100%', height: 'auto', display: 'block' }} />
+                            </div>
+                          )}
+
+                          {msg.type === 'video' && (
+                            <div style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)', maxWidth: '280px' }}>
+                              <video controls style={{ width: '100%', display: 'block', maxHeight: '160px' }}>
+                                <source src={msg.file_url || msg.fileUrl || "https://www.w3schools.com/html/mov_bbb.mp4"} type={msg.mime_type || msg.mimeType || "video/mp4"} />
+                              </video>
+                            </div>
+                          )}
+
+                          {msg.type === 'music' && (
+                            <div style={{
+                              background: 'rgba(0,0,0,0.3)', borderRadius: '8px', padding: '8px',
+                              display: 'flex', alignItems: 'center', gap: '10px', maxWidth: '280px',
+                              border: '1px solid rgba(255,255,255,0.08)'
+                            }}>
+                              <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(99,102,241,0.15)', color: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <Volume2 size={16} />
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: '12px', fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.file_name || msg.fileName || "Acoustic_Handshake.mp3"}</div>
+                                <div style={{ fontSize: '9px', color: 'var(--text-tertiary)' }}>{formatBytes(msg.file_size || msg.fileSize || 3565158)} — Voice Note</div>
+                              </div>
+                              <a href={msg.file_url || msg.fileUrl || "#"} download={msg.file_name || msg.fileName || "audio"} style={{ display: 'inline-flex' }}><Download size={14} style={{ color: 'var(--brand-primary)', cursor: 'pointer' }} /></a>
+                            </div>
+                          )}
+
+                          {msg.type === 'file' && (
+                            <div style={{
+                              background: 'rgba(0,0,0,0.3)', borderRadius: '8px', padding: '8px 12px',
+                              display: 'flex', alignItems: 'center', gap: '10px', maxWidth: '280px',
+                              border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer'
+                            }} className="hover-glass">
+                              <File size={16} style={{ color: '#6366f1' }} />
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: '11px', fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.file_name || msg.fileName || "System_Audit_Report.pdf"}</div>
+                                <span style={{ fontSize: '9px', color: 'var(--text-tertiary)' }}>{formatBytes(msg.file_size || msg.fileSize || 145408)} — Document</span>
+                              </div>
+                              <a href={msg.file_url || msg.fileUrl || "#"} download={msg.file_name || msg.fileName || "document"} style={{ display: 'inline-flex' }}><Download size={14} style={{ color: 'var(--brand-primary)' }} /></a>
+                            </div>
+                          )}
+
+                          {msg.type === 'folder' && (
+                            <div style={{
+                              background: 'rgba(26, 21, 44, 0.4)', borderRadius: '12px', padding: '12px',
+                              display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '290px',
+                              border: '1.5px solid rgba(99, 102, 241, 0.25)', boxShadow: '0 8px 24px rgba(99, 102, 241, 0.1)'
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '6px' }}>
+                                <Folder size={18} style={{ color: 'var(--brand-primary)' }} />
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: '12px', fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.file_name || msg.fileName || "GSV_Office_Init/"}</div>
+                                  <div style={{ fontSize: '9px', color: 'var(--text-tertiary)' }}>{msg.file_size || msg.fileSize || "4 Files"} — SMB Share Pool</div>
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                {['schema.sql', 'seed.sql', 'nginx.conf', 'logo.png'].map((fName, fIdx) => (
+                                  <div key={fIdx} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: 'var(--text-secondary)', paddingLeft: '4px' }}>
+                                    <ChevronRight size={10} style={{ color: 'var(--brand-primary)' }} />
+                                    <span>{fName}</span>
+                                  </div>
+                                ))}
+                              </div>
+                              <button type="button" className="btn btn-primary btn-sm" style={{ padding: '4px', fontSize: '11px', height: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', marginTop: '4px' }} onClick={() => handleSaveToPC(msg.file_name || msg.fileName || 'GSV_Office_Init.zip')}>
+                                <Download size={12} /> Download staged ZIP
+                              </button>
+                            </div>
+                          )}
+
+                          <div style={{ display: 'flex', gap: '12px', marginTop: '4px', borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '6px' }}>
+                            <span
+                              onClick={() => handleSaveToPC(msg.file_name || msg.fileName || (msg.type === 'folder' ? 'GSV_Office_Init.zip' : msg.type === 'music' ? 'Acoustic_Handshake.mp3' : 'System_Audit_Report.pdf'))}
+                              style={{ fontSize: '10px', color: 'var(--brand-primary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '2px', fontWeight: 600 }}
+                            >
+                              💾 Save to PC
+                            </span>
+                            <span
+                              onClick={() => handleAddBookmark(msg)}
+                              style={{ fontSize: '10px', color: 'var(--brand-primary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '2px', fontWeight: 600 }}
+                            >
+                              🔖 Bookmark
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Reactions Overlay Panel on Hover */}
+                      <div style={{ display: 'flex', gap: '10px', marginTop: '6px', borderTop: '1px solid rgba(255,255,255,0.02)', paddingTop: '4px', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          {['👍', '❤️', '😂', '😮', '🙏'].map(e => (
+                            <span
+                              key={e}
+                              onClick={() => handleReaction(msg.id || i.toString(), e)}
+                              style={{ cursor: 'pointer', fontSize: '11px', padding: '2px', filter: reactions.includes(e) ? 'none' : 'grayscale(1)' }}
+                            >
+                              {e}
+                            </span>
+                          ))}
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <span title="Pin Message" onClick={() => setPinnedMessage(msg)} style={{ display: 'inline-flex', cursor: 'pointer', color: 'var(--text-tertiary)' }}>
+                            <Pin size={10} />
+                          </span>
+                          <span title="Forward Message" onClick={() => setForwardingMsg(msg)} style={{ display: 'inline-flex', cursor: 'pointer', color: 'var(--text-tertiary)' }}>
+                            <ArrowRight size={10} />
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Displayed active reactions bubbles */}
+                      {reactions.length > 0 && (
+                        <div style={{
+                          position: 'absolute', bottom: '-12px', right: isOwn ? '12px' : 'auto', left: !isOwn ? '12px' : 'auto',
+                          background: 'rgba(26, 21, 44, 0.9)', border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: '8px', padding: '2px 6px', display: 'flex', gap: '2px', fontSize: '10px', zIndex: 5
+                        }}>
+                          {reactions.map((r, rIdx) => <span key={rIdx}>{r}</span>)}
+                        </div>
+                      )}
+
+                      <div className={styles.messageTime} style={{ marginTop: reactions.length > 0 ? '10px' : '4px' }}>
+                        {formatTime(msg.created_at || msg.createdAt)}
+                        {isOwn && <CheckCheck size={10} style={{ color: activeConv.type === 'private' ? 'var(--brand-primary)' : 'var(--text-tertiary)', marginLeft: '4px' }} />}
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+              );
+            })}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Staged attachments file list */}
+          {stagedFiles.length > 0 && (
+            <div style={{ background: 'rgba(26, 21, 44, 0.95)', borderTop: '1px solid rgba(255,255,255,0.08)', padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--brand-primary)', textTransform: 'uppercase' }}>
+                  Staged SMB Upload Bundle ({stagedFiles.length})
+                </span>
+                <X size={12} style={{ color: 'var(--brand-danger)', cursor: 'pointer' }} onClick={() => setStagedFiles([])} />
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {stagedFiles.map((file, idx) => (
+                  <span key={idx} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '4px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px', color: '#fff' }}>
+                    {file.type === 'folder' ? <Folder size={12} style={{ color: '#6366f1' }} /> : <File size={12} style={{ color: '#6366f1' }} />}
+                    <span style={{ maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
+                    <X size={10} style={{ color: 'var(--brand-danger)', cursor: 'pointer' }} onClick={() => setStagedFiles(prev => prev.filter((_, fIdx) => fIdx !== idx))} />
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Mention dropdown popup suggestions */}
+          {showMentions && filteredMentionUsers.length > 0 && (
+            <div style={{
+              position: 'absolute', bottom: '60px', left: '80px', zIndex: 1000,
+              background: 'rgba(26, 21, 44, 0.98)', border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: '12px', padding: '6px 0', width: '220px', boxShadow: '0 8px 30px rgba(0,0,0,0.5)'
+            }} className="animate-scale-in">
+              <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--brand-primary)', padding: '4px 12px', textTransform: 'uppercase' }}>Mention Teammate</div>
+              {filteredMentionUsers.map((u: any) => (
+                <div
+                  key={u.id}
+                  onClick={() => selectMention(u)}
+                  style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '12px', color: '#fff' }}
+                  className="dropdown-item"
+                >
+                  @{u.fullName}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Chat Input controls bar */}
+          <div className={styles.chatInput} style={{ borderTop: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.01)', position: 'relative' }}>
+            {isRecording ? (
+              /* Voice Recording sliding timeline HUD */
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', background: 'rgba(239,68,68,0.05)', borderRadius: '12px', border: '1.5px dashed var(--brand-danger)' }} className="animate-slide-in">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--brand-danger)', animation: 'pulse 1s infinite' }} />
+                  <span style={{ fontSize: '12px', color: 'var(--brand-danger)', fontWeight: 700 }}>🎤 VOCAL HANDSHAKE ACTIVE:</span>
+                  <span style={{ fontSize: '12px', fontWeight: 600, color: '#fff', fontFamily: 'monospace' }}>{formatRecordTime(recordingSeconds)}</span>
+                </div>
+                {/* Simulated fluctuating canvas wave */}
+                <div style={{ display: 'flex', gap: '2px', alignItems: 'center', height: '18px' }}>
+                  {[4, 10, 16, 8, 12, 18, 10, 14, 6, 12].map((h, wIdx) => (
+                    <span key={wIdx} style={{ width: '2px', height: `${h}px`, background: 'var(--brand-danger)', borderRadius: '1px', animation: 'bounce 0.8s infinite', animationDelay: `${wIdx * 0.08}s` }} />
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button type="button" className="btn btn-secondary btn-sm px-3" onClick={() => stopRecording(true)}>Cancel</button>
+                  <button type="button" className="btn btn-primary btn-sm px-3" style={{ background: 'var(--gradient-danger)', borderColor: 'var(--brand-danger)' }} onClick={() => stopRecording(false)}>Send Note</button>
+                </div>
+              </div>
+            ) : (
+              /* Standard Input control form */
+              <form onSubmit={handleSend} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div className="dropdown">
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-icon"
+                    title="Attach Files/Folders"
+                    onClick={() => setShowAttachmentsDropdown(!showAttachmentsDropdown)}
+                  >
+                    <Paperclip size={18} style={{ color: 'var(--brand-primary)' }} />
+                  </button>
+                  {showAttachmentsDropdown && (
+                    <div className="dropdown-menu" style={{ bottom: '100%', top: 'auto', left: 0, marginBottom: '8px', display: 'block', background: 'rgba(26, 21, 44, 0.95)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                      <div className="dropdown-item" onClick={() => { fileInputRef.current?.click(); setShowAttachmentsDropdown(false); }}>
+                        🤐 Zip File Upload
+                      </div>
+                      <div className="dropdown-item" onClick={() => { folderInputRef.current?.click(); setShowAttachmentsDropdown(false); }}>
+                        📁 SMB Folder Share
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <input
+                  type="text"
+                  value={message}
+                  onChange={e => handleInputChange(e.target.value)}
+                  onPaste={handlePaste}
+                  placeholder="Type secure signal resonance (@ to mention)..."
+                  className={styles.messageInput}
+                  disabled={sendMutation.isPending}
+                  autoFocus
+                  style={{ background: '#ffffff', color: '#111827', border: '1.5px solid var(--brand-primary)', boxShadow: '0 2px 10px rgba(99, 102, 241, 0.1)', fontWeight: 500 }}
+                />
+
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-icon"
+                  title="Voice Recording Handshake"
+                  onClick={startRecording}
+                >
+                  <Mic size={18} style={{ color: 'var(--brand-primary)' }} />
+                </button>
+                
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-icon"
+                  title="Emoji resonance picker"
+                  onClick={() => setShowEmoji(!showEmoji)}
+                >
+                  <Smile size={18} style={{ color: 'var(--brand-primary)' }} />
+                </button>
+
+                {showEmoji && (
+                  <div style={{
+                    position: 'absolute', bottom: '100%', right: '60px', marginBottom: '8px', zIndex: 1000,
+                    background: 'var(--bg-card)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px',
+                    padding: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap', maxWidth: '240px',
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.5)'
+                  }} className="animate-scale-in">
+                    {['😀','😂','🔥','👍','🎉','🚀','👏','❤️','🔒','🤖','😮','😢','🙏','🌟','💡','💻','📈','🎨','✈️','🍕','🎈','🧸','👑','🎯'].map(emoji => (
+                      <span
+                        key={emoji}
+                        onClick={() => { setMessage(prev => prev + emoji); setShowEmoji(false); }}
+                        style={{ fontSize: '18px', cursor: 'pointer', padding: '4px' }}
+                        className="hover-glass"
+                      >
+                        {emoji}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={(!message.trim() && stagedFiles.length === 0) || sendMutation.isPending}
+                  className={`${styles.sendBtn} ${message.trim() || stagedFiles.length > 0 ? styles.sendBtnActive : ''}`}
+                  title="Send secure signal"
+                >
+                  <Send size={18} />
+                </button>
+
+                <input type="file" ref={fileInputRef} style={{ display: 'none' }} multiple onChange={e => handleFileUpload(e, false)} />
+                <input
+                  type="file"
+                  ref={folderInputRef}
+                  style={{ display: 'none' }}
+                  {...{ webkitdirectory: "", directory: "", multiple: true } as any}
+                  onChange={e => handleFileUpload(e, true)}
+                />
+              </form>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className={styles.chatEmpty} style={{ background: 'rgba(0,0,0,0.1)' }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '64px', marginBottom: '16px', animation: 'pulse 3s infinite' }}>💬</div>
+            <h2 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: '24px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '8px', letterSpacing: '-0.5px' }}>
+              Welcome to Node Chat Matrix
+            </h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', maxWidth: '340px', margin: '0 auto', lineHeight: 1.6 }}>
+              Select a secure department room, custom group, or teammate directory from the left side matrix to start messaging.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Create Group Modal */}
+      {showCreateGroup && (
+        <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && setShowCreateGroup(false)}>
+          <div className="modal animate-scale-in" style={{ maxWidth: '440px', background: 'rgba(26, 21, 44, 0.95)', border: '1px solid rgba(255,255,255,0.1)' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+              <h4 className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Users2 size={18} style={{ color: 'var(--brand-primary)' }} />
+                Create Group Channel
+              </h4>
+              <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setShowCreateGroup(false)}>✕</button>
+            </div>
+            <form onSubmit={e => {
+              e.preventDefault();
+              if (!groupForm.name.trim()) return;
+              createGroupMutation.mutate({
+                name: groupForm.name,
+                description: groupForm.description || 'Custom secure room',
+                type: 'group'
+              });
+            }}>
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div className="form-group">
+                  <label className="form-label">Group Name *</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="e.g. IT support node"
+                    required
+                    value={groupForm.name}
+                    onChange={e => setGroupForm(f => ({ ...f, name: e.target.value }))}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Description</label>
+                  <textarea
+                    className="form-control"
+                    placeholder="Brief description of the room..."
+                    value={groupForm.description}
+                    onChange={e => setGroupForm(f => ({ ...f, description: e.target.value }))}
+                    style={{ minHeight: '60px' }}
+                  />
+                </div>
+              </div>
+              <div className="modal-footer" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowCreateGroup(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary btn-sm" disabled={createGroupMutation.isPending}>
+                  Establish Group Node
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Incoming Call Overlay */}
+      {incomingCall && (
+        <div className="modal-backdrop" style={{ zIndex: 1200 }}>
+          <div className="modal animate-scale-in" style={{ maxWidth: '340px', textAlign: 'center', background: 'rgba(26,21,44,0.98)', border: '1px solid #6366f1' }}>
+            <div style={{ padding: '24px 20px' }}>
+              <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'rgba(99, 102, 241, 0.15)', color: '#6366f1', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: '16px', animation: 'pulse 1.5s infinite' }}>
+                <Phone size={22} />
+              </div>
+              <h4 style={{ fontSize: '16px', fontWeight: 800, color: '#fff', marginBottom: '4px' }}>INCOMING RESONANCE</h4>
+              <p style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '24px' }}>Node <strong>{incomingCall}</strong> is requesting audio handshake link.</p>
+              
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                <button className="btn btn-danger btn-sm rounded-pill px-4" onClick={() => setIncomingCall(null)}>REJECT</button>
+                <button className="btn btn-success btn-sm rounded-pill px-4" onClick={() => { setIncomingCall(null); setActiveCall(true); setCallingState('connected'); toast.success('Link Established! Resonance synced.'); }}>ESTABLISH</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Active Call Resonance HUD */}
+      {activeCall && (
+        <div style={{
+          position: 'absolute', bottom: '24px', right: '24px',
+          background: 'rgba(26, 21, 44, 0.95)', border: '1.5px solid rgba(99, 102, 241, 0.3)',
+          borderRadius: '16px', padding: '16px 20px', zIndex: 1100, display: 'flex', alignItems: 'center', gap: '20px',
+          boxShadow: '0 12px 40px rgba(99, 102, 241, 0.25)', animation: 'slideUp 0.3s ease-out'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{
+              width: '40px', height: '40px', borderRadius: '50%',
+              background: callingState === 'connected' ? 'var(--brand-success)' : 'var(--brand-primary)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff',
+              animation: 'pulse 1.5s infinite'
+            }}>
+              <Phone size={18} />
+            </div>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 800, color: '#fff' }}>
+                {callingState === 'connected' ? 'SECURE NODE ESTABLISHED' : 'INITIATING HANDSHAKE...'}
+              </div>
+              <div style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>
+                {callingState === 'connected' ? 'Resonance active.' : 'Handshake active.'}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn btn-danger btn-sm btn-icon"
+            onClick={() => { setActiveCall(false); setCallingState('idle'); toast.error('Resonance terminated.'); }}
+            style={{ borderRadius: '50%', width: '32px', height: '32px', padding: 0 }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+function initials(name: string): string {
+  if (!name) return 'U';
+  return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U';
+}
+
+function formatTime(dateStr: string): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diff = now.getTime() - d.getTime();
+  if (diff < 86400000 && d.getDate() === now.getDate()) {
+    return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  }
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+}

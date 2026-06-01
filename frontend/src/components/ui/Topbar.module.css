@@ -1,0 +1,159 @@
+.topbar {
+  position: fixed;
+  top: 0; right: 0; left: var(--sidebar-width);
+  height: var(--topbar-height);
+  background: var(--topbar-bg);
+  border-bottom: 1px solid var(--topbar-border);
+  box-shadow: var(--topbar-shadow);
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-6);
+  gap: var(--space-4);
+  z-index: var(--z-sticky);
+  transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (max-width: 1024px) {
+  .topbar { left: 0; padding: 0 var(--space-4); }
+}
+
+.left { display: flex; align-items: center; gap: var(--space-4); flex-shrink: 0; }
+
+.menuBtn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  width: 36px; height: 36px;
+  border-radius: var(--radius-md);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: none;
+}
+.menuBtn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+@media (max-width: 1024px) { .menuBtn { display: flex; } }
+
+.greeting { display: flex; align-items: center; gap: 6px; }
+.greetingText { font-size: var(--text-sm); color: var(--text-secondary); }
+.userName { font-size: var(--text-sm); font-weight: var(--font-semibold); color: var(--text-primary); }
+
+@media (max-width: 640px) { .greeting { display: none; } }
+
+.center { flex: 1; max-width: 480px; }
+
+.searchBar {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 12px;
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 8px 80px 8px 36px;
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-full);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+  outline: none;
+  transition: all var(--transition-fast);
+}
+.searchInput::placeholder { color: var(--text-tertiary); }
+.searchInput:focus {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+  background: var(--bg-primary);
+}
+
+.searchKbd {
+  position: absolute;
+  right: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: var(--font-sans);
+}
+
+@media (max-width: 640px) { .center { display: none; } }
+
+.right { display: flex; align-items: center; gap: var(--space-1); flex-shrink: 0; }
+
+.iconBtn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  width: 38px; height: 38px;
+  border-radius: var(--radius-md);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.iconBtn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+.notifBtn {
+  position: relative;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  width: 38px; height: 38px;
+  border-radius: var(--radius-md);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-decoration: none;
+}
+.notifBtn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+.notifBadge {
+  position: absolute;
+  top: 5px; right: 5px;
+  background: var(--brand-danger);
+  color: white;
+  font-size: 9px;
+  font-weight: var(--font-bold);
+  width: 16px; height: 16px;
+  border-radius: var(--radius-full);
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid var(--topbar-bg);
+  animation: notificationPop 0.3s ease;
+}
+
+.userAvatar {
+  position: relative;
+  width: 36px; height: 36px;
+  border-radius: var(--radius-full);
+  background: var(--gradient-brand);
+  display: flex; align-items: center; justify-content: center;
+  color: white;
+  font-size: var(--text-sm);
+  font-weight: var(--font-bold);
+  cursor: pointer;
+  overflow: visible;
+  text-decoration: none;
+  margin-left: var(--space-2);
+  border: 2px solid var(--border-color);
+  transition: border-color var(--transition-fast);
+}
+.userAvatar:hover { border-color: var(--brand-primary); }
+.userAvatar img { width: 100%; height: 100%; border-radius: var(--radius-full); object-fit: cover; }
+
+.statusDot {
+  position: absolute;
+  bottom: 0; right: 0;
+  border: 2px solid var(--topbar-bg);
+  width: 10px; height: 10px;
+}

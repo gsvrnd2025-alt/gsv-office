@@ -1,0 +1,65 @@
+{{/*
+  GSV Office — ConfigMap
+  Holds all non-secret environment configuration for the API container.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+  labels:
+    app.kubernetes.io/name: gsv-office
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  NODE_ENV: "{{ .Values.app.nodeEnv }}"
+  PORT: "3000"
+  APP_URL: "{{ .Values.app.url }}"
+  APP_DOMAIN: "{{ .Values.app.domain }}"
+  APP_NAME: "{{ .Values.app.name }}"
+
+  # Database
+  DB_HOST: "{{ .Release.Name }}-postgres"
+  DB_PORT: "5432"
+  DB_NAME: "{{ .Values.postgresql.auth.database }}"
+  DB_USER: "{{ .Values.postgresql.auth.username }}"
+  DB_SSL: "false"
+  DB_SYNC: "false"
+  DB_LOGGING: "false"
+
+  # Redis
+  REDIS_HOST: "{{ .Release.Name }}-redis"
+  REDIS_PORT: "6379"
+
+  # MinIO
+  MINIO_ENDPOINT: "{{ .Release.Name }}-minio"
+  MINIO_PORT: "9000"
+  MINIO_USE_SSL: "false"
+  MINIO_BUCKET_FILES: "gsv-files"
+  MINIO_BUCKET_AVATARS: "gsv-avatars"
+  MINIO_BUCKET_CHAT: "gsv-chat"
+
+  # Mail
+  MAIL_HOST: "{{ .Release.Name }}-mailserver"
+  MAIL_PORT: "587"
+  MAIL_DOMAIN: "{{ .Values.mailserver.domain }}"
+  MAIL_SECURE: "false"
+  IMAP_HOST: "{{ .Release.Name }}-mailserver"
+  IMAP_PORT: "143"
+  IMAP_SECURE: "false"
+
+  # Storage
+  UPLOAD_PATH: "/app/uploads"
+  MAX_FILE_SIZE_MB: "500"
+  LOG_LEVEL: "{{ .Values.app.logLevel }}"
+  LOG_TO_FILE: "true"
+  LOG_PATH: "/app/logs"
+  PLUGINS_PATH: "/app/plugins"
+  PLUGINS_ENABLED: "true"
+
+  # Branding
+  COMPANY_NAME: "{{ .Values.app.name }}"
+  DEFAULT_TIMEZONE: "{{ .Values.app.timezone }}"
+  DEFAULT_CURRENCY: "{{ .Values.app.currency }}"
+  DEFAULT_CURRENCY_SYMBOL: "{{ .Values.app.currencySymbol }}"
+  BCRYPT_ROUNDS: "12"
+  RATE_LIMIT_TTL: "900"
+  RATE_LIMIT_MAX: "100"

@@ -1,0 +1,63 @@
+# ─────────────────────────────────────────────────────────────
+# GSV Office — Git Excludes Configuration
+# ─────────────────────────────────────────────────────────────
+
+# Node Dependencies
+node_modules/
+/backend/node_modules/
+/frontend/node_modules/
+
+# Build Artefacts
+dist/
+/backend/dist/
+/frontend/dist/
+.next/
+out/
+build/
+
+# Credentials, Secrets & Env Files (CRITICAL SECURITY)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+!.env.example
+!mailserver.env
+
+# Logs and Runtime directories
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+/backend/logs/
+/backend/uploads/
+/backend/plugins/
+/gsv-truenas-init/
+
+# System specific files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Old project files (large .rar/.zip files exceed GitHub 100MB limit)
+old gsv eo office/
+old_gsv_eo_office/
+
+# Catalog repo (separate GitHub repo)
+gsv-office-catalog/
+
+# Large upload files
+*.rar
+*.zip
+**uploads/*.rar
+**uploads/*.zip
+**uploads/*.mp4
+**uploads/*.mkv

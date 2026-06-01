@@ -1,0 +1,45 @@
+import { Controller, Get, Post, Body, Param, Query, UseGuards, ParseUUIDPipe } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
+import { CurrentUser } from '../../common/decorators/public.decorator';
+import { ChatService } from './chat.service';
+
+@ApiTags('Chat')
+@ApiBearerAuth('JWT')
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Controller('chat')
+export class ChatController {
+  constructor(private svc: ChatService) {}
+
+  @Get('conversations')
+  @RequirePermissions(['chat', 'read'])
+  getConversations(@CurrentUser('id') userId: string, @Query() q: any) {
+    return this.svc.getConversations(userId, q.page, q.limit);
+  }
+
+  @Get('conversations/:id/messages')
+  @RequirePermissions(['chat', 'read'])
+  getMessages(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('id') userId: string, @Query() q: any) {
+    return this.svc.getMessages(id, userId, q.page, q.limit);
+  }
+
+  @Post('conversations')
+  @RequirePermissions(['chat', 'send'])
+  create(@Body() dto: any, @CurrentUser('id') userId: string) {
+    return this.svc.createConversation({ ...dto, createdBy: userId });
+  }
+
+  @Post('conversations/:id/messages')
+  @RequirePermissions(['chat', 'send'])
+  send(@Param('id', ParseUUIDPipe) id: string, @Body() dto: any, @CurrentUser('id') userId: string) {
+    return this.svc.sendMessage({ ...dto, conversationId: id, senderId: userId });
+  }
+
+  @Post('conversations/:id/read')
+  @RequirePermissions(['chat', 'read'])
+  markRead(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('id') userId: string) {
+    return this.svc.markAsRead(id, userId);
+  }
+}

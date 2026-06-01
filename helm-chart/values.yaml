@@ -1,0 +1,136 @@
+---
+# ═══════════════════════════════════════════════════════════
+#  GSV Office — TrueNAS SCALE Helm Chart Default Values
+# ═══════════════════════════════════════════════════════════
+
+# ─── App Image Configuration ────────────────────────────────
+image:
+  api:
+    repository: ghcr.io/gsv-office/gsv-office-api
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  nginx:
+    repository: ghcr.io/gsv-office/gsv-office-nginx
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+# ─── Network / Port Configuration ────────────────────────────
+service:
+  http:
+    port: 8080       # External HTTP port (accessible from browser)
+  https:
+    port: 8443       # External HTTPS port
+  api:
+    port: 3000       # Internal API port (not exposed externally)
+
+# ─── Application Settings ────────────────────────────────────
+app:
+  name: "GSV Office"
+  nodeEnv: production
+  url: "http://192.168.0.177:8080"
+  domain: "gsv.local"
+  logLevel: info
+  timezone: "Asia/Kolkata"
+  currency: "INR"
+  currencySymbol: "₹"
+
+# ─── JWT / Session Secrets ───────────────────────────────────
+jwt:
+  accessSecret: "gsv_office_access_secret_change_this_in_production"
+  refreshSecret: "gsv_office_refresh_secret_change_this_in_production"
+  accessExpiry: "15m"
+  refreshExpiry: "7d"
+sessionSecret: "gsv_session_secret_change_this_in_production"
+
+# ─── Default Admin Account ───────────────────────────────────
+adminEmail: "admin@gsv.local"
+adminPassword: "Admin@GSV2024"
+adminName: "System Administrator"
+
+# ─── PostgreSQL Database ─────────────────────────────────────
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "16-alpine"
+  auth:
+    database: gsv_office
+    username: gsv_admin
+    password: "gsv_secure_password_2026"
+  storage:
+    size: "10Gi"
+    # hostPath: "/mnt/GSVR_Movies/apps/gsv-office/db"
+
+# ─── Redis Cache ─────────────────────────────────────────────
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "7-alpine"
+  password: "gsv_redis_password_2026"
+  storage:
+    size: "1Gi"
+
+# ─── MinIO Object Storage ────────────────────────────────────
+minio:
+  enabled: true
+  image:
+    repository: minio/minio
+    tag: "latest"
+  rootUser: "gsv_minio_admin"
+  rootPassword: "gsv_minio_password_2026"
+  storage:
+    size: "100Gi"
+  buckets:
+    - gsv-files
+    - gsv-avatars
+    - gsv-chat
+
+# ─── Mail Server ─────────────────────────────────────────────
+mailserver:
+  enabled: true
+  domain: "gsv.local"
+  hostname: "mail.gsv.local"
+
+# ─── Persistent Storage Paths ────────────────────────────────
+persistence:
+  uploads:
+    enabled: true
+    size: "50Gi"
+    # hostPath: "/mnt/GSVR_Movies/apps/gsv-office/uploads"
+  logs:
+    enabled: true
+    size: "2Gi"
+  plugins:
+    enabled: true
+    size: "5Gi"
+
+# ─── Resource Limits ─────────────────────────────────────────
+resources:
+  api:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+  nginx:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "256Mi"
+      cpu: "500m"
+
+# ─── Security ────────────────────────────────────────────────
+securityContext:
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+
+# ─── TURN Server (WebRTC) ────────────────────────────────────
+coturn:
+  enabled: true
+  port: 3478
+  username: "gsv_turn"
+  password: "turn_password_change_this"

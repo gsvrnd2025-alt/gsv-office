@@ -1,0 +1,44 @@
+---
+# TrueNAS SCALE App Metadata
+app_version: "1.0.0"
+capabilities: []
+categories:
+  - productivity
+  - office
+  - business
+description: >-
+  GSV Office is a complete self-hosted enterprise workspace platform.
+  It includes real-time team chat with WebSocket, document & file management,
+  helpdesk ticketing, billing & GST invoicing, HR & employee management,
+  inventory control, purchase orders, audit logs, and server administration
+  — all running privately on your TrueNAS server.
+home: "https://github.com/gsv-office/gsv-office"
+host_mounts: []
+icon: "https://raw.githubusercontent.com/gsv-office/gsv-office-catalog/main/stable/gsv-office/icon.png"
+keywords:
+  - office
+  - erp
+  - chat
+  - helpdesk
+  - billing
+  - hr
+  - selfhosted
+  - workspace
+lib_version: "1.0.0"
+lib_version_hash: "gsv-office-1.0.0"
+maintainers:
+  - name: "GSV Office"
+    url: "https://github.com/gsv-office"
+    email: "admin@gsv.local"
+name: gsv-office
+run_as_context: []
+screenshots:
+  - title: "Login Page"
+    url: "https://raw.githubusercontent.com/gsv-office/gsv-office-catalog/main/stable/gsv-office/screenshots/login.png"
+  - title: "Dashboard"
+    url: "https://raw.githubusercontent.com/gsv-office/gsv-office-catalog/main/stable/gsv-office/screenshots/dashboard.png"
+sources:
+  - "https://github.com/gsv-office/gsv-office"
+title: "GSV Office"
+train: stable
+version: "1.0.0"

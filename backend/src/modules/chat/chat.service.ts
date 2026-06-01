@@ -1,0 +1,79 @@
+import { Injectable } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+
+@Injectable()
+export class ChatService {
+  constructor(private dataSource: DataSource) {}
+
+  async getConversations(userId: string, page = 1, limit = 20) {
+    return this.dataSource.query(`
+      SELECT c.*, cm.last_read_at, cm.is_muted, cm.is_archived,
+             COUNT(m.id) FILTER (WHERE m.created_at > COALESCE(cm.last_read_at, '1970-01-01') AND m.sender_id != $1 AND m.deleted_at IS NULL) AS unread_count
+      FROM conversations c
+      JOIN conversation_members cm ON cm.conversation_id = c.id AND cm.user_id = $1 AND cm.left_at IS NULL
+      LEFT JOIN messages m ON m.conversation_id = c.id
+      GROUP BY c.id, cm.last_read_at, cm.is_muted, cm.is_archived
+      ORDER BY c.last_message_at DESC NULLS LAST
+      LIMIT $2 OFFSET $3
+    `, [userId, limit, (page - 1) * limit]);
+  }
+
+  async getMessages(conversationId: string, userId: string, page = 1, limit = 50) {
+    return this.dataSource.query(`
+      SELECT m.*, u.full_name AS sender_name, u.avatar_url AS sender_avatar,
+             COALESCE(json_agg(DISTINCT mr.*) FILTER (WHERE mr.id IS NOT NULL), '[]') AS reactions,
+             f.name AS file_name, f.mime_type, f.size AS file_size, f.storage_url AS file_url
+      FROM messages m
+      JOIN users u ON u.id = m.sender_id
+      LEFT JOIN message_reactions mr ON mr.message_id = m.id
+      LEFT JOIN files f ON f.id = m.file_id
+      WHERE m.conversation_id = $1 AND m.deleted_at IS NULL
+      GROUP BY m.id, u.full_name, u.avatar_url, f.name, f.mime_type, f.size, f.storage_url
+      ORDER BY m.created_at DESC
+      LIMIT $2 OFFSET $3
+    `, [conversationId, limit, (page - 1) * limit]);
+  }
+
+  async createConversation(dto: any) {
+    const [conv] = await this.dataSource.query(
+      `INSERT INTO conversations (type, name, description, created_by)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [dto.type || 'private', dto.name, dto.description, dto.createdBy]
+    );
+    return conv;
+  }
+
+  async sendMessage(dto: { conversationId: string; senderId: string; content: string; type?: string; fileId?: string; replyToId?: string }) {
+    const [msg] = await this.dataSource.query(
+      `INSERT INTO messages (conversation_id, sender_id, content, type, file_id, reply_to_id)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [dto.conversationId, dto.senderId, dto.content, dto.type || 'text', dto.fileId, dto.replyToId]
+    );
+    await this.dataSource.query(
+      `UPDATE conversations SET last_message_at = NOW(), last_message_preview = $1 WHERE id = $2`,
+      [dto.content?.substring(0, 100), dto.conversationId]
+    );
+    return msg;
+  }
+
+  async addReaction(messageId: string, userId: string, emoji: string) {
+    await this.dataSource.query(
+      `INSERT INTO message_reactions (message_id, user_id, emoji) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+      [messageId, userId, emoji]
+    );
+  }
+
+  async removeReaction(messageId: string, userId: string, emoji: string) {
+    await this.dataSource.query(
+      `DELETE FROM message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
+      [messageId, userId, emoji]
+    );
+  }
+
+  async markAsRead(conversationId: string, userId: string) {
+    await this.dataSource.query(
+      `UPDATE conversation_members SET last_read_at = NOW() WHERE conversation_id = $1 AND user_id = $2`,
+      [conversationId, userId]
+    );
+  }
+}

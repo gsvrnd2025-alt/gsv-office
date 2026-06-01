@@ -1,0 +1,180 @@
+# ═══════════════════════════════════════════════════════════════════
+#  GSV Office — TrueNAS SCALE Custom App Specification
+#  For deployment on TrueNAS SCALE Cobia/Dragonfish/Electric Eel
+# ═══════════════════════════════════════════════════════════════════
+
+app:
+  name: "gsv-office"
+  version: "1.0.0"
+  description: "Enterprise Self-Hosted Workspace Platform combining Team Chat, Document Management, Helpdesk, Billing, and Server Administration."
+  category: "Office & Productivity"
+  icon: "https://raw.githubusercontent.com/gsv-office/branding/main/logo.png"
+  developer: "GSV Office"
+  license: "MIT"
+
+# ─── TrueNAS Catalog Configuration ──────────────────────────────────
+chart:
+  name: "ix-chart"
+  version: "1.0.0"
+  repository: "https://library-charts.truecharts.org" # Standard SCALE custom app base
+
+# ─── Container Configurations ────────────────────────────────────────
+containers:
+  # 1. Nginx Reverse Proxy (Frontend & Gateway)
+  nginx:
+    image:
+      repository: "nginx"
+      tag: "1.25-alpine"
+      pullPolicy: "IfNotPresent"
+    ports:
+      - containerPort: 80
+        hostPort: 8080 # Default HTTP port on Host (configurable)
+      - containerPort: 443
+        hostPort: 8443 # Default HTTPS port on Host
+    volumeMounts:
+      - name: "gsv-nginx-config"
+        mountPath: "/etc/nginx/nginx.conf"
+        subPath: "nginx.conf"
+        readOnly: true
+      - name: "gsv-nginx-confd"
+        mountPath: "/etc/nginx/conf.d"
+        readOnly: true
+      - name: "gsv-uploads"
+        mountPath: "/var/www/uploads"
+        readOnly: true
+
+  # 2. NestJS Backend API
+  api:
+    image:
+      repository: "gsv-office-backend"
+      tag: "latest"
+      pullPolicy: "Never" # Built locally on the server or imported
+    environment:
+      NODE_ENV: "production"
+      PORT: 3000
+      APP_URL: "http://gsv-office.local"
+      DB_HOST: "postgres"
+      DB_PORT: 5432
+      DB_NAME: "gsv_office"
+      DB_USER: "gsv_admin"
+      REDIS_HOST: "redis"
+      REDIS_PORT: 6379
+      MINIO_ENDPOINT: "minio"
+      MINIO_PORT: 9000
+    volumeMounts:
+      - name: "gsv-uploads"
+        mountPath: "/app/uploads"
+      - name: "gsv-logs"
+        mountPath: "/app/logs"
+      - name: "gsv-plugins"
+        mountPath: "/app/plugins"
+
+  # 3. PostgreSQL Database
+  postgres:
+    image:
+      repository: "postgres"
+      tag: "16-alpine"
+    environment:
+      POSTGRES_DB: "gsv_office"
+      POSTGRES_USER: "gsv_admin"
+      PGDATA: "/var/lib/postgresql/data/pgdata"
+    volumeMounts:
+      - name: "gsv-db-data"
+        mountPath: "/var/lib/postgresql/data"
+      - name: "gsv-db-init"
+        mountPath: "/docker-entrypoint-initdb.d"
+        readOnly: true
+
+  # 4. Redis Cache
+  redis:
+    image:
+      repository: "redis"
+      tag: "7-alpine"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumeMounts:
+      - name: "gsv-redis-data"
+        mountPath: "/data"
+
+  # 5. MinIO Object Storage
+  minio:
+    image:
+      repository: "minio/minio"
+      tag: "latest"
+    command: ["server", "/data", "--console-address", "0.0.0.0:9001"]
+    ports:
+      - containerPort: 9000
+        hostPort: 9000
+      - containerPort: 9001
+        hostPort: 9001
+    volumeMounts:
+      - name: "gsv-minio-data"
+        mountPath: "/data"
+
+# ─── Storage Volume Requirements (TrueNAS Datasets) ──────────────────
+storage:
+  # TrueNAS SCALE datasets that must be created and mapped
+  volumes:
+    - name: "gsv-db-data"
+      description: "PostgreSQL Database Storage (SSD Pool recommended)"
+      size: "10Gi"
+      type: "hostPath"
+      hostPath: "/mnt/tank/apps/gsv-office/db"
+
+    - name: "gsv-redis-data"
+      description: "Redis Session and Cache Store"
+      size: "1Gi"
+      type: "hostPath"
+      hostPath: "/mnt/tank/apps/gsv-office/redis"
+
+    - name: "gsv-minio-data"
+      description: "MinIO S3 Bucket Object Storage"
+      size: "100Gi"
+      type: "hostPath"
+      hostPath: "/mnt/tank/apps/gsv-office/minio"
+
+    - name: "gsv-uploads"
+      description: "Direct File Manager Uploads (SMB Mountable)"
+      size: "500Gi"
+      type: "hostPath"
+      hostPath: "/mnt/tank/apps/gsv-office/uploads"
+
+    - name: "gsv-plugins"
+      description: "GSV Office custom plugins directory"
+      size: "5Gi"
+      type: "hostPath"
+      hostPath: "/mnt/tank/apps/gsv-office/plugins"
+
+    - name: "gsv-logs"
+      description: "Application runtime logs"
+      size: "2Gi"
+      type: "hostPath"
+      hostPath: "/mnt/tank/apps/gsv-office/logs"
+
+    - name: "gsv-db-init"
+      description: "Database seed and schema files"
+      type: "hostPath"
+      hostPath: "/mnt/tank/apps/gsv-office/init"
+
+    - name: "gsv-nginx-config"
+      description: "Main Nginx configuration file"
+      type: "hostPath"
+      hostPath: "/mnt/tank/apps/gsv-office/nginx/nginx.conf"
+
+    - name: "gsv-nginx-confd"
+      description: "Nginx server blocks configuration folder"
+      type: "hostPath"
+      hostPath: "/mnt/tank/apps/gsv-office/nginx/conf.d"
+
+# ─── System Permissions & Network Requirements ───────────────────────
+permissions:
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+
+network:
+  # Allows coturn server to access Host ports directly for WebRTC
+  hostNetwork: true
+  dnsConfig:
+    nameservers:
+      - 1.1.1.1
+      - 8.8.8.8

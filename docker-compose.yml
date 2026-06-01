@@ -1,0 +1,186 @@
+version: "3.9"
+
+name: gsv-office
+
+networks:
+  gsv_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  uploads_data:
+  mailserver_data:
+  mailserver_state:
+  mailserver_logs:
+  coturn_data:
+
+services:
+  # ─────────────────────────────────────────────
+  # Nginx Reverse Proxy
+  # ─────────────────────────────────────────────
+  nginx:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: gsv_nginx
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - uploads_data:/var/www/uploads:ro
+    depends_on:
+      - api
+    networks:
+      - gsv_network
+    labels:
+      - "com.gsv.service=nginx"
+
+  # ─────────────────────────────────────────────
+  # NestJS Backend API
+  # ─────────────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: gsv_api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - gsv_network
+    labels:
+      - "com.gsv.service=api"
+
+  # ─────────────────────────────────────────────
+  # PostgreSQL Database
+  # ─────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: gsv_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-gsv_office}
+      POSTGRES_USER: ${DB_USER:-gsv_admin}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-gsv_secure_password_2024}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./database/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+    networks:
+      - gsv_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-gsv_admin} -d ${DB_NAME:-gsv_office}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    labels:
+      - "com.gsv.service=postgres"
+
+  # ─────────────────────────────────────────────
+  # Redis Cache & Queue
+  # ─────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: gsv_redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-gsv_redis_password} --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - gsv_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-gsv_redis_password}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    labels:
+      - "com.gsv.service=redis"
+
+  # ─────────────────────────────────────────────
+  # MinIO Object Storage (S3-compatible)
+  # ─────────────────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: gsv_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-gsv_minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-gsv_minio_password_2024}
+    volumes:
+      - minio_data:/data
+    networks:
+      - gsv_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    labels:
+      - "com.gsv.service=minio"
+
+  # ─────────────────────────────────────────────
+  # Mail Server (SMTP + IMAP)
+  # ─────────────────────────────────────────────
+  mailserver:
+    image: ghcr.io/docker-mailserver/docker-mailserver:latest
+    container_name: gsv_mailserver
+    hostname: mail.${MAIL_DOMAIN:-gsv.local}
+    restart: unless-stopped
+    env_file:
+      - ./mailserver.env
+    ports:
+      - "25:25"
+      - "143:143"
+      - "465:465"
+      - "587:587"
+      - "993:993"
+    volumes:
+      - mailserver_data:/var/mail
+      - mailserver_state:/var/mail-state
+      - mailserver_logs:/var/log/mail
+    networks:
+      - gsv_network
+    cap_add:
+      - NET_ADMIN
+    labels:
+      - "com.gsv.service=mailserver"
+
+  # ─────────────────────────────────────────────
+  # coturn TURN Server (WebRTC)
+  # ─────────────────────────────────────────────
+  coturn:
+    image: coturn/coturn:latest
+    container_name: gsv_coturn
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    labels:
+      - "com.gsv.service=coturn"
