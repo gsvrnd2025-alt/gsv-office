@@ -1096,7 +1096,7 @@ export const permissionsApi = {
 };
 
 export const departmentsApi = {
-  getAll: () => api.get('/departments'),
+  getAll: () => api.get('/departments/public'),
   create: (data: any) => api.post('/departments', data),
   update: (id: string, data: any) => api.put(`/departments/${id}`, data),
   delete: (id: string) => api.delete(`/departments/${id}`),
