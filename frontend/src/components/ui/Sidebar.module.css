@@ -20,6 +20,15 @@
     transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), width 0.25s;
   }
   .sidebar.mobileOpen { transform: translateX(0); }
+
+  /* Hide scrollbar for the mobile navigation menu */
+  .nav {
+    scrollbar-width: none; /* Hide scrollbar for Firefox */
+    -ms-overflow-style: none;  /* Hide scrollbar for IE/Edge */
+  }
+  .nav::-webkit-scrollbar {
+    display: none; /* Hide scrollbar for Chrome, Safari, and Opera */
+  }
 }
 
 /* Logo */
