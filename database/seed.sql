@@ -181,7 +181,7 @@ INSERT INTO users (
     'EMP-0001',
     'admin',
     'admin@gsv.local',
-    '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LeEfVRkJpkgXOzNSO', -- Admin@GSV2024
+    '$2b$12$ZkI2JsLjQuHrMa/hSvkwfunplqcvTN1xz3nhNSKQB8gBv5aOiu0gC', -- Admin@GSV2024
     'System Administrator',
     'System',
     'Administrator',
