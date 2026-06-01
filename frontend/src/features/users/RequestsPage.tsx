@@ -1,25 +1,14 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Check, X, Shield, Play, ExternalLink, Clock, CheckSquare, Square, RefreshCw, AlertCircle
+  Check, X, Shield, Clock, CheckSquare, Square, RefreshCw
 } from 'lucide-react';
 import api, { usersApi, rolesApi, permissionsApi } from '../../api';
 import toast from 'react-hot-toast';
 
-interface SyncStep {
-  text: string;
-  status: 'pending' | 'loading' | 'success' | 'error';
-}
-
 export default function RequestsPage() {
   const qc = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'users' | 'chats' | 'teams' | 'files'>('users');
   const [approveUser, setApproveUser] = useState<any>(null);
-  const [syncing, setSyncing] = useState(false);
-  const [syncSteps, setSyncSteps] = useState<SyncStep[]>([]);
-  const [lastSync, setLastSync] = useState<string | null>(null);
-
-  const [sheetUrl, setSheetUrl] = useState(() => localStorage.getItem('gsv-sheet-url') || 'https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKv1a39dxv5WYpH7RP05g4fU2b168/edit');
   const [requestComments, setRequestComments] = useState<Record<string, string>>(() => {
     try {
       return JSON.parse(localStorage.getItem('gsv-request-comments') || '{}');
@@ -28,26 +17,13 @@ export default function RequestsPage() {
     }
   });
 
-  const handleSaveSheetUrl = () => {
-    localStorage.setItem('gsv-sheet-url', sheetUrl);
-    toast.success('Google Sheet URL saved successfully! 💾');
-  };
-
   // Queries
   const { data: pendingUsersData, isLoading: loadingUsers } = useQuery({
     queryKey: ['users', '', 'pending', 1],
     queryFn: () => usersApi.getAll({ status: 'pending' }).then((r: any) => r.data?.data || r.data || []),
   });
 
-  const { data: categoriesData, isLoading: loadingCategories } = useQuery({
-    queryKey: ['requests-categories'],
-    queryFn: () => api.get('/requests/categories').then((r: any) => r.data?.data || r.data || {}),
-  });
-
   const pendingUsers = pendingUsersData?.data ? pendingUsersData.data : (Array.isArray(pendingUsersData) ? pendingUsersData : []);
-  const chatRequests = categoriesData?.chat || [];
-  const teamRequests = categoriesData?.team || [];
-  const fileRequests = categoriesData?.file || [];
 
   // Mutations
   const approveUserMutation = useMutation({
@@ -72,80 +48,6 @@ export default function RequestsPage() {
     onError: () => toast.error('Rejection failed'),
   });
 
-  const approveRequestMutation = useMutation({
-    mutationFn: ({ category, id }: { category: string; id: string }) =>
-      api.post(`/requests/${category}/${id}/approve`),
-    onSuccess: () => {
-      toast.success('Access request approved! 👍');
-      qc.invalidateQueries({ queryKey: ['requests-categories'] });
-    },
-    onError: () => toast.error('Operation failed'),
-  });
-
-  const denyRequestMutation = useMutation({
-    mutationFn: ({ category, id }: { category: string; id: string }) =>
-      api.post(`/requests/${category}/${id}/deny`),
-    onSuccess: () => {
-      toast.success('Access request rejected');
-      qc.invalidateQueries({ queryKey: ['requests-categories'] });
-    },
-    onError: () => toast.error('Operation failed'),
-  });
-
-  const handleSheetsSync = async () => {
-    setSyncing(true);
-    setSyncSteps([
-      { text: 'Connecting to Google Sheets API...', status: 'loading' },
-      { text: 'Extracting user registry and logs...', status: 'pending' },
-      { text: 'Syncing channel permissions & file access requests...', status: 'pending' },
-      { text: 'Writing cells to spreadsheet database...', status: 'pending' }
-    ]);
-
-    await new Promise(resolve => setTimeout(resolve, 800));
-    setSyncSteps(steps => {
-      const next = [...steps];
-      next[0].status = 'success';
-      next[1].status = 'loading';
-      return next;
-    });
-
-    await new Promise(resolve => setTimeout(resolve, 800));
-    setSyncSteps(steps => {
-      const next = [...steps];
-      next[1].status = 'success';
-      next[2].status = 'loading';
-      return next;
-    });
-
-    await new Promise(resolve => setTimeout(resolve, 700));
-    setSyncSteps(steps => {
-      const next = [...steps];
-      next[2].status = 'success';
-      next[3].status = 'loading';
-      return next;
-    });
-
-    await new Promise(resolve => setTimeout(resolve, 700));
-    try {
-      await api.post('/requests/sync-sheets');
-      setSyncSteps(steps => steps.map(s => ({ ...s, status: 'success' })));
-      toast.success('Google Sheets fully synchronized! 📊');
-      setLastSync(new Date().toLocaleTimeString('en-IN'));
-    } catch {
-      toast.error('Sync failed');
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const getBadgeCount = (type: 'users' | 'chats' | 'teams' | 'files') => {
-    if (type === 'users') return pendingUsers.length;
-    if (type === 'chats') return chatRequests.filter((c: any) => c.status === 'pending').length;
-    if (type === 'teams') return teamRequests.filter((t: any) => t.status === 'pending').length;
-    if (type === 'files') return fileRequests.filter((f: any) => f.status === 'pending').length;
-    return 0;
-  };
-
   const initials = (name: string) => name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U';
 
   return (
@@ -154,468 +56,123 @@ export default function RequestsPage() {
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h1>📥 Request Management</h1>
-          <p>Review self-registrations, secure permissions, and channel joins</p>
+          <p>Review self-registrations, assign system roles, and configure secure custom access permissions</p>
         </div>
       </div>
 
-      {/* Main Grid split */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '24px', alignItems: 'start' }}>
-        
-        {/* Left Side: Requests List Card */}
-        <div className="card" style={{ backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.08)' }}>
-          <div className="card-header" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', padding: '16px 20px', background: 'rgba(255,255,255,0.02)' }}>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              {[
-                { key: 'users', label: '👥 User Signups', count: getBadgeCount('users') },
-                { key: 'chats', label: '💬 Chat Channels', count: getBadgeCount('chats') },
-                { key: 'teams', label: '🏢 Teams', count: getBadgeCount('teams') },
-                { key: 'files', label: '📂 File Access', count: getBadgeCount('files') }
-              ].map(tab => (
-                <button
-                  key={tab.key}
-                  className={`btn ${activeTab === tab.key ? 'btn-primary' : 'btn-ghost'}`}
-                  style={{
-                    padding: '8px 16px',
-                    fontSize: '13px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    borderRadius: '10px'
-                  }}
-                  onClick={() => setActiveTab(tab.key as any)}
-                >
-                  {tab.label}
-                  {tab.count > 0 && (
-                    <span style={{
-                      background: activeTab === tab.key ? '#fff' : 'var(--brand-primary)',
-                      color: activeTab === tab.key ? 'var(--brand-primary)' : '#fff',
-                      fontSize: '11px',
-                      fontWeight: 700,
-                      padding: '2px 6px',
-                      borderRadius: '8px',
-                    }}>
-                      {tab.count}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
+      {/* Main card */}
+      <div className="card" style={{ backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.08)' }}>
+        <div className="card-header" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', padding: '16px 20px', background: 'rgba(255,255,255,0.02)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 style={{ fontSize: '15px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+            👥 Pending Account Signups
+            <span style={{
+              background: 'var(--brand-primary)',
+              color: '#fff',
+              fontSize: '12px',
+              fontWeight: 700,
+              padding: '2px 8px',
+              borderRadius: '10px',
+            }}>
+              {pendingUsers.length}
+            </span>
+          </h3>
+        </div>
 
-          <div className="table-container" style={{ minHeight: '300px' }}>
-            {activeTab === 'users' && (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Requester</th>
-                    <th>Dept / Designation</th>
-                    <th>Email Address</th>
-                    <th>Requested At</th>
-                    <th style={{ width: '120px', textAlign: 'right' }}>Actions</th>
+        <div className="table-container" style={{ minHeight: '300px' }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Requester</th>
+                <th>Dept / Designation</th>
+                <th>Email Address</th>
+                <th>Requested At</th>
+                <th style={{ width: '150px', textAlign: 'right' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loadingUsers ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                  <tr key={i}>
+                    {Array.from({ length: 5 }).map((_, j) => (
+                      <td key={j}><div className="skeleton" style={{ height: '16px' }} /></td>
+                    ))}
                   </tr>
-                </thead>
-                <tbody>
-                  {loadingUsers ? (
-                    Array.from({ length: 3 }).map((_, i) => (
-                      <tr key={i}>
-                        {Array.from({ length: 5 }).map((_, j) => (
-                          <td key={j}><div className="skeleton" style={{ height: '16px' }} /></td>
-                        ))}
-                      </tr>
-                    ))
-                  ) : pendingUsers.length === 0 ? (
+                ))
+              ) : pendingUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={5}>
+                    <div style={{ padding: '80px 0', textAlign: 'center', color: 'var(--text-tertiary)' }}>
+                      <div style={{ fontSize: '40px', marginBottom: '12px' }}>🎉</div>
+                      <h4 style={{ color: 'var(--text-primary)', marginBottom: '4px' }}>All caught up!</h4>
+                      <p style={{ fontSize: '13px' }}>No pending user registration requests</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                pendingUsers.map((u: any) => (
+                  <React.Fragment key={u.id}>
                     <tr>
-                      <td colSpan={5}>
-                        <div style={{ padding: '60px 0', textAlign: 'center', color: 'var(--text-tertiary)' }}>
-                          <div style={{ fontSize: '40px', marginBottom: '12px' }}>🎉</div>
-                          <h4 style={{ color: 'var(--text-primary)', marginBottom: '4px' }}>All caught up!</h4>
-                          <p style={{ fontSize: '13px' }}>No pending user registration requests</p>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <div className="avatar" style={{ background: 'var(--gradient-brand)' }}>
+                            {initials(u.fullName)}
+                          </div>
+                          <div style={{ fontWeight: 600, fontSize: '13px' }}>{u.fullName}</div>
+                        </div>
+                      </td>
+                      <td style={{ fontSize: '13px' }}>
+                        <span style={{ color: 'var(--text-primary)' }}>{u.department?.name || 'General'}</span>
+                        <span style={{ color: 'var(--text-tertiary)', fontSize: '12px', display: 'block' }}>{u.designation || 'Staff'}</span>
+                      </td>
+                      <td style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{u.email}</td>
+                      <td style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                        <Clock size={12} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />
+                        {u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Pending review'}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                          <button
+                            className="btn btn-sm btn-ghost"
+                            style={{ color: 'var(--brand-danger)', padding: '6px' }}
+                            title="Reject Request"
+                            onClick={() => { if (confirm(`Reject registration for ${u.fullName}?`)) rejectUserMutation.mutate(u.id); }}
+                          >
+                            <X size={16} />
+                          </button>
+                          <button
+                            className="btn btn-sm btn-primary"
+                            style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px' }}
+                            onClick={() => setApproveUser(u)}
+                          >
+                            <Check size={14} /> Approve
+                          </button>
                         </div>
                       </td>
                     </tr>
-                  ) : (
-                    pendingUsers.map((u: any) => (
-                      <React.Fragment key={u.id}>
-                        <tr key={u.id}>
-                          <td>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                              <div className="avatar" style={{ background: 'var(--gradient-brand)' }}>
-                                {initials(u.fullName)}
-                              </div>
-                              <div style={{ fontWeight: 600, fontSize: '13px' }}>{u.fullName}</div>
-                            </div>
-                          </td>
-                          <td style={{ fontSize: '13px' }}>
-                            <span style={{ color: 'var(--text-primary)' }}>{u.department?.name || 'General'}</span>
-                            <span style={{ color: 'var(--text-tertiary)', fontSize: '12px', display: 'block' }}>{u.designation || 'Staff'}</span>
-                          </td>
-                          <td style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{u.email}</td>
-                          <td style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                            <Clock size={12} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />
-                            Just now
-                          </td>
-                          <td>
-                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                              <button
-                                className="btn btn-sm btn-ghost"
-                                style={{ color: 'var(--brand-danger)', padding: '6px' }}
-                                onClick={() => { if (confirm(`Reject registration for ${u.fullName}?`)) rejectUserMutation.mutate(u.id); }}
-                              >
-                                <X size={16} />
-                              </button>
-                              <button
-                                className="btn btn-sm btn-primary"
-                                style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px' }}
-                                onClick={() => setApproveUser(u)}
-                              >
-                                <Check size={14} /> Approve
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                        <tr key={`${u.id}-comment`} style={{ background: 'transparent' }}>
-                          <td colSpan={5} style={{ paddingTop: 0, paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '46px' }}>
-                              <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>💬 Admin Comment:</span>
-                              <input
-                                type="text"
-                                className="form-control"
-                                placeholder="Add optional admin review note here..."
-                                style={{ height: '28px', padding: '4px 8px', fontSize: '11px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '6px' }}
-                                value={requestComments[u.id] || ''}
-                                onChange={e => {
-                                  const val = e.target.value;
-                                  setRequestComments(prev => ({ ...prev, [u.id]: val }));
-                                  localStorage.setItem('gsv-request-comments', JSON.stringify({ ...requestComments, [u.id]: val }));
-                                }}
-                              />
-                            </div>
-                          </td>
-                        </tr>
-                      </React.Fragment>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            )}
-
-            {activeTab === 'chats' && (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Requester</th>
-                    <th>Channel Requested</th>
-                    <th>Type</th>
-                    <th>Status</th>
-                    <th style={{ width: '120px', textAlign: 'right' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loadingCategories ? (
-                    <tr><td colSpan={5}><div className="skeleton" style={{ height: '80px' }} /></td></tr>
-                  ) : chatRequests.length === 0 ? (
-                    <tr><td colSpan={5} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>No channel join requests</td></tr>
-                  ) : (
-                    chatRequests.map((r: any) => (
-                      <React.Fragment key={r.id}>
-                        <tr key={r.id}>
-                          <td>
-                            <div style={{ fontWeight: 600, fontSize: '13px' }}>{r.user.fullName}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{r.user.email}</div>
-                          </td>
-                          <td style={{ fontWeight: 600, color: 'var(--brand-primary)', fontSize: '13px' }}>{r.channelName}</td>
-                          <td style={{ fontSize: '12px' }}><span className="badge badge-secondary">{r.category}</span></td>
-                          <td>
-                            <span className={`badge badge-${r.status === 'pending' ? 'warning' : r.status === 'approved' ? 'success' : 'danger'}`}>
-                              {r.status}
-                            </span>
-                          </td>
-                          <td>
-                            {r.status === 'pending' ? (
-                              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                                <button className="btn btn-sm btn-ghost" style={{ color: 'var(--brand-danger)' }} onClick={() => denyRequestMutation.mutate({ category: 'chat', id: r.id })}><X size={14} /></button>
-                                <button className="btn btn-sm btn-primary" onClick={() => approveRequestMutation.mutate({ category: 'chat', id: r.id })}><Check size={14} /></button>
-                              </div>
-                            ) : <span style={{ color: 'var(--text-tertiary)', fontSize: '12px' }}>—</span>}
-                          </td>
-                        </tr>
-                        <tr key={`${r.id}-comment`} style={{ background: 'transparent' }}>
-                          <td colSpan={5} style={{ paddingTop: 0, paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '24px' }}>
-                              <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>💬 Admin Comment:</span>
-                              <input
-                                type="text"
-                                className="form-control"
-                                placeholder="Add optional admin review note here..."
-                                style={{ height: '28px', padding: '4px 8px', fontSize: '11px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '6px' }}
-                                value={requestComments[r.id] || ''}
-                                onChange={e => {
-                                  const val = e.target.value;
-                                  setRequestComments(prev => ({ ...prev, [r.id]: val }));
-                                  localStorage.setItem('gsv-request-comments', JSON.stringify({ ...requestComments, [r.id]: val }));
-                                }}
-                              />
-                            </div>
-                          </td>
-                        </tr>
-                      </React.Fragment>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            )}
-
-            {activeTab === 'teams' && (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Creator</th>
-                    <th>Proposed Team Name</th>
-                    <th>Department</th>
-                    <th>Status</th>
-                    <th style={{ width: '120px', textAlign: 'right' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loadingCategories ? (
-                    <tr><td colSpan={5}><div className="skeleton" style={{ height: '80px' }} /></td></tr>
-                  ) : teamRequests.length === 0 ? (
-                    <tr><td colSpan={5} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>No team creation requests</td></tr>
-                  ) : (
-                    teamRequests.map((r: any) => (
-                      <React.Fragment key={r.id}>
-                        <tr key={r.id}>
-                          <td>
-                            <div style={{ fontWeight: 600, fontSize: '13px' }}>{r.creator.fullName}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{r.creator.email}</div>
-                          </td>
-                          <td>
-                            <div style={{ fontWeight: 600, fontSize: '13px' }}>{r.teamName}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{r.description}</div>
-                          </td>
-                          <td style={{ fontSize: '13px' }}>{r.departmentName}</td>
-                          <td>
-                            <span className={`badge badge-${r.status === 'pending' ? 'warning' : r.status === 'approved' ? 'success' : 'danger'}`}>
-                              {r.status}
-                            </span>
-                          </td>
-                          <td>
-                            {r.status === 'pending' ? (
-                              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                                <button className="btn btn-sm btn-ghost" style={{ color: 'var(--brand-danger)' }} onClick={() => denyRequestMutation.mutate({ category: 'team', id: r.id })}><X size={14} /></button>
-                                <button className="btn btn-sm btn-primary" onClick={() => approveRequestMutation.mutate({ category: 'team', id: r.id })}><Check size={14} /></button>
-                              </div>
-                            ) : <span style={{ color: 'var(--text-tertiary)', fontSize: '12px' }}>—</span>}
-                          </td>
-                        </tr>
-                        <tr key={`${r.id}-comment`} style={{ background: 'transparent' }}>
-                          <td colSpan={5} style={{ paddingTop: 0, paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '24px' }}>
-                              <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>💬 Admin Comment:</span>
-                              <input
-                                type="text"
-                                className="form-control"
-                                placeholder="Add optional admin review note here..."
-                                style={{ height: '28px', padding: '4px 8px', fontSize: '11px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '6px' }}
-                                value={requestComments[r.id] || ''}
-                                onChange={e => {
-                                  const val = e.target.value;
-                                  setRequestComments(prev => ({ ...prev, [r.id]: val }));
-                                  localStorage.setItem('gsv-request-comments', JSON.stringify({ ...requestComments, [r.id]: val }));
-                                }}
-                              />
-                            </div>
-                          </td>
-                        </tr>
-                      </React.Fragment>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            )}
-
-            {activeTab === 'files' && (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Requester</th>
-                    <th>Folder/File</th>
-                    <th>Access Type</th>
-                    <th>Reason</th>
-                    <th style={{ width: '120px', textAlign: 'right' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loadingCategories ? (
-                    <tr><td colSpan={5}><div className="skeleton" style={{ height: '80px' }} /></td></tr>
-                  ) : fileRequests.length === 0 ? (
-                    <tr><td colSpan={5} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>No file access requests</td></tr>
-                  ) : (
-                    fileRequests.map((r: any) => (
-                      <React.Fragment key={r.id}>
-                        <tr key={r.id}>
-                          <td>
-                            <div style={{ fontWeight: 600, fontSize: '13px' }}>{r.user.fullName}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{r.user.email}</div>
-                          </td>
-                          <td style={{ fontWeight: 600, color: 'var(--brand-primary)', fontSize: '13px' }}>{r.fileName}</td>
-                          <td><span className="badge badge-secondary">{r.accessType}</span></td>
-                          <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{r.reason}</td>
-                          <td>
-                            {r.status === 'pending' ? (
-                              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                                <button className="btn btn-sm btn-ghost" style={{ color: 'var(--brand-danger)' }} onClick={() => denyRequestMutation.mutate({ category: 'file', id: r.id })}><X size={14} /></button>
-                                <button className="btn btn-sm btn-primary" onClick={() => approveRequestMutation.mutate({ category: 'file', id: r.id })}><Check size={14} /></button>
-                              </div>
-                            ) : (
-                              <span className={`badge badge-${r.status === 'approved' ? 'success' : 'danger'}`}>
-                                {r.status}
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                        <tr key={`${r.id}-comment`} style={{ background: 'transparent' }}>
-                          <td colSpan={5} style={{ paddingTop: 0, paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '24px' }}>
-                              <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>💬 Admin Comment:</span>
-                              <input
-                                type="text"
-                                className="form-control"
-                                placeholder="Add optional admin review note here..."
-                                style={{ height: '28px', padding: '4px 8px', fontSize: '11px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '6px' }}
-                                value={requestComments[r.id] || ''}
-                                onChange={e => {
-                                  const val = e.target.value;
-                                  setRequestComments(prev => ({ ...prev, [r.id]: val }));
-                                  localStorage.setItem('gsv-request-comments', JSON.stringify({ ...requestComments, [r.id]: val }));
-                                }}
-                              />
-                            </div>
-                          </td>
-                        </tr>
-                      </React.Fragment>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-
-        {/* Right Side: Google Sheets Sync Controls */}
-        <div className="card" style={{ backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.08)' }}>
-          <div className="card-header" style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' }}>
-            <h4 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', margin: 0, fontWeight: 700 }}>
-              📊 Google Sheets Integration
-            </h4>
-          </div>
-          <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px' }}>
-            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.5', margin: 0 }}>
-              Export system registers, audit history, and access registries dynamically to your corporate Google Sheet.
-            </p>
-
-            <div style={{
-              background: 'rgba(99, 102, 241, 0.08)',
-              border: '1px solid rgba(99, 102, 241, 0.15)',
-              borderRadius: '12px',
-              padding: '12px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '6px'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                <span>Sync Status:</span>
-                <strong style={{ color: 'var(--brand-success)' }}>🟢 Connected</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                <span>Spreadsheet:</span>
-                <a
-                  href={sheetUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ color: 'var(--brand-primary)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '2px' }}
-                >
-                  Open Sheet <ExternalLink size={10} />
-                </a>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                <span>Last Synced:</span>
-                <strong>{lastSync || 'Never'}</strong>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>Spreadsheet Sync URL</label>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                <input
-                  type="text"
-                  className="form-control"
-                  style={{ padding: '6px 10px', fontSize: '12px', height: '32px', background: 'rgba(0,0,0,0.2)' }}
-                  value={sheetUrl}
-                  onChange={e => setSheetUrl(e.target.value)}
-                  placeholder="Paste Google Sheet URL..."
-                />
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  style={{ height: '32px', padding: '6px 12px', fontSize: '11px' }}
-                  onClick={handleSaveSheetUrl}
-                >
-                  Save
-                </button>
-              </div>
-            </div>
-
-            <button
-              className="btn btn-primary"
-              disabled={syncing}
-              onClick={handleSheetsSync}
-              style={{
-                width: '100%',
-                padding: '10px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                boxShadow: '0 8px 24px rgba(99, 102, 241, 0.2)'
-              }}
-            >
-              {syncing ? <RefreshCw size={14} className="spin" /> : <Play size={14} />}
-              <span>Sync Registers Now</span>
-            </button>
-
-            {/* Sync Progress Logs */}
-            {syncSteps.length > 0 && (
-              <div style={{
-                background: 'rgba(255,255,255,0.02)',
-                border: '1px solid rgba(255,255,255,0.06)',
-                borderRadius: '12px',
-                padding: '12px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px'
-              }}>
-                <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-tertiary)', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '4px' }}>
-                  Sync Logs
-                </div>
-                {syncSteps.map((step, idx) => (
-                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px' }}>
-                    {step.status === 'loading' && <RefreshCw size={12} className="spin" style={{ color: 'var(--brand-primary)' }} />}
-                    {step.status === 'success' && <Check size={12} style={{ color: 'var(--brand-success)' }} />}
-                    {step.status === 'pending' && <Clock size={12} style={{ color: 'var(--text-tertiary)' }} />}
-                    {step.status === 'error' && <AlertCircle size={12} style={{ color: 'var(--brand-danger)' }} />}
-                    <span style={{
-                      color: step.status === 'pending' ? 'var(--text-tertiary)' : step.status === 'loading' ? 'var(--text-primary)' : 'var(--text-secondary)',
-                      textDecoration: step.status === 'success' ? 'line-through' : 'none',
-                      opacity: step.status === 'success' ? 0.6 : 1
-                    }}>
-                      {step.text}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                    <tr style={{ background: 'transparent' }}>
+                      <td colSpan={5} style={{ paddingTop: 0, paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '46px' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>💬 Admin Comment:</span>
+                          <input
+                            type="text"
+                            className="form-control"
+                            placeholder="Add optional admin review note here..."
+                            style={{ height: '28px', padding: '4px 8px', fontSize: '11px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '6px' }}
+                            value={requestComments[u.id] || ''}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setRequestComments(prev => ({ ...prev, [u.id]: val }));
+                              localStorage.setItem('gsv-request-comments', JSON.stringify({ ...requestComments, [u.id]: val }));
+                            }}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  </React.Fragment>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
