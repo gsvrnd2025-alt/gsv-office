@@ -29,11 +29,10 @@
 
 .pageContent {
   flex: 1;
-  padding: var(--space-6);
-  margin-top: var(--topbar-height);
+  padding: calc(var(--topbar-height) + var(--space-6)) var(--space-6) var(--space-6) var(--space-6);
   overflow-y: auto;
   overflow-x: hidden;
-  min-height: calc(100vh - var(--topbar-height));
+  min-height: 100vh;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;

@@ -29,7 +29,7 @@ export default function ChatPage() {
   // Standard states
   const [message, setMessage] = useState('');
   const [search, setSearch] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'channels' | 'dms' | 'groups'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'channels' | 'dms' | 'groups' | 'online'>('all');
   
   // Custom states
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
@@ -57,11 +57,15 @@ export default function ChatPage() {
 
   // 3. Message Forwarding
   const [forwardingMsg, setForwardingMsg] = useState<any>(null);
+  const [forwardTargets, setForwardTargets] = useState<string[]>([]);
 
   // 4. Voice Recorder HUD Simulation
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recordingTimerRef = useRef<any>(null);
+
+  // Lightbox Modal
+  const [viewImage, setViewImage] = useState<string | null>(null);
 
   // 5. Message Reactions Store (Local mock state)
   const [messageReactions, setMessageReactions] = useState<Record<string, string[]>>({});
@@ -371,14 +375,26 @@ export default function ChatPage() {
     }
   };
 
-  const handleForwardMessage = (targetConv: any) => {
-    if (!forwardingMsg) return;
-    chatApi.sendMessage(targetConv.id, {
-      content: `➡️ Forwarded Signal: ${forwardingMsg.content}`,
-      type: forwardingMsg.type
-    });
-    toast.success(`Message forwarded successfully to ${targetConv.name}`);
+  const handleForwardMessage = async () => {
+    if (!forwardingMsg || forwardTargets.length === 0) return;
+    try {
+      await Promise.all(forwardTargets.map(targetId => 
+        chatApi.sendMessage(targetId, {
+          content: `➡️ Forwarded Signal: ${forwardingMsg.content || ''}`,
+          type: forwardingMsg.type || 'text',
+          fileId: forwardingMsg.file_id || forwardingMsg.fileId,
+          fileName: forwardingMsg.file_name || forwardingMsg.fileName,
+          fileUrl: forwardingMsg.file_url || forwardingMsg.fileUrl,
+          fileSize: forwardingMsg.file_size || forwardingMsg.fileSize,
+          mimeType: forwardingMsg.mime_type || forwardingMsg.mimeType
+        })
+      ));
+      toast.success(`Message forwarded securely to ${forwardTargets.length} node(s) 🚀`);
+    } catch (e) {
+      toast.error(`Partial forwarding failure. Some nodes unreachable.`);
+    }
     setForwardingMsg(null);
+    setForwardTargets([]);
   };
 
   const startDM = async (targetUser: any) => {
@@ -499,8 +515,16 @@ export default function ChatPage() {
     if (activeFilter === 'channels') return c.type === 'channel' || c.type === 'department';
     if (activeFilter === 'dms') return c.type === 'private';
     if (activeFilter === 'groups') return c.type === 'group';
+    if (activeFilter === 'online') {
+      if (c.type !== 'private') return false;
+      const otherUserName = c.name?.replace('DM with ', '').trim().toLowerCase();
+      const isOnline = otherUsers.find((u: any) => u.fullName?.toLowerCase() === otherUserName)?.isOnline;
+      return !!isOnline;
+    }
     return true;
   });
+  
+  const displayedTeammates = activeFilter === 'online' ? otherUsers.filter((u: any) => u.isOnline) : otherUsers;
 
   const activeConv = conversations.find((c: any) => c.id === conversationId);
   
@@ -592,23 +616,48 @@ export default function ChatPage() {
             <p style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Choose a secure conversation node to forward the signal content</p>
             
             <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px', padding: '6px 0' }}>
-              {conversations.map((c: any) => (
-                <div
-                  key={c.id}
-                  className="dropdown-item"
-                  onClick={() => handleForwardMessage(c)}
-                  style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: '6px' }}
-                >
-                  <Hash size={14} style={{ color: 'var(--brand-primary)' }} />
-                  <span style={{ fontWeight: 600, fontSize: '12px' }}>{c.name}</span>
-                </div>
-              ))}
+              {conversations.map((c: any) => {
+                const isSelected = forwardTargets.includes(c.id);
+                return (
+                  <div
+                    key={c.id}
+                    className="dropdown-item hover-glass"
+                    onClick={() => {
+                      if (isSelected) setForwardTargets(prev => prev.filter(id => id !== c.id));
+                      else setForwardTargets(prev => [...prev, c.id]);
+                    }}
+                    style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', borderRadius: '8px', background: isSelected ? 'rgba(99, 102, 241, 0.15)' : 'transparent', border: `1px solid ${isSelected ? 'rgba(99, 102, 241, 0.3)' : 'transparent'}`, transition: 'all 0.15s' }}
+                  >
+                    <div style={{ width: '16px', height: '16px', borderRadius: '4px', border: `1.5px solid ${isSelected ? '#6366f1' : 'var(--border-color)'}`, background: isSelected ? '#6366f1' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      {isSelected && <Check size={12} style={{ color: '#fff' }} />}
+                    </div>
+                    <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: 'var(--brand-primary)', border: '1px solid var(--border-color)' }}>
+                      {c.type === 'private' ? <Users2 size={14} /> : <Hash size={14} />}
+                    </div>
+                    <span style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: 600, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</span>
+                  </div>
+                );
+              })}
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
-              <button className="btn btn-secondary btn-sm" onClick={() => setForwardingMsg(null)}>Cancel</button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 600 }}>{forwardTargets.length} selected</span>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button className="btn btn-ghost" onClick={() => { setForwardingMsg(null); setForwardTargets([]); }}>Cancel</button>
+                <button className="btn btn-primary" disabled={forwardTargets.length === 0} onClick={handleForwardMessage}>Forward</button>
+              </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Lightbox Modal */}
+      {viewImage && (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setViewImage(null)}>
+          <button style={{ position: 'absolute', top: '24px', right: '24px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setViewImage(null)}>
+            <X size={20} />
+          </button>
+          <img src={viewImage} style={{ maxWidth: '90%', maxHeight: '90%', objectFit: 'contain', borderRadius: '8px', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }} alt="Full screen preview" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
 
@@ -645,7 +694,8 @@ export default function ChatPage() {
             { key: 'all', label: 'All' },
             { key: 'channels', label: 'Channels' },
             { key: 'dms', label: 'DMs' },
-            { key: 'groups', label: 'Groups' }
+            { key: 'groups', label: 'Groups' },
+            { key: 'online', label: 'Online' }
           ].map(t => (
             <button
               key={t.key}
@@ -698,7 +748,7 @@ export default function ChatPage() {
             👥 Teammate Directories DMs
           </div>
           <div className={styles.sectionList}>
-            {otherUsers.map((u: any) => (
+            {displayedTeammates.map((u: any) => (
               <div
                 key={u.id}
                 onClick={() => startDM(u)}
@@ -876,7 +926,7 @@ export default function ChatPage() {
                       {hasAttachment && (
                         <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                           {msg.type === 'photo' && (
-                            <div style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)', maxWidth: '280px' }}>
+                            <div style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)', maxWidth: '280px', cursor: 'zoom-in' }} onClick={() => setViewImage(msg.file_url || msg.fileUrl || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&q=80")}>
                               <img src={msg.file_url || msg.fileUrl || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&q=80"} alt={msg.file_name || msg.fileName || "photo"} style={{ width: '100%', height: 'auto', display: 'block' }} />
                             </div>
                           )}
