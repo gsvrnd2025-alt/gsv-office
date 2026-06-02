@@ -55,22 +55,33 @@ export class UsersService {
     return user;
   }
 
+  private cleanPayload(dto: any) {
+    const clean = { ...dto };
+    for (const key of Object.keys(clean)) {
+      if (clean[key] === '') {
+        clean[key] = null;
+      }
+    }
+    return clean;
+  }
+
   async create(dto: CreateUserDto, createdBy?: string): Promise<User> {
+    const cleanDto = this.cleanPayload(dto);
     // Check for duplicates
     const existing = await this.usersRepo.findOne({
-      where: [{ email: dto.email }, { loginId: dto.loginId }],
+      where: [{ email: cleanDto.email }, { loginId: cleanDto.loginId }],
     });
     if (existing) {
       throw new ConflictException(
-        existing.email === dto.email ? 'Email already in use' : 'Login ID already in use',
+        existing.email === cleanDto.email ? 'Email already in use' : 'Login ID already in use',
       );
     }
 
-    const passwordHash = await bcrypt.hash(dto.password, 12);
+    const passwordHash = await bcrypt.hash(cleanDto.password, 12);
     const employeeId = await this.generateEmployeeId();
 
     const user = this.usersRepo.create({
-      ...dto,
+      ...cleanDto,
       passwordHash,
       employeeId,
       createdBy,
@@ -91,8 +102,9 @@ export class UsersService {
   async update(id: string, dto: UpdateUserDto, updatedBy?: string): Promise<User> {
     const user = await this.findById(id);
     const old = { ...user };
+    const cleanDto = this.cleanPayload(dto);
 
-    Object.assign(user, dto);
+    Object.assign(user, cleanDto);
     const saved = await this.usersRepo.save(user);
 
     await this.auditService.log({
@@ -101,7 +113,7 @@ export class UsersService {
       resourceType: 'user',
       resourceId: id,
       oldData: old,
-      newData: dto,
+      newData: cleanDto,
     });
 
     return this.sanitize(saved) as any;

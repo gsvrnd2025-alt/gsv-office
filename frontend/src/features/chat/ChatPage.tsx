@@ -707,8 +707,29 @@ export default function ChatPage() {
               <div>
                 <div className={styles.chatName}>{activeConv.name || 'Secure DM'}</div>
                 <div className={styles.chatStatus}>
-                  <span className="status-dot online" style={{ width: '6px', height: '6px', background: activeConv.type === 'private' ? 'var(--brand-success)' : 'var(--brand-primary)' }} />
-                  {activeConv.type === 'private' ? '🟢 Online | Last seen recently' : 'Department Public Room'}
+                  <span className="status-dot online" style={{
+                    width: '6px',
+                    height: '6px',
+                    background: activeConv.type === 'private'
+                      ? (() => {
+                          const partnerName = activeConv.name?.replace('DM with ', '');
+                          const partner = otherUsers.find((u: any) => u.fullName === partnerName);
+                          return partner?.isOnline ? 'var(--brand-success)' : 'var(--text-tertiary)';
+                        })()
+                      : 'var(--brand-primary)'
+                  }} />
+                  {activeConv.type === 'private' ? (
+                    (() => {
+                      const partnerName = activeConv.name?.replace('DM with ', '');
+                      const partner = otherUsers.find((u: any) => u.fullName === partnerName);
+                      if (partner) {
+                        return partner.isOnline 
+                          ? '🟢 Online' 
+                          : `Offline | Last seen ${partner.lastSeen ? new Date(partner.lastSeen).toLocaleDateString('en-IN') : 'Never'}`;
+                      }
+                      return 'Offline';
+                    })()
+                  ) : 'Department Public Room'}
                 </div>
               </div>
             </div>
