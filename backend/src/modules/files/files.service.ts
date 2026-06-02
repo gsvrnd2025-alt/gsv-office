@@ -122,27 +122,34 @@ export class FilesService {
     );
     if (!origFile) throw new Error('File not found');
 
-    const [user] = await this.dataSource.query(`SELECT full_name FROM users WHERE id = $1`, [userId]);
-    const userName = user?.full_name || 'Teammate';
-    const folderName = `${userName}'s Saved Cloud Files`;
+    const ext = path.extname(origFile.original_name).replace('.', '').toLowerCase();
+    
+    let categoryName = 'Documents';
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext) || origFile.mime_type?.startsWith('image/')) {
+      categoryName = 'Images';
+    } else if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext) || origFile.mime_type?.startsWith('video/')) {
+      categoryName = 'Videos';
+    } else if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext) || origFile.mime_type?.startsWith('audio/')) {
+      categoryName = 'Audios';
+    }
     
     let targetFolderId;
     const [existingFolder] = await this.dataSource.query(
       `SELECT id FROM folders WHERE owner_id = $1 AND name = $2 AND deleted_at IS NULL LIMIT 1`,
-      [userId, folderName]
+      [userId, categoryName]
     );
     
     if (existingFolder) {
       targetFolderId = existingFolder.id;
     } else {
       const newFolder = await this.createFolder({
-        name: folderName,
+        name: categoryName,
         ownerId: userId
       });
       targetFolderId = newFolder.id;
     }
 
-    const ext = path.extname(origFile.original_name).replace('.', '');
+
     const [newFile] = await this.dataSource.query(
       `INSERT INTO files (name, original_name, mime_type, size, extension, storage_path, storage_url, owner_id, folder_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,

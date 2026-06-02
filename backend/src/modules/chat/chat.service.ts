@@ -18,7 +18,7 @@ export class ChatService {
     `, [userId, limit, (page - 1) * limit]);
   }
 
-  async getMessages(conversationId: string, userId: string, page = 1, limit = 50) {
+  async getMessages(conversationId: string, userId: string, page = 1, limit = 500) {
     return this.dataSource.query(`
       SELECT m.id, m.conversation_id, m.sender_id, m.content, m.file_id, m.reply_to_id, m.created_at, m.deleted_at,
              CASE

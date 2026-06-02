@@ -34,7 +34,7 @@ export function AppLayout() {
           sidebarCollapsed={sidebarCollapsed}
         />
         <main className={styles.pageContent}>
-          <Outlet />
+          <Outlet context={{ sidebarCollapsed, setSidebarCollapsed }} />
         </main>
       </div>
     </div>
