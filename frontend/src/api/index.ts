@@ -99,6 +99,7 @@ export const chatApi = {
   createConversation: (data: any) => api.post('/chat/conversations', data),
   sendMessage: (id: string, data: any) => api.post(`/chat/conversations/${id}/messages`, data),
   markRead: (id: string) => api.post(`/chat/conversations/${id}/read`),
+  deleteMessage: (messageId: string) => api.delete(`/chat/messages/${messageId}`),
 };
 
 export const filesApi = {

@@ -243,6 +243,18 @@ export default function ChatPage() {
     },
   });
 
+  const deleteMessageMutation = useMutation({
+    mutationFn: (messageId: string) => chatApi.deleteMessage(messageId),
+    onSuccess: () => {
+      toast.success('Message deleted successfully!');
+      qc.invalidateQueries({ queryKey: ['messages', conversationId] });
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+    },
+    onError: () => {
+      toast.error('Failed to delete message');
+    }
+  });
+
   // 1. Play Ding-Dong chime and scroll for new messages in the currently active chat room
   const prevMessagesLengthRef = useRef(messages.length);
   useEffect(() => {
@@ -975,12 +987,20 @@ export default function ChatPage() {
                           ))}
                         </div>
                         <div style={{ display: 'flex', gap: '8px' }}>
+                          <span title="Copy Message Text" onClick={() => { navigator.clipboard.writeText(msg.content); toast.success('Message content copied to clipboard.'); }} style={{ display: 'inline-flex', cursor: 'pointer', color: 'var(--text-tertiary)' }}>
+                            <Copy size={10} />
+                          </span>
                           <span title="Pin Message" onClick={() => setPinnedMessage(msg)} style={{ display: 'inline-flex', cursor: 'pointer', color: 'var(--text-tertiary)' }}>
                             <Pin size={10} />
                           </span>
                           <span title="Forward Message" onClick={() => setForwardingMsg(msg)} style={{ display: 'inline-flex', cursor: 'pointer', color: 'var(--text-tertiary)' }}>
                             <ArrowRight size={10} />
                           </span>
+                          {isOwn && (
+                            <span title="Delete Message" onClick={() => { if (window.confirm('Delete this message permanently?')) deleteMessageMutation.mutate(msg.id); }} style={{ display: 'inline-flex', cursor: 'pointer', color: 'var(--brand-danger)' }}>
+                              <Trash2 size={10} />
+                            </span>
+                          )}
                         </div>
                       </div>
 

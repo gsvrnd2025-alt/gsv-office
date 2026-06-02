@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, Query, UseGuards, ParseUUIDPipe } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
@@ -45,5 +45,11 @@ export class ChatController {
   @RequirePermissions(['chat', 'read'])
   markRead(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('id') userId: string) {
     return this.svc.markAsRead(id, userId);
+  }
+
+  @Delete('messages/:messageId')
+  @RequirePermissions(['chat', 'send'])
+  deleteMessage(@Param('messageId', ParseUUIDPipe) messageId: string, @CurrentUser('id') userId: string) {
+    return this.svc.deleteMessage(messageId, userId);
   }
 }

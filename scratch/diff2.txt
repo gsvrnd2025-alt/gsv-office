@@ -1,0 +1,44 @@
+﻿diff --git a/backend/src/modules/chat/chat.controller.ts b/backend/src/modules/chat/chat.controller.ts
+index 88ebc76..20b2388 100644
+--- a/backend/src/modules/chat/chat.controller.ts
++++ b/backend/src/modules/chat/chat.controller.ts
+@@ -46,4 +46,10 @@ export class ChatController {
+   markRead(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('id') userId: string) {
+     return this.svc.markAsRead(id, userId);
+   }
++
++  @Delete('messages/:messageId')
++  @RequirePermissions(['chat', 'send'])
++  deleteMessage(@Param('messageId', ParseUUIDPipe) messageId: string, @CurrentUser('id') userId: string) {
++    return this.svc.deleteMessage(messageId, userId);
++  }
+ }
+diff --git a/backend/src/modules/chat/chat.service.ts b/backend/src/modules/chat/chat.service.ts
+index 0ec1782..008e1df 100644
+--- a/backend/src/modules/chat/chat.service.ts
++++ b/backend/src/modules/chat/chat.service.ts
+@@ -116,4 +116,12 @@ export class ChatService {
+       [conversationId, userId]
+     );
+   }
++
++  async deleteMessage(messageId: string, userId: string) {
++    const [msg] = await this.dataSource.query(
++      `UPDATE messages SET deleted_at = NOW() WHERE id = $1 AND sender_id = $2 RETURNING *`,
++      [messageId, userId]
++    );
++    return msg;
++  }
+ }
+diff --git a/frontend/src/api/index.ts b/frontend/src/api/index.ts
+index 4daf489..5c53699 100644
+--- a/frontend/src/api/index.ts
++++ b/frontend/src/api/index.ts
+@@ -99,6 +99,7 @@ export const chatApi = {
+   createConversation: (data: any) => api.post('/chat/conversations', data),
+   sendMessage: (id: string, data: any) => api.post(`/chat/conversations/${id}/messages`, data),
+   markRead: (id: string) => api.post(`/chat/conversations/${id}/read`),
++  deleteMessage: (messageId: string) => api.delete(`/chat/messages/${messageId}`),
+ };
+ 
+ export const filesApi = {

@@ -116,4 +116,12 @@ export class ChatService {
       [conversationId, userId]
     );
   }
+
+  async deleteMessage(messageId: string, userId: string) {
+    const [msg] = await this.dataSource.query(
+      `UPDATE messages SET deleted_at = NOW() WHERE id = $1 AND sender_id = $2 RETURNING *`,
+      [messageId, userId]
+    );
+    return msg;
+  }
 }
