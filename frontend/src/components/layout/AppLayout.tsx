@@ -32,10 +32,12 @@ export function AppLayout() {
       />
 
       <div className={`${styles.mainContent} ${sidebarCollapsed ? styles.collapsed : ''}`}>
-        <Topbar
-          onMenuClick={() => setMobileSidebarOpen(true)}
-          sidebarCollapsed={sidebarCollapsed}
-        />
+        {!isChatPage && (
+          <Topbar
+            onMenuClick={() => setMobileSidebarOpen(true)}
+            sidebarCollapsed={sidebarCollapsed}
+          />
+        )}
         <main className={isChatPage ? styles.chatPageContent : styles.pageContent}>
           <Outlet context={{ sidebarCollapsed, setSidebarCollapsed }} />
         </main>

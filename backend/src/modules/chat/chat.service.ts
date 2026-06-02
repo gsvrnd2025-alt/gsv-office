@@ -28,7 +28,7 @@ export class ChatService {
              END AS type,
              u.full_name AS sender_name, u.avatar_url AS sender_avatar,
              COALESCE(json_agg(DISTINCT mr.*) FILTER (WHERE mr.message_id IS NOT NULL), '[]') AS reactions,
-             f.name AS file_name, f.mime_type, f.size AS file_size, f.storage_url AS file_url
+             COALESCE(f.original_name, f.name) AS file_name, f.mime_type, f.size AS file_size, f.storage_url AS file_url
       FROM messages m
       JOIN users u ON u.id = m.sender_id
       LEFT JOIN message_reactions mr ON mr.message_id = m.id
@@ -39,7 +39,7 @@ export class ChatService {
                WHEN m.type::text = 'image' THEN 'photo'
                WHEN m.type::text = 'audio' THEN 'music'
                ELSE m.type::text
-             END, u.full_name, u.avatar_url, f.name, f.mime_type, f.size, f.storage_url
+             END, u.full_name, u.avatar_url, f.original_name, f.name, f.mime_type, f.size, f.storage_url
       ORDER BY m.created_at DESC
       LIMIT $2 OFFSET $3
     `, [conversationId, limit, (page - 1) * limit]);

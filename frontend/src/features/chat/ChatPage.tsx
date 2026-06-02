@@ -32,6 +32,7 @@ export default function ChatPage() {
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'channels' | 'dms' | 'groups' | 'online' | 'teammates' | 'bookmarks'>('all');
   const [selectedMessages, setSelectedMessages] = useState<string[]>([]);
+  const [chatSidebarCollapsed, setChatSidebarCollapsed] = useState(false);
   
   // Custom states
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
@@ -110,14 +111,36 @@ export default function ChatPage() {
   const handleSaveToPC = async (fileName: string, content: string = 'GSV Office Mock SMB Shared Payload Content', fileUrl?: string) => {
     try {
       if (fileUrl) {
-        const a = document.createElement('a');
-        a.href = fileUrl;
-        a.download = fileName || 'download';
-        a.target = '_blank';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        toast.success('Download initiated! 💾');
+        const targetUrl = fileUrl.startsWith('http') ? fileUrl : `${window.location.origin}${fileUrl}`;
+        const toastId = toast.loading(`Downloading ${fileName}... 💾`);
+        
+        try {
+          const response = await fetch(targetUrl);
+          if (!response.ok) {
+            throw new Error(`Server returned status: ${response.status}`);
+          }
+          
+          const contentType = response.headers.get('content-type') || '';
+          if (contentType.includes('text/html')) {
+            throw new Error('File not found (received HTML instead of binary)');
+          }
+
+          const blob = await response.blob();
+          const blobUrl = window.URL.createObjectURL(blob);
+          
+          const a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = fileName || 'download';
+          document.body.appendChild(a);
+          a.click();
+          
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(blobUrl);
+          toast.success(`"${fileName}" downloaded successfully! 💾`, { id: toastId });
+        } catch (fetchErr: any) {
+          console.error('Fetch download failed:', fetchErr);
+          toast.error(`Download failed: ${fetchErr.message || 'File not found'}`, { id: toastId });
+        }
         return;
       }
 
@@ -226,10 +249,23 @@ export default function ChatPage() {
       if (payload.files && payload.files.length > 0) {
         const staged = payload.files[0];
         const fd = new FormData();
-        fd.append('file', staged.blob);
         
         try {
-          const uploadRes = await filesApi.upload(fd);
+          let uploadRes;
+          if (payload.type === 'folder' && staged.files) {
+            staged.files.forEach((file: File) => {
+              fd.append('files', file);
+            });
+            const relativePaths = staged.files.map((file: any) => file.webkitRelativePath || file.name);
+            fd.append('relativePaths', JSON.stringify(relativePaths));
+            const folderName = staged.name.split('/')[0] || 'Uploaded_Folder';
+            fd.append('folderName', folderName);
+            uploadRes = await filesApi.uploadFolder(fd);
+          } else {
+            fd.append('file', staged.blob);
+            uploadRes = await filesApi.upload(fd);
+          }
+
           const fileData = uploadRes.data?.data || uploadRes.data;
           if (fileData) {
             fileId = fileData.id;
@@ -239,8 +275,8 @@ export default function ChatPage() {
             mimeType = fileData.mimeType;
           }
         } catch (err) {
-          console.error('File upload failed in chat propagation:', err);
-          toast.error('File upload failed, sending text only.');
+          console.error('File/Folder upload failed in chat propagation:', err);
+          toast.error('Upload failed, sending text only.');
         }
       }
 
@@ -476,6 +512,7 @@ export default function ChatPage() {
           name: `${folderName}/ (${files.length} files)`,
           size: (totalSize / 1024 / 1024).toFixed(1) + ' MB',
           blob: files[0],
+          files: files,
           type: 'folder'
         };
         setStagedFiles(prev => [...prev, stagedFolder]);
@@ -571,6 +608,25 @@ export default function ChatPage() {
     }
     return true;
   });
+
+  const sortedFilteredConvs = [...filteredConvs].sort((a: any, b: any) => {
+    const isOnline = (c: any) => {
+      if (c.type !== 'private') return false;
+      const partnerName = c.name?.replace('DM with ', '').trim().toLowerCase();
+      const partner = otherUsers.find((u: any) => u.fullName?.toLowerCase() === partnerName || u.loginId?.toLowerCase() === partnerName);
+      return partner ? partner.isOnline : false;
+    };
+
+    const aOnline = isOnline(a);
+    const bOnline = isOnline(b);
+
+    if (aOnline && !bOnline) return -1;
+    if (!aOnline && bOnline) return 1;
+
+    const dateA = new Date(a.last_message_at || a.created_at || a.createdAt || 0).getTime();
+    const dateB = new Date(b.last_message_at || b.created_at || b.createdAt || 0).getTime();
+    return dateB - dateA;
+  });
   
   const displayedTeammates = otherUsers
     .filter((u: any) => {
@@ -665,8 +721,33 @@ export default function ChatPage() {
   };
 
   return (
-    <div className={styles.chatLayout} style={{ animation: 'slideUp 0.3s ease' }}>
+    <div className={styles.chatLayout} style={{ animation: 'slideUp 0.3s ease', position: 'relative' }}>
       
+      {chatSidebarCollapsed && (!conversationId || !activeConv) && (
+        <button
+          className="btn btn-ghost btn-icon"
+          onClick={() => setChatSidebarCollapsed(false)}
+          style={{
+            position: 'absolute',
+            left: '16px',
+            top: '16px',
+            zIndex: 100,
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '8px',
+            width: '36px',
+            height: '36px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer'
+          }}
+          title="Expand Conversation List"
+        >
+          <ChevronRight size={18} style={{ color: 'var(--text-secondary)' }} />
+        </button>
+      )}
+
       {/* Message Forwarding Selection Dialog */}
       {forwardingMsg && (
         <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -763,7 +844,7 @@ export default function ChatPage() {
       )}
 
       {/* Sidebar */}
-      <div className={styles.convSidebar}>
+      <div className={`${styles.convSidebar} ${chatSidebarCollapsed ? styles.collapsed : ''}`}>
         <div className={styles.convHeader}>
           <h2 className={styles.convTitle}>
             <MessageSquare size={18} style={{ color: 'var(--brand-primary)' }} />
@@ -810,99 +891,102 @@ export default function ChatPage() {
           ))}
         </div>
 
-        {/* Active Conversations Section */}
-        {activeFilter !== 'teammates' && activeFilter !== 'bookmarks' && (
-        <div className={`${styles.sidebarSection} ${styles.activeConversationsSection}`}>
-          <div className={styles.convList}>
-            {filteredConvs.map((conv: any) => (
-              <div
-                key={conv.id}
-                className={`${styles.convItem} ${conv.id === conversationId ? styles.active : ''}`}
-                onClick={() => navigate(`/chat/${conv.id}`)}
-                style={{
-                  borderRadius: '8px', margin: '4px 8px', padding: '8px 12px',
-                  borderLeft: conv.id === conversationId ? '4px solid #6366f1' : '4px solid transparent'
-                }}
-              >
-                <div className={`${styles.convAvatar} ${conv.type === 'group' || conv.type === 'department' ? styles.groupAvatar : ''}`} style={{ background: 'var(--gradient-brand)' }}>
-                  {conv.type === 'group' || conv.type === 'department' ? <Hash size={16} /> : (conv.name?.charAt(0).toUpperCase() || 'U')}
-                </div>
-                <div className={styles.convMeta}>
-                  <div className={styles.convName}>
-                    <span style={{ fontWeight: 600 }}>{conv.name || 'Secure DM'}</span>
+        {/* Scrollable Wrapper for all sidebar sections to prevent overflow/hiding */}
+        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          {/* Active Conversations Section */}
+          {activeFilter !== 'teammates' && activeFilter !== 'bookmarks' && (
+            <div className={`${styles.sidebarSection} ${styles.activeConversationsSection}`} style={{ flex: 'none', minHeight: 'auto' }}>
+              <div className={styles.convList} style={{ overflowY: 'visible', flex: 'none', height: 'auto' }}>
+                {sortedFilteredConvs.map((conv: any) => (
+                  <div
+                    key={conv.id}
+                    className={`${styles.convItem} ${conv.id === conversationId ? styles.active : ''}`}
+                    onClick={() => navigate(`/chat/${conv.id}`)}
+                    style={{
+                      borderRadius: '8px', margin: '4px 8px', padding: '8px 12px',
+                      borderLeft: conv.id === conversationId ? '4px solid #6366f1' : '4px solid transparent'
+                    }}
+                  >
+                    <div className={`${styles.convAvatar} ${conv.type === 'group' || conv.type === 'department' ? styles.groupAvatar : ''}`} style={{ background: 'var(--gradient-brand)' }}>
+                      {conv.type === 'group' || conv.type === 'department' ? <Hash size={16} /> : (conv.name?.charAt(0).toUpperCase() || 'U')}
+                    </div>
+                    <div className={styles.convMeta}>
+                      <div className={styles.convName}>
+                        <span style={{ fontWeight: 600 }}>{conv.name || 'Secure DM'}</span>
+                      </div>
+                      <div className={styles.convPreview}>
+                        <span>{conv.last_message_preview || 'Ready to resonance.'}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className={styles.convPreview}>
-                    <span>{conv.last_message_preview || 'Ready to resonance.'}</span>
-                  </div>
-                </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
-        )}
+            </div>
+          )}
 
-        {/* Teammates Directory Section */}
-        {activeFilter === 'teammates' && (
-        <div className={`${styles.sidebarSection} ${styles.teammatesSection}`}>
-          <div className={styles.sectionHeader}>
-            👥 Teammate Directories DMs
-          </div>
-          <div className={styles.sectionList}>
-            {displayedTeammates.map((u: any) => (
-              <div
-                key={u.id}
-                onClick={() => startDM(u)}
-                className={styles.teammateRow}
-              >
-                <div className={styles.teammateAvatar}>
-                  {initials(u.fullName)}
-                  {u.isOnline && (
-                    <span className={styles.statusDot} />
-                  )}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                  <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.fullName}</span>
-                  <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{u.isOnline ? 'Online' : 'Offline'}</span>
-                </div>
+          {/* Teammates Directory Section */}
+          {(activeFilter === 'all' || activeFilter === 'dms' || activeFilter === 'teammates') && (
+            <div className={`${styles.sidebarSection} ${styles.teammatesSection}`} style={{ flex: 'none', minHeight: 'auto' }}>
+              <div className={styles.sectionHeader}>
+                👥 Teammate Directories DMs
               </div>
-            ))}
-          </div>
-        </div>
-        )}
+              <div className={styles.sectionList} style={{ overflowY: 'visible', flex: 'none', height: 'auto' }}>
+                {displayedTeammates.map((u: any) => (
+                  <div
+                    key={u.id}
+                    onClick={() => startDM(u)}
+                    className={styles.teammateRow}
+                  >
+                    <div className={styles.teammateAvatar}>
+                      {initials(u.fullName)}
+                      {u.isOnline && (
+                        <span className={styles.statusDot} />
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.fullName}</span>
+                      <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{u.isOnline ? 'Online' : 'Offline'}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
-        {/* Bookmarks Section */}
-        {activeFilter === 'bookmarks' && (
-        <div className={`${styles.sidebarSection} ${styles.bookmarksSection}`}>
-          <div className={styles.sectionHeader}>
-            <span>🔖 Bookmarked Files</span>
-            <span className="badge badge-primary" style={{ fontSize: '9px', padding: '1px 4px' }}>{bookmarks.length}</span>
-          </div>
-          <div className={styles.sectionList}>
-            {displayedBookmarks.length === 0 ? (
-              <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', padding: '4px 12px' }}>No bookmarked files matching search</div>
-            ) : (
-              displayedBookmarks.map((b: any) => (
-                <div key={b.id} className={styles.bookmarkRow}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
-                    {b.type === 'folder' ? <Folder size={12} style={{ color: 'var(--brand-primary)', flexShrink: 0 }} /> : <File size={12} style={{ color: 'var(--brand-primary)', flexShrink: 0 }} />}
-                    <span style={{ fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={b.favoriteName}>
-                      {b.favoriteName}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <span onClick={() => handleSaveToPC(b.fileName)} title="Download" style={{ display: 'inline-flex', cursor: 'pointer' }}>
-                      <Download size={12} style={{ color: 'var(--brand-primary)' }} />
-                    </span>
-                    <span onClick={() => handleRemoveBookmark(b.id)} title="Remove Bookmark" style={{ display: 'inline-flex', cursor: 'pointer' }}>
-                      <X size={12} style={{ color: 'var(--brand-danger)' }} />
-                    </span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+          {/* Bookmarks Section */}
+          {(activeFilter === 'all' || activeFilter === 'bookmarks') && (
+            <div className={`${styles.sidebarSection} ${styles.bookmarksSection}`} style={{ flex: 'none', minHeight: 'auto', borderBottom: 'none' }}>
+              <div className={styles.sectionHeader}>
+                <span>🔖 Bookmarked Files</span>
+                <span className="badge badge-primary" style={{ fontSize: '9px', padding: '1px 4px' }}>{bookmarks.length}</span>
+              </div>
+              <div className={styles.sectionList} style={{ overflowY: 'visible', flex: 'none', height: 'auto' }}>
+                {displayedBookmarks.length === 0 ? (
+                  <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', padding: '4px 12px' }}>No bookmarked files matching search</div>
+                ) : (
+                  displayedBookmarks.map((b: any) => (
+                    <div key={b.id} className={styles.bookmarkRow}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                        {b.type === 'folder' ? <Folder size={12} style={{ color: 'var(--brand-primary)', flexShrink: 0 }} /> : <File size={12} style={{ color: 'var(--brand-primary)', flexShrink: 0 }} />}
+                        <span style={{ fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={b.favoriteName}>
+                          {b.favoriteName}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <span onClick={() => handleSaveToPC(b.fileName)} title="Download" style={{ display: 'inline-flex', cursor: 'pointer' }}>
+                          <Download size={12} style={{ color: 'var(--brand-primary)' }} />
+                        </span>
+                        <span onClick={() => handleRemoveBookmark(b.id)} title="Remove Bookmark" style={{ display: 'inline-flex', cursor: 'pointer' }}>
+                          <X size={12} style={{ color: 'var(--brand-danger)' }} />
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
         </div>
-        )}
       </div>
 
       {/* Message Arena */}
@@ -946,6 +1030,14 @@ export default function ChatPage() {
                 title="Toggle Sidebar"
               >
                 <Menu size={18} style={{ color: 'var(--text-secondary)' }} />
+              </button>
+              <button 
+                className="btn btn-ghost btn-icon" 
+                onClick={() => setChatSidebarCollapsed(!chatSidebarCollapsed)}
+                style={{ marginRight: '8px' }}
+                title={chatSidebarCollapsed ? "Expand Conversation List" : "Collapse Conversation List"}
+              >
+                {chatSidebarCollapsed ? <ChevronRight size={18} style={{ color: 'var(--text-secondary)' }} /> : <ChevronRight size={18} style={{ color: 'var(--text-secondary)', transform: 'rotate(180deg)' }} />}
               </button>
               <div className={styles.convAvatar} style={{ background: 'var(--gradient-brand)' }}>
                 {activeConv.type === 'group' || activeConv.type === 'department' ? <Hash size={16} /> : (activeConv.name?.charAt(0).toUpperCase() || 'U')}
@@ -1122,7 +1214,7 @@ export default function ChatPage() {
                                 <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--wa-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.file_name || msg.fileName || "System_Audit_Report.pdf"}</div>
                                 <span style={{ fontSize: '9px', color: 'var(--wa-text-secondary)' }}>{formatBytes(msg.file_size || msg.fileSize || 145408)} — Document</span>
                               </div>
-                              <a href={msg.file_url || msg.fileUrl || "#"} download={msg.file_name || msg.fileName || "document"} onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex' }}><Download size={14} style={{ color: 'var(--wa-accent)' }} /></a>
+                              <span onClick={(e) => { e.stopPropagation(); handleSaveToPC(msg.file_name || msg.fileName || "document", '', msg.file_url || msg.fileUrl); }} style={{ display: 'inline-flex', cursor: 'pointer' }}><Download size={14} style={{ color: 'var(--wa-accent)' }} /></span>
                             </div>
                           )}
 
@@ -1410,15 +1502,6 @@ export default function ChatPage() {
                 <button
                   type="button"
                   className="btn btn-ghost btn-icon"
-                  title="Voice Recording Handshake"
-                  onClick={startRecording}
-                >
-                  <Mic size={18} style={{ color: 'var(--brand-primary)' }} />
-                </button>
-                
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-icon"
                   title="Emoji resonance picker"
                   onClick={() => setShowEmoji(!showEmoji)}
                 >
@@ -1445,14 +1528,26 @@ export default function ChatPage() {
                   </div>
                 )}
 
-                <button
-                  type="submit"
-                  disabled={(!message.trim() && stagedFiles.length === 0) || sendMutation.isPending}
-                  className={`${styles.sendBtn} ${message.trim() || stagedFiles.length > 0 ? styles.sendBtnActive : ''}`}
-                  title="Send secure signal"
-                >
-                  <Send size={18} />
-                </button>
+                {message.trim() || stagedFiles.length > 0 ? (
+                  <button
+                    type="submit"
+                    disabled={sendMutation.isPending}
+                    className={`${styles.sendBtn} ${styles.sendBtnActive}`}
+                    title="Send secure signal"
+                  >
+                    <Send size={18} />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.sendBtn}
+                    title="Voice Recording Handshake"
+                    onClick={startRecording}
+                    style={{ color: 'var(--wa-accent)' }}
+                  >
+                    <Mic size={18} />
+                  </button>
+                )}
 
                 <input type="file" ref={fileInputRef} style={{ display: 'none' }} multiple accept={uploadAccept} onChange={e => handleFileUpload(e, false)} />
                 <input

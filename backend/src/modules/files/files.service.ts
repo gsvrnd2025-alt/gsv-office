@@ -157,4 +157,73 @@ export class FilesService {
     );
     return newFile;
   }
+
+  async saveFolderZip(dto: {
+    files: any[];
+    folderName: string;
+    folderId?: string;
+    relativePaths?: string | string[];
+    ownerId: string;
+  }) {
+    const archiver = require('archiver');
+    const fs = require('fs');
+    const { v4: uuid } = require('uuid');
+    const zipName = `${uuid()}.zip`;
+    const uploadDir = process.env.UPLOAD_PATH || '/app/uploads';
+    const zipPath = path.join(uploadDir, zipName);
+    
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    const output = fs.createWriteStream(zipPath);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    await new Promise((resolve, reject) => {
+      output.on('close', resolve);
+      archive.on('error', reject);
+      archive.pipe(output);
+
+      let pathsArr: string[] = [];
+      if (typeof dto.relativePaths === 'string') {
+        try {
+          pathsArr = JSON.parse(dto.relativePaths);
+        } catch {
+          pathsArr = [dto.relativePaths];
+        }
+      } else if (Array.isArray(dto.relativePaths)) {
+        pathsArr = dto.relativePaths;
+      }
+
+      dto.files.forEach((file, index) => {
+        const nameInZip = pathsArr[index] || file.originalname || `file-${index}`;
+        archive.file(file.path, { name: nameInZip });
+      });
+
+      archive.finalize();
+    });
+
+    const stats = fs.statSync(zipPath);
+
+    const savedFile = await this.saveFile({
+      name: zipName,
+      originalName: `${dto.folderName || 'Staged_Folder'}.zip`,
+      mimeType: 'application/zip',
+      size: stats.size,
+      storagePath: zipPath,
+      storageUrl: `/uploads/${zipName}`,
+      ownerId: dto.ownerId,
+      folderId: dto.folderId
+    });
+
+    dto.files.forEach(f => {
+      try {
+        fs.unlinkSync(f.path);
+      } catch (err) {
+        console.warn('Failed to delete temp file during folder zip cleanup:', err.message);
+      }
+    });
+
+    return savedFile;
+  }
 }

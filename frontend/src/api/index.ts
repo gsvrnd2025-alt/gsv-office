@@ -108,6 +108,7 @@ export const filesApi = {
   getShared: () => api.get('/files/shared'),
   createFolder: (data: any) => api.post('/files/folders', data),
   upload: (formData: FormData) => api.post('/files/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  uploadFolder: (formData: FormData) => api.post('/files/upload-folder', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
   delete: (id: string) => api.delete(`/files/${id}`),
   getAccessRequests: () => api.get('/files/access-requests'),
   requestAccess: (data: any) => api.post('/files/access-requests', data),

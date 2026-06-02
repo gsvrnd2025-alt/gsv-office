@@ -1,6 +1,6 @@
-import { Controller, Get, Post, Delete, Body, Param, Query, UseGuards, ParseUUIDPipe, UploadedFile, UseInterceptors, Res } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, Query, UseGuards, ParseUUIDPipe, UploadedFile, UploadedFiles, UseInterceptors, Res } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
@@ -61,6 +61,31 @@ export class FilesController {
       storageUrl: `/uploads/${file.filename}`,
       ownerId: userId,
       folderId: dto.folderId,
+    });
+  }
+
+  @Post('upload-folder')
+  @RequirePermissions(['files', 'upload'])
+  @UseInterceptors(FilesInterceptor('files', 500, {
+    storage: diskStorage({
+      destination: (req, file, cb) => { cb(null, process.env.UPLOAD_PATH || '/app/uploads'); },
+      filename: (req, file, cb) => { cb(null, `${uuid()}${path.extname(file.originalname)}`); },
+    }),
+    limits: { fileSize: 500 * 1024 * 1024 },
+  }))
+  async uploadFolder(
+    @UploadedFiles() files: Express.Multer.File[],
+    @Body('folderName') folderName: string,
+    @Body('folderId') folderId: string,
+    @Body('relativePaths') relativePaths: any,
+    @CurrentUser('id') userId: string
+  ) {
+    return this.svc.saveFolderZip({
+      files,
+      folderName,
+      folderId,
+      relativePaths,
+      ownerId: userId
     });
   }
 

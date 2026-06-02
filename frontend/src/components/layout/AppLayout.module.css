@@ -40,7 +40,7 @@
 
 .chatPageContent {
   flex: 1;
-  padding: var(--topbar-height) 0 0 0;
+  padding: 0;
   overflow: hidden;
   height: 100vh;
   min-height: 0;
@@ -57,6 +57,6 @@
     padding: var(--space-4);
   }
   .chatPageContent {
-    padding: var(--topbar-height) 0 0 0;
+    padding: 0;
   }
 }
