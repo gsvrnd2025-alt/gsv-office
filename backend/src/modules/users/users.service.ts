@@ -26,7 +26,7 @@ export class UsersService {
     const qb = this.usersRepo.createQueryBuilder('user')
       .leftJoinAndSelect('user.role', 'role')
       .leftJoinAndSelect('user.department', 'department')
-      .where('user.deleted_at IS NULL');
+      .where('user.deletedAt IS NULL');
 
     if (search) {
       qb.andWhere(
