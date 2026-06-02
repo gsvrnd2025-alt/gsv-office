@@ -22,9 +22,9 @@ export class ChatService {
     return this.dataSource.query(`
       SELECT m.id, m.conversation_id, m.sender_id, m.content, m.file_id, m.reply_to_id, m.created_at, m.edited_at AS updated_at, m.deleted_at,
              CASE
-               WHEN m.type = 'image' THEN 'photo'
-               WHEN m.type = 'audio' THEN 'music'
-               ELSE m.type
+               WHEN m.type::text = 'image' THEN 'photo'
+               WHEN m.type::text = 'audio' THEN 'music'
+               ELSE m.type::text
              END AS type,
              u.full_name AS sender_name, u.avatar_url AS sender_avatar,
              COALESCE(json_agg(DISTINCT mr.*) FILTER (WHERE mr.id IS NOT NULL), '[]') AS reactions,
