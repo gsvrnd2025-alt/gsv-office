@@ -43,10 +43,13 @@ export class FilesService {
     storagePath: string; storageUrl: string; ownerId: string; folderId?: string; conversationId?: string;
   }) {
     const ext = path.extname(dto.originalName).replace('.', '');
+    const folderId = (dto.folderId && dto.folderId !== '' && dto.folderId !== 'null' && dto.folderId !== 'undefined') ? dto.folderId : null;
+    const conversationId = (dto.conversationId && dto.conversationId !== '' && dto.conversationId !== 'null' && dto.conversationId !== 'undefined') ? dto.conversationId : null;
+
     const [file] = await this.dataSource.query(
       `INSERT INTO files (name, original_name, mime_type, size, extension, storage_path, storage_url, owner_id, folder_id, conversation_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-      [dto.name, dto.originalName, dto.mimeType, dto.size, ext, dto.storagePath, dto.storageUrl, dto.ownerId, dto.folderId || null, dto.conversationId || null]
+      [dto.name, dto.originalName, dto.mimeType, dto.size, ext, dto.storagePath, dto.storageUrl, dto.ownerId, folderId, conversationId]
     );
     return file;
   }

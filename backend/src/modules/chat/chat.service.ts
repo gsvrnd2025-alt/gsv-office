@@ -20,7 +20,13 @@ export class ChatService {
 
   async getMessages(conversationId: string, userId: string, page = 1, limit = 50) {
     return this.dataSource.query(`
-      SELECT m.*, u.full_name AS sender_name, u.avatar_url AS sender_avatar,
+      SELECT m.id, m.conversation_id, m.sender_id, m.content, m.file_id, m.reply_to_id, m.created_at, m.updated_at, m.deleted_at,
+             CASE
+               WHEN m.type = 'image' THEN 'photo'
+               WHEN m.type = 'audio' THEN 'music'
+               ELSE m.type
+             END AS type,
+             u.full_name AS sender_name, u.avatar_url AS sender_avatar,
              COALESCE(json_agg(DISTINCT mr.*) FILTER (WHERE mr.id IS NOT NULL), '[]') AS reactions,
              f.name AS file_name, f.mime_type, f.size AS file_size, f.storage_url AS file_url
       FROM messages m
@@ -61,11 +67,28 @@ export class ChatService {
   }
 
   async sendMessage(dto: { conversationId: string; senderId: string; content: string; type?: string; fileId?: string; replyToId?: string }) {
+    let mappedType = dto.type || 'text';
+    if (mappedType === 'photo') mappedType = 'image';
+    if (mappedType === 'music') mappedType = 'audio';
+    if (mappedType === 'folder') mappedType = 'file';
+
+    const validTypes = ['text', 'image', 'video', 'audio', 'document', 'file', 'voice_note', 'system'];
+    if (!validTypes.includes(mappedType)) {
+      mappedType = 'file';
+    }
+
+    const fileId = (dto.fileId && dto.fileId !== '' && dto.fileId !== 'null' && dto.fileId !== 'undefined') ? dto.fileId : null;
+    const replyToId = (dto.replyToId && dto.replyToId !== '' && dto.replyToId !== 'null' && dto.replyToId !== 'undefined') ? dto.replyToId : null;
+
     const [msg] = await this.dataSource.query(
       `INSERT INTO messages (conversation_id, sender_id, content, type, file_id, reply_to_id)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [dto.conversationId, dto.senderId, dto.content, dto.type || 'text', dto.fileId, dto.replyToId]
+      [dto.conversationId, dto.senderId, dto.content, mappedType, fileId, replyToId]
     );
+
+    if (msg.type === 'image') msg.type = 'photo';
+    if (msg.type === 'audio') msg.type = 'music';
+
     await this.dataSource.query(
       `UPDATE conversations SET last_message_at = NOW(), last_message_preview = $1 WHERE id = $2`,
       [dto.content?.substring(0, 100), dto.conversationId]
