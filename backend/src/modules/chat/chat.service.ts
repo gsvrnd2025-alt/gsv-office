@@ -34,7 +34,7 @@ export class ChatService {
       LEFT JOIN message_reactions mr ON mr.message_id = m.id
       LEFT JOIN files f ON f.id = m.file_id
       WHERE m.conversation_id = $1 AND m.deleted_at IS NULL
-      GROUP BY m.id, u.full_name, u.avatar_url, f.name, f.mime_type, f.size, f.storage_url
+      GROUP BY m.id, m.conversation_id, m.sender_id, m.content, m.file_id, m.reply_to_id, m.created_at, m.edited_at, m.deleted_at, m.type, u.full_name, u.avatar_url, f.name, f.mime_type, f.size, f.storage_url
       ORDER BY m.created_at DESC
       LIMIT $2 OFFSET $3
     `, [conversationId, limit, (page - 1) * limit]);
