@@ -147,6 +147,38 @@ export default function ChatPage() {
     }
   };
 
+  const handleShareFile = async (msg: any) => {
+    const url = msg.file_url || msg.fileUrl;
+    const name = msg.file_name || msg.fileName || 'Shared file';
+    if (!url) {
+      toast.error('No link available to share.');
+      return;
+    }
+    const absoluteUrl = url.startsWith('http') ? url : `${window.location.origin}${url}`;
+    
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: name,
+          text: `Shared via GSV Office: ${name}`,
+          url: absoluteUrl,
+        });
+        toast.success('Shared successfully!');
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          toast.error('Failed to share.');
+        }
+      }
+    } else {
+      try {
+        await navigator.clipboard.writeText(absoluteUrl);
+        toast.success('Link copied to clipboard! 🔗');
+      } catch {
+        toast.error('Failed to copy link.');
+      }
+    }
+  };
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -689,26 +721,37 @@ export default function ChatPage() {
               {previewFile.type === 'photo' ? <Image size={20} /> : previewFile.type === 'video' ? <Video size={20} /> : <File size={20} />}
               <span style={{ fontSize: '15px', fontWeight: 600 }}>{previewFile.name}</span>
             </div>
-            <div style={{ display: 'flex', gap: '16px' }}>
-              <button style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => handleSaveToPC(previewFile.name, '', previewFile.url)} title="Download">
-                <Download size={22} />
+            <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+              <button style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={(e) => { e.stopPropagation(); handleShareFile({ fileUrl: previewFile.url, fileName: previewFile.name }); }} title="Share Link">
+                <Send size={18} />
+              </button>
+              <button style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={(e) => { e.stopPropagation(); setForwardingMsg({ fileUrl: previewFile.url, fileName: previewFile.name, type: previewFile.type === 'photo' ? 'photo' : previewFile.type === 'video' ? 'video' : 'file', content: `Shared file: ${previewFile.name}` }); setPreviewFile(null); }} title="Forward File">
+                <ArrowRight size={18} />
+              </button>
+              <button style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={(e) => { e.stopPropagation(); handleSaveToPC(previewFile.name, '', previewFile.url); }} title="Download">
+                <Download size={20} />
               </button>
               <button style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setPreviewFile(null)} title="Close">
-                <X size={24} />
+                <X size={22} />
               </button>
             </div>
           </div>
 
-          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 40px 40px 40px' }}>
+          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 40px 40px 40px' }} onClick={() => setPreviewFile(null)}>
             {previewFile.type === 'photo' && (
               <img src={previewFile.url} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: '8px', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }} alt={previewFile.name} onClick={(e) => e.stopPropagation()} />
             )}
             {previewFile.type === 'video' && (
               <video src={previewFile.url} controls style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: '8px', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }} onClick={(e) => e.stopPropagation()} autoPlay />
             )}
-            {(previewFile.type === 'file' || previewFile.type === 'document') && (
+            {previewFile.type === 'pdf' && (
+              <div style={{ width: '90%', height: '85%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }} onClick={(e) => e.stopPropagation()}>
+                <iframe src={previewFile.url} style={{ width: '100%', height: '100%', border: 'none', borderRadius: '8px', background: '#fff' }} title={previewFile.name}></iframe>
+              </div>
+            )}
+            {previewFile.type !== 'photo' && previewFile.type !== 'video' && previewFile.type !== 'pdf' && (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', color: '#fff' }} onClick={(e) => e.stopPropagation()}>
-                <File size={80} style={{ color: 'var(--brand-primary)', opacity: 0.8 }} />
+                <File size={80} style={{ color: 'var(--wa-accent)', opacity: 0.8 }} />
                 <div style={{ fontSize: '16px' }}>No preview available for this file type.</div>
                 <button className="btn btn-primary" onClick={() => handleSaveToPC(previewFile.name, '', previewFile.url)}>
                   <Download size={16} /> Download File
@@ -747,26 +790,20 @@ export default function ChatPage() {
         </div>
 
         {/* Tab Filters */}
-        <div style={{ display: 'flex', gap: '4px', padding: '0 16px 12px 16px', borderBottom: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
+        <div className={styles.filterScrollContainer}>
           {[
             { key: 'all', label: 'All' },
-            { key: 'channels', label: 'Channels' },
             { key: 'dms', label: 'DMs' },
             { key: 'groups', label: 'Groups' },
+            { key: 'channels', label: 'Channels' },
             { key: 'online', label: 'Online' },
-            { key: 'teammates', label: 'Directory DMs' },
+            { key: 'teammates', label: 'Contacts' },
             { key: 'bookmarks', label: 'Bookmarks' }
           ].map(t => (
             <button
               key={t.key}
               onClick={() => setActiveFilter(t.key as any)}
-              style={{
-                flex: '1 1 calc(25% - 4px)', padding: '6px 0', fontSize: '9px', fontWeight: 700,
-                background: activeFilter === t.key ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
-                color: activeFilter === t.key ? '#6366f1' : 'var(--text-tertiary)',
-                border: `1px solid ${activeFilter === t.key ? 'rgba(99, 102, 241, 0.25)' : 'transparent'}`,
-                borderRadius: '6px', cursor: 'pointer', transition: 'all 0.2s', textTransform: 'uppercase'
-              }}
+              className={`${styles.filterPill} ${activeFilter === t.key ? styles.filterPillActive : ''}`}
             >
               {t.label}
             </button>
@@ -1010,6 +1047,28 @@ export default function ChatPage() {
                         {renderMessageContent(msg.content)}
                       </div>
 
+                      {/* YouTube Video Inline Embed */}
+                      {(() => {
+                        const ytId = getYouTubeId(msg.content);
+                        if (ytId) {
+                          return (
+                            <div style={{ marginTop: '8px', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--wa-border)', maxWidth: '320px', aspectRatio: '16/9' }} onClick={(e) => e.stopPropagation()}>
+                              <iframe
+                                width="100%"
+                                height="100%"
+                                src={`https://www.youtube.com/embed/${ytId}`}
+                                title="YouTube video player"
+                                frameBorder="0"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                allowFullScreen
+                                style={{ width: '100%', height: '100%' }}
+                              ></iframe>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
+
                       {/* Rich attachments */}
                       {hasAttachment && (
                         <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1050,36 +1109,40 @@ export default function ChatPage() {
 
                           {msg.type === 'file' && (
                             <div style={{
-                              background: 'var(--bg-secondary)', borderRadius: '8px', padding: '8px 12px',
+                              background: 'var(--wa-bg)', borderRadius: '8px', padding: '8px 12px',
                               display: 'flex', alignItems: 'center', gap: '10px', maxWidth: '280px',
-                              border: '1px solid var(--border-color)', cursor: 'pointer'
-                            }} className="hover-glass" onClick={() => setPreviewFile({ url: msg.file_url || msg.fileUrl || "#", name: msg.file_name || msg.fileName || "System_Audit_Report.pdf", type: 'file' })}>
-                              <File size={16} style={{ color: '#6366f1' }} />
+                              border: '1px solid var(--wa-border)', cursor: 'pointer'
+                            }} className="hover-glass" onClick={() => {
+                              const fName = msg.file_name || msg.fileName || "System_Audit_Report.pdf";
+                              const pType = fName.toLowerCase().endsWith('.pdf') ? 'pdf' : 'file';
+                              setPreviewFile({ url: msg.file_url || msg.fileUrl || "#", name: fName, type: pType });
+                            }}>
+                              {getFileIcon(msg.file_name || msg.fileName || "System_Audit_Report.pdf")}
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.file_name || msg.fileName || "System_Audit_Report.pdf"}</div>
-                                <span style={{ fontSize: '9px', color: 'var(--text-tertiary)' }}>{formatBytes(msg.file_size || msg.fileSize || 145408)} — Document</span>
+                                <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--wa-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.file_name || msg.fileName || "System_Audit_Report.pdf"}</div>
+                                <span style={{ fontSize: '9px', color: 'var(--wa-text-secondary)' }}>{formatBytes(msg.file_size || msg.fileSize || 145408)} — Document</span>
                               </div>
-                              <a href={msg.file_url || msg.fileUrl || "#"} download={msg.file_name || msg.fileName || "document"} onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex' }}><Download size={14} style={{ color: 'var(--brand-primary)' }} /></a>
+                              <a href={msg.file_url || msg.fileUrl || "#"} download={msg.file_name || msg.fileName || "document"} onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex' }}><Download size={14} style={{ color: 'var(--wa-accent)' }} /></a>
                             </div>
                           )}
 
                           {msg.type === 'folder' && (
                             <div style={{
-                              background: 'var(--bg-card)', borderRadius: '12px', padding: '12px',
+                              background: 'var(--wa-bg)', borderRadius: '12px', padding: '12px',
                               display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '290px',
-                              border: '1.5px solid rgba(99, 102, 241, 0.25)', boxShadow: '0 8px 24px rgba(99, 102, 241, 0.1)'
+                              border: '1.5px solid rgba(0, 168, 132, 0.25)', boxShadow: '0 4px 12px rgba(0, 168, 132, 0.05)'
                             }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '6px' }}>
-                                <Folder size={18} style={{ color: 'var(--brand-primary)' }} />
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--wa-border)', paddingBottom: '6px' }}>
+                                <Folder size={18} style={{ color: 'var(--wa-accent)' }} />
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.file_name || msg.fileName || "GSV_Office_Init/"}</div>
-                                  <div style={{ fontSize: '9px', color: 'var(--text-tertiary)' }}>{msg.file_size || msg.fileSize || "4 Files"} — SMB Share Pool</div>
+                                  <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--wa-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.file_name || msg.fileName || "GSV_Office_Init/"}</div>
+                                  <div style={{ fontSize: '9px', color: 'var(--wa-text-secondary)' }}>{msg.file_size || msg.fileSize || "4 Files"} — SMB Share Pool</div>
                                 </div>
                               </div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                 {['schema.sql', 'seed.sql', 'nginx.conf', 'logo.png'].map((fName, fIdx) => (
-                                  <div key={fIdx} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: 'var(--text-secondary)', paddingLeft: '4px' }}>
-                                    <ChevronRight size={10} style={{ color: 'var(--brand-primary)' }} />
+                                  <div key={fIdx} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: 'var(--wa-text-secondary)', paddingLeft: '4px' }}>
+                                    <ChevronRight size={10} style={{ color: 'var(--wa-accent)' }} />
                                     <span>{fName}</span>
                                   </div>
                                 ))}
@@ -1090,25 +1153,43 @@ export default function ChatPage() {
                             </div>
                           )}
 
-                          <div style={{ display: 'flex', gap: '12px', marginTop: '4px', borderTop: '1px solid var(--border-color)', paddingTop: '6px' }}>
+                          {/* File Actions Quick Bar */}
+                          <div style={{ display: 'flex', gap: '12px', marginTop: '6px', borderTop: '1px solid var(--wa-border)', paddingTop: '6px', flexWrap: 'wrap' }}>
                             <span
-                              onClick={() => handleSaveToPC(msg.file_name || msg.fileName || (msg.type === 'folder' ? 'GSV_Office_Init.zip' : msg.type === 'music' ? 'Acoustic_Handshake.mp3' : 'System_Audit_Report.pdf'))}
-                              style={{ fontSize: '10px', color: 'var(--brand-primary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '2px', fontWeight: 600 }}
+                              onClick={() => handleSaveToPC(msg.file_name || msg.fileName || (msg.type === 'folder' ? 'GSV_Office_Init.zip' : msg.type === 'music' ? 'Acoustic_Handshake.mp3' : 'System_Audit_Report.pdf'), '', msg.file_url || msg.fileUrl)}
+                              style={{ fontSize: '10px', color: 'var(--wa-accent)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '2px', fontWeight: 600 }}
+                              title="Download to PC"
                             >
-                              💾 Save to PC
+                              💾 Download
+                            </span>
+                            <span
+                              onClick={() => handleShareFile(msg)}
+                              style={{ fontSize: '10px', color: 'var(--wa-accent)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '2px', fontWeight: 600 }}
+                              title="Copy sharing link"
+                            >
+                              🔗 Share
+                            </span>
+                            <span
+                              onClick={() => setForwardingMsg(msg)}
+                              style={{ fontSize: '10px', color: 'var(--wa-accent)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '2px', fontWeight: 600 }}
+                              title="Forward file message"
+                            >
+                              ➡️ Forward
                             </span>
                             <span
                               onClick={() => handleAddBookmark(msg)}
-                              style={{ fontSize: '10px', color: 'var(--brand-primary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '2px', fontWeight: 600 }}
+                              style={{ fontSize: '10px', color: 'var(--wa-accent)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '2px', fontWeight: 600 }}
+                              title="Save bookmark"
                             >
                               🔖 Bookmark
                             </span>
                             {msg.file_id && (
                               <span
                                 onClick={() => handleSaveToCloud(msg.file_id)}
-                                style={{ fontSize: '10px', color: 'var(--brand-primary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '2px', fontWeight: 600 }}
+                                style={{ fontSize: '10px', color: 'var(--wa-accent)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '2px', fontWeight: 600 }}
+                                title="Backup to Cloud storage"
                               >
-                                ☁️ Save to Cloud
+                                ☁️ Cloud
                               </span>
                             )}
                           </div>
@@ -1565,4 +1646,25 @@ function formatTime(dateStr: string): string {
     return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
   }
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+}
+
+function getYouTubeId(url: string): string | null {
+  if (!url) return null;
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+  return (match && match[2].length === 11) ? match[2] : null;
+}
+
+function getFileIcon(fileName: string) {
+  const ext = (fileName || '').toLowerCase().split('.').pop() || '';
+  if (ext === 'apk') {
+    return <Sparkles size={16} style={{ color: '#a4c639', flexShrink: 0 }} />;
+  }
+  if (['zip', 'rar', 'tar', 'gz', '7z'].includes(ext)) {
+    return <Folder size={16} style={{ color: '#f59e0b', flexShrink: 0 }} />;
+  }
+  if (ext === 'pdf') {
+    return <File size={16} style={{ color: '#ef4444', flexShrink: 0 }} />;
+  }
+  return <File size={16} style={{ color: 'var(--wa-accent)', flexShrink: 0 }} />;
 }

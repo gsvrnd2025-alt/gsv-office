@@ -6,13 +6,16 @@ import { IoAdapter } from '@nestjs/platform-socket.io';
 import * as compression from 'compression';
 import * as cookieParser from 'cookie-parser';
 import helmet from 'helmet';
+import * as path from 'path';
+import * as fs from 'fs';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: ['error', 'warn', 'log', 'debug'],
     cors: false, // Configured below
   });
@@ -24,6 +27,15 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   const port = configService.get<number>('PORT', 3000);
   const nodeEnv = configService.get<string>('NODE_ENV', 'development');
+
+  // ── Serve uploads statically (for development) ─────────────
+  const uploadPath = configService.get<string>('UPLOAD_PATH') || path.join(__dirname, '..', 'uploads');
+  if (!fs.existsSync(uploadPath)) {
+    fs.mkdirSync(uploadPath, { recursive: true });
+  }
+  app.useStaticAssets(uploadPath, {
+    prefix: '/uploads/',
+  });
 
   // ── Security ──────────────────────────────────────────────────
   app.use(helmet({

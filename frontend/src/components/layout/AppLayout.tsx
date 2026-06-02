@@ -1,4 +1,4 @@
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { Sidebar } from '../ui/Sidebar';
 import { Topbar } from '../ui/Topbar';
@@ -9,6 +9,9 @@ export function AppLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const { theme } = useThemeStore();
+  const location = useLocation();
+
+  const isChatPage = location.pathname.startsWith('/chat');
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -33,7 +36,7 @@ export function AppLayout() {
           onMenuClick={() => setMobileSidebarOpen(true)}
           sidebarCollapsed={sidebarCollapsed}
         />
-        <main className={styles.pageContent}>
+        <main className={isChatPage ? styles.chatPageContent : styles.pageContent}>
           <Outlet context={{ sidebarCollapsed, setSidebarCollapsed }} />
         </main>
       </div>

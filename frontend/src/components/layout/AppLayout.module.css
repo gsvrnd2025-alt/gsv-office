@@ -38,11 +38,25 @@
   flex-direction: column;
 }
 
+.chatPageContent {
+  flex: 1;
+  padding: var(--topbar-height) 0 0 0;
+  overflow: hidden;
+  height: 100vh;
+  min-height: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
 @media (max-width: 1024px) {
   .mainContent {
     margin-left: 0 !important;
   }
   .pageContent {
     padding: var(--space-4);
+  }
+  .chatPageContent {
+    padding: var(--topbar-height) 0 0 0;
   }
 }
