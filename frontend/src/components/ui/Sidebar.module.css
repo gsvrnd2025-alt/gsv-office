@@ -12,6 +12,17 @@
 }
 
 .sidebar.collapsed { width: var(--sidebar-collapsed-width); }
+.sidebar.collapsed .logo {
+  justify-content: center;
+  padding: 20px 0;
+}
+.sidebar.collapsed .collapseBtn {
+  position: relative;
+  right: auto;
+  margin: 0 auto;
+  width: 32px;
+  height: 32px;
+}
 
 /* Mobile */
 @media (max-width: 1024px) {

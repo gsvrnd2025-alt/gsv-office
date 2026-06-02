@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Send, Plus, Search, MessageSquare, Hash, Phone, Video,
   MoreVertical, Smile, Paperclip, CheckCheck, Check, File, Image,
-  Download, Folder, Volume2, ChevronRight, X, Users2,
+  Download, Folder, Volume2, ChevronRight, ChevronLeft, X, Users2,
   Pin, ArrowRight, Mic, Sparkles, Copy, Trash2, Menu
 } from 'lucide-react';
 import { chatApi, usersApi, filesApi } from '../../api';
@@ -18,6 +18,58 @@ interface StagedFile {
   size: string;
   blob: File;
   type: string;
+}
+
+function DraggableRow({ children, className, style }: any) {
+  const ref = useRef<HTMLDivElement>(null);
+  
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let isDown = false;
+    let startX = 0;
+    let scrollLeft = 0;
+    
+    const handleMouseDown = (e: MouseEvent) => {
+      isDown = true;
+      startX = e.pageX - el.offsetLeft;
+      scrollLeft = el.scrollLeft;
+      el.style.cursor = 'grabbing';
+    };
+    const handleMouseLeave = () => {
+      isDown = false;
+      el.style.cursor = 'pointer';
+    };
+    const handleMouseUp = () => {
+      isDown = false;
+      el.style.cursor = 'pointer';
+    };
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDown) return;
+      e.preventDefault();
+      const x = e.pageX - el.offsetLeft;
+      const walk = (x - startX) * 1.5;
+      el.scrollLeft = scrollLeft - walk;
+    };
+    
+    el.addEventListener('mousedown', handleMouseDown);
+    el.addEventListener('mouseleave', handleMouseLeave);
+    el.addEventListener('mouseup', handleMouseUp);
+    el.addEventListener('mousemove', handleMouseMove);
+    
+    return () => {
+      el.removeEventListener('mousedown', handleMouseDown);
+      el.removeEventListener('mouseleave', handleMouseLeave);
+      el.removeEventListener('mouseup', handleMouseUp);
+      el.removeEventListener('mousemove', handleMouseMove);
+    };
+  }, []);
+  
+  return (
+    <div ref={ref} className={className} style={{ cursor: 'pointer', ...style }}>
+      {children}
+    </div>
+  );
 }
 
 export default function ChatPage() {
@@ -48,6 +100,7 @@ export default function ChatPage() {
   // WhatsApp-style Custom Features
   const [showAttachmentsDropdown, setShowAttachmentsDropdown] = useState(false);
   const [fileSearch, setFileSearch] = useState('');
+  const [fileCategory, setFileCategory] = useState<'all' | 'image' | 'doc' | 'zip' | 'folder'>('all');
   const [sendingMessages, setSendingMessages] = useState<any[]>([]);
   const [uploadAccept, setUploadAccept] = useState('*');
   
@@ -652,16 +705,34 @@ export default function ChatPage() {
     return timeA - timeB;
   });
   sortedMessages = [...sortedMessages, ...sendingMessages];
-  if (fileSearch.trim()) {
+  if (fileSearch.trim() || fileCategory !== 'all') {
     const query = fileSearch.toLowerCase();
-    sortedMessages = sortedMessages.filter(
-      (m: any) => m.type !== 'text' && (
-        m.content?.toLowerCase().includes(query) || 
-        m.type?.toLowerCase().includes(query) ||
-        m.file_name?.toLowerCase().includes(query) ||
-        m.fileName?.toLowerCase().includes(query)
-      )
-    );
+    sortedMessages = sortedMessages.filter((m: any) => {
+      if (m.type === 'text' || m.type === undefined) return false;
+
+      if (fileCategory !== 'all') {
+        const name = (m.file_name || m.fileName || '').toLowerCase();
+        if (fileCategory === 'image') {
+          if (m.type !== 'photo' && m.type !== 'video' && m.type !== 'music') return false;
+        } else if (fileCategory === 'doc') {
+          if (m.type !== 'file' || !(name.endsWith('.pdf') || name.endsWith('.doc') || name.endsWith('.docx') || name.endsWith('.txt') || name.endsWith('.xls') || name.endsWith('.xlsx') || name.endsWith('.csv'))) return false;
+        } else if (fileCategory === 'zip') {
+          if (m.type !== 'file' || !(name.endsWith('.zip') || name.endsWith('.rar') || name.endsWith('.tar') || name.endsWith('.gz') || name.endsWith('.7z'))) return false;
+        } else if (fileCategory === 'folder') {
+          if (m.type !== 'folder') return false;
+        }
+      }
+
+      if (query) {
+        return (
+          m.content?.toLowerCase().includes(query) || 
+          m.type?.toLowerCase().includes(query) ||
+          m.file_name?.toLowerCase().includes(query) ||
+          m.fileName?.toLowerCase().includes(query)
+        );
+      }
+      return true;
+    });
   }
 
   // Bytes Formatter helper
@@ -847,6 +918,14 @@ export default function ChatPage() {
       <div className={`${styles.convSidebar} ${chatSidebarCollapsed ? styles.collapsed : ''}`}>
         <div className={styles.convHeader}>
           <h2 className={styles.convTitle}>
+            <button
+              className="btn btn-ghost btn-icon btn-sm"
+              onClick={() => setChatSidebarCollapsed(true)}
+              style={{ marginRight: '6px', width: '28px', height: '28px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+              title="Collapse Conversation List"
+            >
+              <ChevronLeft size={16} style={{ color: 'var(--text-secondary)' }} />
+            </button>
             <MessageSquare size={18} style={{ color: 'var(--brand-primary)' }} />
             Node Matrix
           </h2>
@@ -870,13 +949,27 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Tab Filters */}
-        <div className={styles.filterScrollContainer}>
+        {/* Tab Filters Split Row 1 */}
+        <DraggableRow className={styles.filterScrollContainer} style={{ paddingBottom: '4px' }}>
           {[
             { key: 'all', label: 'All' },
             { key: 'dms', label: 'DMs' },
             { key: 'groups', label: 'Groups' },
-            { key: 'channels', label: 'Channels' },
+            { key: 'channels', label: 'Channels' }
+          ].map(t => (
+            <button
+              key={t.key}
+              onClick={() => setActiveFilter(t.key as any)}
+              className={`${styles.filterPill} ${activeFilter === t.key ? styles.filterPillActive : ''}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </DraggableRow>
+
+        {/* Tab Filters Split Row 2 */}
+        <DraggableRow className={styles.filterScrollContainer} style={{ paddingTop: '0px' }}>
+          {[
             { key: 'online', label: 'Online' },
             { key: 'teammates', label: 'Contacts' },
             { key: 'bookmarks', label: 'Bookmarks' }
@@ -889,7 +982,7 @@ export default function ChatPage() {
               {t.label}
             </button>
           ))}
-        </div>
+        </DraggableRow>
 
         {/* Scrollable Wrapper for all sidebar sections to prevent overflow/hiding */}
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -1072,7 +1165,29 @@ export default function ChatPage() {
                 </div>
               </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <select
+                value={fileCategory}
+                onChange={e => setFileCategory(e.target.value as any)}
+                className="form-control"
+                style={{
+                  width: '90px',
+                  height: '28px',
+                  fontSize: '11px',
+                  padding: '0 4px',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--text-primary)',
+                  borderRadius: '6px'
+                }}
+                title="Filter by file type"
+              >
+                <option value="all">All Files</option>
+                <option value="image">Images</option>
+                <option value="doc">Docs</option>
+                <option value="zip">Zips</option>
+                <option value="folder">Folders</option>
+              </select>
               <div className="search-bar" style={{ width: '160px', marginRight: '8px' }}>
                 <Search size={12} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }} />
                 <input

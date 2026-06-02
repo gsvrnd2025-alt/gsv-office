@@ -1,5 +1,5 @@
 import {
-  Injectable, NotFoundException, ConflictException, BadRequestException,
+  Injectable, NotFoundException, ConflictException, BadRequestException, OnApplicationBootstrap,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, FindOptionsWhere } from 'typeorm';
@@ -10,11 +10,24 @@ import { UpdateUserDto } from './dto/create-user.dto';
 import { AuditService } from '../audit/audit.service';
 
 @Injectable()
-export class UsersService {
+export class UsersService implements OnApplicationBootstrap {
   constructor(
     @InjectRepository(User) private usersRepo: Repository<User>,
     private auditService: AuditService,
   ) {}
+
+  async onApplicationBootstrap() {
+    try {
+      const count = await this.usersRepo.count();
+      if (count <= 1) {
+        console.log('[UsersService] Only default user found. Automatically triggering Google Sheets sync...');
+        await this.syncSheets();
+        console.log('[UsersService] Auto-sync completed.');
+      }
+    } catch (err) {
+      console.error('[UsersService] Auto-sync failed on startup:', err);
+    }
+  }
 
   async findAll(query: {
     page?: number; limit?: number; search?: string;

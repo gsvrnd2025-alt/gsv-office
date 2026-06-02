@@ -76,9 +76,11 @@ export function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose }: Side
     <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ''} ${mobileOpen ? styles.mobileOpen : ''}`}>
       {/* Logo */}
       <div className={styles.logo}>
-        <div className={styles.logoIcon}>
-          <img src={logoImg} alt="GSV Logo" style={{ width: '32px', height: '32px', objectFit: 'contain' }} />
-        </div>
+        {!collapsed && (
+          <div className={styles.logoIcon}>
+            <img src={logoImg} alt="GSV Logo" style={{ width: '32px', height: '32px', objectFit: 'contain' }} />
+          </div>
+        )}
         {!collapsed && <span className={styles.logoText}>GSV Office</span>}
         <button className={styles.collapseBtn} onClick={onToggle} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
           {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
