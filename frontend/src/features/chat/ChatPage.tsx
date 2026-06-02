@@ -29,7 +29,8 @@ export default function ChatPage() {
   // Standard states
   const [message, setMessage] = useState('');
   const [search, setSearch] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'channels' | 'dms' | 'groups' | 'online'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'channels' | 'dms' | 'groups' | 'online' | 'teammates' | 'bookmarks'>('all');
+  const [selectedMessages, setSelectedMessages] = useState<string[]>([]);
   
   // Custom states
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
@@ -105,23 +106,31 @@ export default function ChatPage() {
     toast.success('Bookmark removed');
   };
 
-  const handleSaveToPC = async (fileName: string, content: string = 'GSV Office Mock SMB Shared Payload Content') => {
+  const handleSaveToPC = async (fileName: string, content: string = 'GSV Office Mock SMB Shared Payload Content', fileUrl?: string) => {
     try {
+      let blob: Blob;
+      if (fileUrl) {
+        const response = await fetch(fileUrl);
+        blob = await response.blob();
+      } else {
+        blob = new Blob([content], { type: 'text/plain' });
+      }
+
       if ('showSaveFilePicker' in window) {
         const handle = await (window as any).showSaveFilePicker({
           suggestedName: fileName,
         });
         const writable = await handle.createWritable();
-        await writable.write(new Blob([content], { type: 'text/plain' }));
+        await writable.write(blob);
         await writable.close();
         toast.success('Saved to PC successfully! 💾');
       } else {
-        const blob = new Blob([content], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
         a.download = fileName;
         a.click();
+        URL.revokeObjectURL(url);
         toast.success('Downloaded to PC successfully! 💾');
       }
     } catch (err: any) {
@@ -524,7 +533,14 @@ export default function ChatPage() {
     return true;
   });
   
-  const displayedTeammates = activeFilter === 'online' ? otherUsers.filter((u: any) => u.isOnline) : otherUsers;
+  const displayedTeammates = otherUsers.filter((u: any) => {
+    if (activeFilter === 'online' && !u.isOnline) return false;
+    return u.fullName?.toLowerCase().includes(search.toLowerCase()) || u.loginId?.toLowerCase().includes(search.toLowerCase());
+  });
+  
+  const displayedBookmarks = bookmarks.filter((b: any) => {
+    return b.favoriteName?.toLowerCase().includes(search.toLowerCase()) || b.fileName?.toLowerCase().includes(search.toLowerCase());
+  });
 
   const activeConv = conversations.find((c: any) => c.id === conversationId);
   
@@ -689,19 +705,21 @@ export default function ChatPage() {
         </div>
 
         {/* Tab Filters */}
-        <div style={{ display: 'flex', gap: '4px', padding: '0 16px 12px 16px', borderBottom: '1px solid var(--border-color)' }}>
+        <div style={{ display: 'flex', gap: '4px', padding: '0 16px 12px 16px', borderBottom: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
           {[
             { key: 'all', label: 'All' },
             { key: 'channels', label: 'Channels' },
             { key: 'dms', label: 'DMs' },
             { key: 'groups', label: 'Groups' },
-            { key: 'online', label: 'Online' }
+            { key: 'online', label: 'Online' },
+            { key: 'teammates', label: 'Teammates' },
+            { key: 'bookmarks', label: 'Bookmarks' }
           ].map(t => (
             <button
               key={t.key}
               onClick={() => setActiveFilter(t.key as any)}
               style={{
-                flex: 1, padding: '4px 0', fontSize: '10px', fontWeight: 700,
+                flex: '1 1 calc(25% - 4px)', padding: '6px 0', fontSize: '9px', fontWeight: 700,
                 background: activeFilter === t.key ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
                 color: activeFilter === t.key ? '#6366f1' : 'var(--text-tertiary)',
                 border: `1px solid ${activeFilter === t.key ? 'rgba(99, 102, 241, 0.25)' : 'transparent'}`,
@@ -714,6 +732,7 @@ export default function ChatPage() {
         </div>
 
         {/* Active Conversations Section */}
+        {activeFilter !== 'teammates' && activeFilter !== 'bookmarks' && (
         <div className={`${styles.sidebarSection} ${styles.activeConversationsSection}`}>
           <div className={styles.convList}>
             {filteredConvs.map((conv: any) => (
@@ -741,8 +760,10 @@ export default function ChatPage() {
             ))}
           </div>
         </div>
+        )}
 
         {/* Teammates Directory Section */}
+        {activeFilter === 'teammates' && (
         <div className={`${styles.sidebarSection} ${styles.teammatesSection}`}>
           <div className={styles.sectionHeader}>
             👥 Teammate Directories DMs
@@ -768,18 +789,20 @@ export default function ChatPage() {
             ))}
           </div>
         </div>
+        )}
 
         {/* Bookmarks Section */}
+        {activeFilter === 'bookmarks' && (
         <div className={`${styles.sidebarSection} ${styles.bookmarksSection}`}>
           <div className={styles.sectionHeader}>
             <span>🔖 Bookmarked Files</span>
             <span className="badge badge-primary" style={{ fontSize: '9px', padding: '1px 4px' }}>{bookmarks.length}</span>
           </div>
           <div className={styles.sectionList}>
-            {bookmarks.length === 0 ? (
-              <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', padding: '4px 12px' }}>No bookmarked files</div>
+            {displayedBookmarks.length === 0 ? (
+              <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', padding: '4px 12px' }}>No bookmarked files matching search</div>
             ) : (
-              bookmarks.map((b: any) => (
+              displayedBookmarks.map((b: any) => (
                 <div key={b.id} className={styles.bookmarkRow}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                     {b.type === 'folder' ? <Folder size={12} style={{ color: 'var(--brand-primary)', flexShrink: 0 }} /> : <File size={12} style={{ color: 'var(--brand-primary)', flexShrink: 0 }} />}
@@ -800,6 +823,7 @@ export default function ChatPage() {
             )}
           </div>
         </div>
+        )}
       </div>
 
       {/* Message Arena */}
@@ -900,8 +924,22 @@ export default function ChatPage() {
               const reactions = messageReactions[msg.id] || [];
 
               return (
-                <div key={msg.id || i} className={`${styles.messageBubbleWrapper} ${isOwn ? styles.own : ''}`}>
-                  {!isOwn && showAvatar && (
+                <div key={msg.id || i} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '2px 0' }} className="message-row-wrapper hover-glass">
+                  {(selectedMessages.length > 0 || true) && msg.id && (
+                    <div style={{ opacity: selectedMessages.length > 0 ? 1 : 0, transition: 'opacity 0.2s', width: '20px', flexShrink: 0 }} className="message-checkbox-container">
+                      <input
+                        type="checkbox"
+                        checked={selectedMessages.includes(msg.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedMessages(prev => [...prev, msg.id]);
+                          else setSelectedMessages(prev => prev.filter(id => id !== msg.id));
+                        }}
+                        style={{ cursor: 'pointer' }}
+                      />
+                    </div>
+                  )}
+                  <div className={`${styles.messageBubbleWrapper} ${isOwn ? styles.own : ''}`} style={{ flex: 1 }}>
+                    {!isOwn && showAvatar && (
                     <div className={styles.msgAvatar} style={{ background: 'var(--gradient-brand)' }}>
                       {senderName.charAt(0).toUpperCase()}
                     </div>
@@ -940,15 +978,22 @@ export default function ChatPage() {
                           )}
 
                           {msg.type === 'music' && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--bg-card)', borderRadius: '8px', padding: '8px', border: '1px solid var(--border-color)' }}>
-                              <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--brand-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <Volume2 size={16} />
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: 'var(--bg-card)', borderRadius: '8px', padding: '8px', border: '1px solid var(--border-color)' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--brand-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <Volume2 size={16} />
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.file_name || msg.fileName || "Acoustic_Handshake.mp3"}</div>
+                                  <div style={{ fontSize: '9px', color: 'var(--text-tertiary)' }}>{formatBytes(msg.file_size || msg.fileSize || 3565158)} — Voice Note</div>
+                                </div>
+                                <span onClick={() => handleSaveToPC(msg.file_name || msg.fileName || 'Acoustic_Handshake.mp3', '', msg.file_url || msg.fileUrl)} style={{ display: 'inline-flex', cursor: 'pointer' }}>
+                                  <Download size={14} style={{ color: 'var(--brand-primary)' }} />
+                                </span>
                               </div>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.file_name || msg.fileName || "Acoustic_Handshake.mp3"}</div>
-                                <div style={{ fontSize: '9px', color: 'var(--text-tertiary)' }}>{formatBytes(msg.file_size || msg.fileSize || 3565158)} — Voice Note</div>
-                              </div>
-                              <a href={msg.file_url || msg.fileUrl || "#"} download={msg.file_name || msg.fileName || "audio"} style={{ display: 'inline-flex' }}><Download size={14} style={{ color: 'var(--brand-primary)', cursor: 'pointer' }} /></a>
+                              <audio controls style={{ width: '100%', height: '32px' }}>
+                                <source src={msg.file_url || msg.fileUrl || "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"} type={msg.mime_type || msg.mimeType || "audio/mp3"} />
+                              </audio>
                             </div>
                           )}
 
@@ -1087,12 +1132,40 @@ export default function ChatPage() {
                       </div>
                     </div>
 
+                    </div>
                   </div>
                 </div>
               );
             })}
             <div ref={messagesEndRef} />
           </div>
+
+          {/* Bulk Action Bar */}
+          {selectedMessages.length > 0 && (
+            <div style={{
+              position: 'absolute', bottom: '80px', left: '50%', transform: 'translateX(-50%)', zIndex: 1100,
+              background: 'var(--bg-card)', border: '1.5px solid var(--brand-primary)',
+              boxShadow: '0 8px 32px rgba(99, 102, 241, 0.3)', borderRadius: '32px',
+              padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '16px',
+              color: 'var(--text-primary)', backdropFilter: 'blur(8px)', animation: 'slideUp 0.3s ease'
+            }}>
+              <span style={{ fontSize: '12px', fontWeight: 700 }}>{selectedMessages.length} selected</span>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button className="btn btn-ghost btn-sm" onClick={() => {
+                  const toForward = messages.find((m: any) => m.id === selectedMessages[0]);
+                  if (toForward) { setForwardingMsg(toForward); setSelectedMessages([]); }
+                  else toast.error('Multiple forward not supported yet.');
+                }}>Forward</button>
+                <button className="btn btn-danger btn-sm" onClick={() => {
+                  if (window.confirm(`Delete ${selectedMessages.length} messages?`)) {
+                    selectedMessages.forEach(id => deleteMessageMutation.mutate(id));
+                    setSelectedMessages([]);
+                  }
+                }}>Delete</button>
+                <button className="btn btn-secondary btn-sm btn-icon" onClick={() => setSelectedMessages([])}><X size={14} /></button>
+              </div>
+            </div>
+          )}
 
           {/* Staged attachments file list */}
           {stagedFiles.length > 0 && (
@@ -1310,7 +1383,8 @@ export default function ChatPage() {
               createGroupMutation.mutate({
                 name: groupForm.name,
                 description: groupForm.description || 'Custom secure room',
-                type: 'group'
+                type: 'group',
+                members: groupForm.members
               });
             }}>
               <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -1334,6 +1408,24 @@ export default function ChatPage() {
                     onChange={e => setGroupForm(f => ({ ...f, description: e.target.value }))}
                     style={{ minHeight: '60px' }}
                   />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Add Members (Optional)</label>
+                  <div style={{ maxHeight: '120px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {otherUsers.map((u: any) => (
+                      <label key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={groupForm.members.includes(u.id)}
+                          onChange={e => {
+                            if (e.target.checked) setGroupForm(f => ({ ...f, members: [...f.members, u.id] }));
+                            else setGroupForm(f => ({ ...f, members: f.members.filter(id => id !== u.id) }));
+                          }}
+                        />
+                        {u.fullName}
+                      </label>
+                    ))}
+                  </div>
                 </div>
               </div>
               <div className="modal-footer" style={{ borderTop: '1px solid var(--border-color)' }}>
