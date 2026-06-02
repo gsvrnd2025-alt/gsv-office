@@ -17,6 +17,10 @@ async function bootstrap() {
     cors: false, // Configured below
   });
 
+  // Trust proxy for rate limiting (ThrottlerGuard) behind Nginx
+  const expressApp = app.getHttpAdapter().getInstance();
+  expressApp.set('trust proxy', 1);
+
   const configService = app.get(ConfigService);
   const port = configService.get<number>('PORT', 3000);
   const nodeEnv = configService.get<string>('NODE_ENV', 'development');
