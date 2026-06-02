@@ -20,6 +20,10 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const res = await authApi.login({ loginId, password });
+      if (!res.data || res.data.success === false) {
+        toast.error(res.data?.message || 'Invalid credentials');
+        return;
+      }
       const { accessToken, user } = res.data.data;
       login(user, accessToken);
       toast.success(`Welcome back, ${user.fullName.split(' ')[0]}! 🎉`);
