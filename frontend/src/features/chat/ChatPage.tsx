@@ -754,12 +754,12 @@ export default function ChatPage() {
 
       {/* Message Arena */}
       {conversationId && activeConv ? (
-        <div className={styles.chatMain} style={{ background: 'rgba(0,0,0,0.2)' }}>
+        <div className={styles.chatMain}>
           {/* Sticky Pinned Message Banner */}
           {pinnedMessage && (
             <div style={{
-              background: 'rgba(99, 102, 241, 0.08)',
-              borderBottom: '1.5px solid rgba(99, 102, 241, 0.25)',
+              background: 'var(--bg-secondary)',
+              borderBottom: '1.5px solid var(--border-color)',
               backdropFilter: 'blur(8px)',
               padding: '10px 20px',
               display: 'flex',
@@ -784,7 +784,7 @@ export default function ChatPage() {
           )}
 
           {/* Header */}
-          <div className={styles.chatHeader} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+          <div className={styles.chatHeader} style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
             <div className={styles.chatHeaderInfo}>
               <div className={styles.convAvatar} style={{ background: 'var(--gradient-brand)' }}>
                 {activeConv.type === 'group' || activeConv.type === 'department' ? <Hash size={16} /> : (activeConv.name?.charAt(0).toUpperCase() || 'U')}
@@ -862,7 +862,7 @@ export default function ChatPage() {
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: isOwn ? 'flex-end' : 'flex-start', position: 'relative' }}>
                     
                     {/* Message Bubble body */}
-                    <div className={`${styles.messageBubble} ${isOwn ? styles.ownBubble : styles.otherBubble}`} style={{ border: '1px solid rgba(255,255,255,0.06)', position: 'relative' }}>
+                    <div className={`${styles.messageBubble} ${isOwn ? styles.ownBubble : styles.otherBubble}`} style={{ border: '1px solid var(--border-color)', position: 'relative' }}>
                       {!isOwn && showAvatar && (
                         <div className={styles.senderName} style={{ color: 'var(--brand-primary)' }}>{senderName}</div>
                       )}
@@ -876,13 +876,13 @@ export default function ChatPage() {
                       {hasAttachment && (
                         <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                           {msg.type === 'photo' && (
-                            <div style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)', maxWidth: '280px' }}>
+                            <div style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)', maxWidth: '280px' }}>
                               <img src={msg.file_url || msg.fileUrl || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&q=80"} alt={msg.file_name || msg.fileName || "photo"} style={{ width: '100%', height: 'auto', display: 'block' }} />
                             </div>
                           )}
 
                           {msg.type === 'video' && (
-                            <div style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)', maxWidth: '280px' }}>
+                            <div style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)', maxWidth: '280px' }}>
                               <video controls style={{ width: '100%', display: 'block', maxHeight: '160px' }}>
                                 <source src={msg.file_url || msg.fileUrl || "https://www.w3schools.com/html/mov_bbb.mp4"} type={msg.mime_type || msg.mimeType || "video/mp4"} />
                               </video>
@@ -890,16 +890,12 @@ export default function ChatPage() {
                           )}
 
                           {msg.type === 'music' && (
-                            <div style={{
-                              background: 'rgba(0,0,0,0.3)', borderRadius: '8px', padding: '8px',
-                              display: 'flex', alignItems: 'center', gap: '10px', maxWidth: '280px',
-                              border: '1px solid rgba(255,255,255,0.08)'
-                            }}>
-                              <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(99,102,241,0.15)', color: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--bg-card)', borderRadius: '8px', padding: '8px', border: '1px solid var(--border-color)' }}>
+                              <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--brand-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                 <Volume2 size={16} />
                               </div>
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: '12px', fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.file_name || msg.fileName || "Acoustic_Handshake.mp3"}</div>
+                                <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.file_name || msg.fileName || "Acoustic_Handshake.mp3"}</div>
                                 <div style={{ fontSize: '9px', color: 'var(--text-tertiary)' }}>{formatBytes(msg.file_size || msg.fileSize || 3565158)} — Voice Note</div>
                               </div>
                               <a href={msg.file_url || msg.fileUrl || "#"} download={msg.file_name || msg.fileName || "audio"} style={{ display: 'inline-flex' }}><Download size={14} style={{ color: 'var(--brand-primary)', cursor: 'pointer' }} /></a>
@@ -908,13 +904,13 @@ export default function ChatPage() {
 
                           {msg.type === 'file' && (
                             <div style={{
-                              background: 'rgba(0,0,0,0.3)', borderRadius: '8px', padding: '8px 12px',
+                              background: 'var(--bg-secondary)', borderRadius: '8px', padding: '8px 12px',
                               display: 'flex', alignItems: 'center', gap: '10px', maxWidth: '280px',
-                              border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer'
+                              border: '1px solid var(--border-color)', cursor: 'pointer'
                             }} className="hover-glass">
                               <File size={16} style={{ color: '#6366f1' }} />
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: '11px', fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.file_name || msg.fileName || "System_Audit_Report.pdf"}</div>
+                                <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.file_name || msg.fileName || "System_Audit_Report.pdf"}</div>
                                 <span style={{ fontSize: '9px', color: 'var(--text-tertiary)' }}>{formatBytes(msg.file_size || msg.fileSize || 145408)} — Document</span>
                               </div>
                               <a href={msg.file_url || msg.fileUrl || "#"} download={msg.file_name || msg.fileName || "document"} style={{ display: 'inline-flex' }}><Download size={14} style={{ color: 'var(--brand-primary)' }} /></a>
@@ -923,14 +919,14 @@ export default function ChatPage() {
 
                           {msg.type === 'folder' && (
                             <div style={{
-                              background: 'rgba(26, 21, 44, 0.4)', borderRadius: '12px', padding: '12px',
+                              background: 'var(--bg-card)', borderRadius: '12px', padding: '12px',
                               display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '290px',
                               border: '1.5px solid rgba(99, 102, 241, 0.25)', boxShadow: '0 8px 24px rgba(99, 102, 241, 0.1)'
                             }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '6px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '6px' }}>
                                 <Folder size={18} style={{ color: 'var(--brand-primary)' }} />
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div style={{ fontSize: '12px', fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.file_name || msg.fileName || "GSV_Office_Init/"}</div>
+                                  <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.file_name || msg.fileName || "GSV_Office_Init/"}</div>
                                   <div style={{ fontSize: '9px', color: 'var(--text-tertiary)' }}>{msg.file_size || msg.fileSize || "4 Files"} — SMB Share Pool</div>
                                 </div>
                               </div>
@@ -948,7 +944,7 @@ export default function ChatPage() {
                             </div>
                           )}
 
-                          <div style={{ display: 'flex', gap: '12px', marginTop: '4px', borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '6px' }}>
+                          <div style={{ display: 'flex', gap: '12px', marginTop: '4px', borderTop: '1px solid var(--border-color)', paddingTop: '6px' }}>
                             <span
                               onClick={() => handleSaveToPC(msg.file_name || msg.fileName || (msg.type === 'folder' ? 'GSV_Office_Init.zip' : msg.type === 'music' ? 'Acoustic_Handshake.mp3' : 'System_Audit_Report.pdf'))}
                               style={{ fontSize: '10px', color: 'var(--brand-primary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '2px', fontWeight: 600 }}
@@ -974,7 +970,7 @@ export default function ChatPage() {
                       )}
 
                       {/* Reactions Overlay Panel on Hover */}
-                      <div style={{ display: 'flex', gap: '10px', marginTop: '6px', borderTop: '1px solid rgba(255,255,255,0.02)', paddingTop: '4px', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', gap: '10px', marginTop: '6px', borderTop: '1px solid var(--border-color)', paddingTop: '4px', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ display: 'flex', gap: '4px' }}>
                           {['👍', '❤️', '😂', '😮', '🙏'].map(e => (
                             <span
@@ -1008,7 +1004,7 @@ export default function ChatPage() {
                       {reactions.length > 0 && (
                         <div style={{
                           position: 'absolute', bottom: '-12px', right: isOwn ? '12px' : 'auto', left: !isOwn ? '12px' : 'auto',
-                          background: 'rgba(26, 21, 44, 0.9)', border: '1px solid rgba(255,255,255,0.1)',
+                          background: 'var(--bg-card)', border: '1px solid var(--border-color)',
                           borderRadius: '8px', padding: '2px 6px', display: 'flex', gap: '2px', fontSize: '10px', zIndex: 5
                         }}>
                           {reactions.map((r, rIdx) => <span key={rIdx}>{r}</span>)}
@@ -1050,7 +1046,7 @@ export default function ChatPage() {
 
           {/* Staged attachments file list */}
           {stagedFiles.length > 0 && (
-            <div style={{ background: 'rgba(26, 21, 44, 0.95)', borderTop: '1px solid rgba(255,255,255,0.08)', padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ background: 'var(--bg-card)', borderTop: '1px solid var(--border-color)', padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--brand-primary)', textTransform: 'uppercase' }}>
                   Staged SMB Upload Bundle ({stagedFiles.length})
@@ -1059,7 +1055,7 @@ export default function ChatPage() {
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                 {stagedFiles.map((file, idx) => (
-                  <span key={idx} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '4px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px', color: '#fff' }}>
+                  <span key={idx} style={{ background: 'var(--border-color)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '4px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-primary)' }}>
                     {file.type === 'folder' ? <Folder size={12} style={{ color: '#6366f1' }} /> : <File size={12} style={{ color: '#6366f1' }} />}
                     <span style={{ maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
                     <X size={10} style={{ color: 'var(--brand-danger)', cursor: 'pointer' }} onClick={() => setStagedFiles(prev => prev.filter((_, fIdx) => fIdx !== idx))} />
@@ -1073,7 +1069,7 @@ export default function ChatPage() {
           {showMentions && filteredMentionUsers.length > 0 && (
             <div style={{
               position: 'absolute', bottom: '60px', left: '80px', zIndex: 1000,
-              background: 'rgba(26, 21, 44, 0.98)', border: '1px solid rgba(255,255,255,0.1)',
+              background: 'var(--bg-card)', border: '1px solid var(--border-color)',
               borderRadius: '12px', padding: '6px 0', width: '220px', boxShadow: '0 8px 30px rgba(0,0,0,0.5)'
             }} className="animate-scale-in">
               <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--brand-primary)', padding: '4px 12px', textTransform: 'uppercase' }}>Mention Teammate</div>
@@ -1081,7 +1077,7 @@ export default function ChatPage() {
                 <div
                   key={u.id}
                   onClick={() => selectMention(u)}
-                  style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '12px', color: '#fff' }}
+                  style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '12px', color: 'var(--text-primary)' }}
                   className="dropdown-item"
                 >
                   @{u.fullName}
@@ -1098,7 +1094,7 @@ export default function ChatPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--brand-danger)', animation: 'pulse 1s infinite' }} />
                   <span style={{ fontSize: '12px', color: 'var(--brand-danger)', fontWeight: 700 }}>🎤 VOCAL HANDSHAKE ACTIVE:</span>
-                  <span style={{ fontSize: '12px', fontWeight: 600, color: '#fff', fontFamily: 'monospace' }}>{formatRecordTime(recordingSeconds)}</span>
+                  <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'monospace' }}>{formatRecordTime(recordingSeconds)}</span>
                 </div>
                 {/* Simulated fluctuating canvas wave */}
                 <div style={{ display: 'flex', gap: '2px', alignItems: 'center', height: '18px' }}>
@@ -1124,7 +1120,7 @@ export default function ChatPage() {
                     <Paperclip size={18} style={{ color: 'var(--brand-primary)' }} />
                   </button>
                   {showAttachmentsDropdown && (
-                    <div className="dropdown-menu" style={{ bottom: '100%', top: 'auto', left: 0, marginBottom: '8px', display: 'block', background: 'rgba(26, 21, 44, 0.95)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div className="dropdown-menu" style={{ bottom: '100%', top: 'auto', left: 0, marginBottom: '8px', display: 'block', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
                       <div className="dropdown-item" onClick={() => { setUploadAccept('image/*'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
                         📸 Photos
                       </div>
@@ -1177,7 +1173,7 @@ export default function ChatPage() {
                 {showEmoji && (
                   <div style={{
                     position: 'absolute', bottom: '100%', right: '60px', marginBottom: '8px', zIndex: 1000,
-                    background: 'var(--bg-card)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px',
+                    background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px',
                     padding: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap', maxWidth: '240px',
                     boxShadow: '0 10px 30px rgba(0,0,0,0.5)'
                   }} className="animate-scale-in">
@@ -1217,12 +1213,12 @@ export default function ChatPage() {
             {sendMutation.isPending && stagedFiles.length > 0 && (
               <div style={{
                 position: 'absolute', bottom: '80px', right: '20px', zIndex: 1100,
-                background: 'rgba(26, 21, 44, 0.95)', border: '1.5px solid var(--brand-primary)',
+                background: 'var(--bg-card)', border: '1.5px solid var(--brand-primary)',
                 boxShadow: '0 8px 32px rgba(99, 102, 241, 0.3)', borderRadius: '12px',
                 padding: '12px 18px', display: 'flex', alignItems: 'center', gap: '12px',
-                color: '#fff', backdropFilter: 'blur(8px)', animation: 'slideUp 0.3s ease'
+                color: 'var(--text-primary)', backdropFilter: 'blur(8px)', animation: 'slideUp 0.3s ease'
               }}>
-                <div style={{ width: '18px', height: '18px', border: '2px solid rgba(255,255,255,0.1)', borderTopColor: 'var(--brand-primary)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                <div style={{ width: '18px', height: '18px', border: '2px solid var(--border-color)', borderTopColor: 'var(--brand-primary)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                   <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--brand-primary)' }}>Uploading Attachment</span>
                   <span style={{ fontSize: '12px', fontWeight: 500, opacity: 0.9, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1234,7 +1230,7 @@ export default function ChatPage() {
           </div>
         </div>
       ) : (
-        <div className={styles.chatEmpty} style={{ background: 'rgba(0,0,0,0.1)' }}>
+        <div className={styles.chatEmpty} style={{ background: 'var(--bg-secondary)' }}>
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: '64px', marginBottom: '16px', animation: 'pulse 3s infinite' }}>💬</div>
             <h2 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: '24px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '8px', letterSpacing: '-0.5px' }}>
@@ -1250,8 +1246,8 @@ export default function ChatPage() {
       {/* Create Group Modal */}
       {showCreateGroup && (
         <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && setShowCreateGroup(false)}>
-          <div className="modal animate-scale-in" style={{ maxWidth: '440px', background: 'rgba(26, 21, 44, 0.95)', border: '1px solid rgba(255,255,255,0.1)' }}>
-            <div className="modal-header" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+          <div className="modal animate-scale-in" style={{ maxWidth: '440px', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid var(--border-color)' }}>
               <h4 className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Users2 size={18} style={{ color: 'var(--brand-primary)' }} />
                 Create Group Channel
@@ -1290,7 +1286,7 @@ export default function ChatPage() {
                   />
                 </div>
               </div>
-              <div className="modal-footer" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+              <div className="modal-footer" style={{ borderTop: '1px solid var(--border-color)' }}>
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowCreateGroup(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary btn-sm" disabled={createGroupMutation.isPending}>
                   Establish Group Node
@@ -1304,12 +1300,12 @@ export default function ChatPage() {
       {/* Incoming Call Overlay */}
       {incomingCall && (
         <div className="modal-backdrop" style={{ zIndex: 1200 }}>
-          <div className="modal animate-scale-in" style={{ maxWidth: '340px', textAlign: 'center', background: 'rgba(26,21,44,0.98)', border: '1px solid #6366f1' }}>
+          <div className="modal animate-scale-in" style={{ maxWidth: '340px', textAlign: 'center', background: 'var(--bg-card)', border: '1px solid var(--brand-primary)' }}>
             <div style={{ padding: '24px 20px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'rgba(99, 102, 241, 0.15)', color: '#6366f1', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: '16px', animation: 'pulse 1.5s infinite' }}>
+              <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--brand-primary)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: '16px', animation: 'pulse 1.5s infinite' }}>
                 <Phone size={22} />
               </div>
-              <h4 style={{ fontSize: '16px', fontWeight: 800, color: '#fff', marginBottom: '4px' }}>INCOMING RESONANCE</h4>
+              <h4 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '4px' }}>INCOMING RESONANCE</h4>
               <p style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '24px' }}>Node <strong>{incomingCall}</strong> is requesting audio handshake link.</p>
               
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
@@ -1325,7 +1321,7 @@ export default function ChatPage() {
       {activeCall && (
         <div style={{
           position: 'absolute', bottom: '24px', right: '24px',
-          background: 'rgba(26, 21, 44, 0.95)', border: '1.5px solid rgba(99, 102, 241, 0.3)',
+          background: 'var(--bg-card)', border: '1px solid var(--border-color)',
           borderRadius: '16px', padding: '16px 20px', zIndex: 1100, display: 'flex', alignItems: 'center', gap: '20px',
           boxShadow: '0 12px 40px rgba(99, 102, 241, 0.25)', animation: 'slideUp 0.3s ease-out'
         }}>
@@ -1333,13 +1329,13 @@ export default function ChatPage() {
             <div style={{
               width: '40px', height: '40px', borderRadius: '50%',
               background: callingState === 'connected' ? 'var(--brand-success)' : 'var(--brand-primary)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-primary)',
               animation: 'pulse 1.5s infinite'
             }}>
               <Phone size={18} />
             </div>
             <div>
-              <div style={{ fontSize: '13px', fontWeight: 800, color: '#fff' }}>
+              <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>
                 {callingState === 'connected' ? 'SECURE NODE ESTABLISHED' : 'INITIATING HANDSHAKE...'}
               </div>
               <div style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>
