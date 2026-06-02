@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Camera, Save, Key, Bell, Palette, LogOut, Shield } from 'lucide-react';
+import { Camera, Save, Key, Bell, Palette, LogOut, Shield, Volume2, VolumeX } from 'lucide-react';
 import { useAuthStore } from '../../store/auth.store';
 import { authApi, usersApi } from '../../api';
 import { useThemeStore } from '../../store/theme.store';
+import { SoundManager } from '../../utils/sound';
 import toast from 'react-hot-toast';
 
 export default function ProfilePage() {
@@ -11,6 +12,25 @@ export default function ProfilePage() {
   const { theme, setTheme } = useThemeStore();
   const qc = useQueryClient();
   const [tab, setTab] = useState<'profile' | 'security' | 'preferences'>('profile');
+  
+  // Sound Preferences states
+  const [soundNotifications, setSoundNotifications] = useState(() => localStorage.getItem('gsv-sound-notifications') !== 'false');
+  const [soundClicks, setSoundClicks] = useState(() => localStorage.getItem('gsv-sound-clicks') !== 'false');
+
+  const toggleSoundNotifications = () => {
+    const newVal = !soundNotifications;
+    setSoundNotifications(newVal);
+    localStorage.setItem('gsv-sound-notifications', String(newVal));
+    SoundManager.playClick();
+    if (newVal) SoundManager.playNotification();
+  };
+
+  const toggleSoundClicks = () => {
+    const newVal = !soundClicks;
+    setSoundClicks(newVal);
+    localStorage.setItem('gsv-sound-clicks', String(newVal));
+    if (newVal) SoundManager.playClick();
+  };
   const [form, setForm] = useState({
     fullName: user?.fullName || '',
     email: user?.email || '',
@@ -157,12 +177,43 @@ export default function ProfilePage() {
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
                 {['light', 'dark'].map(t => (
-                  <button key={t} onClick={() => setTheme(t as any)} className={`btn btn-sm ${theme === t ? 'btn-primary' : 'btn-secondary'}`} style={{ minWidth: '70px' }}>
+                  <button key={t} onClick={() => { setTheme(t as any); SoundManager.playClick(); }} className={`btn btn-sm ${theme === t ? 'btn-primary' : 'btn-secondary'}`} style={{ minWidth: '70px' }}>
                     {t === 'light' ? '☀️' : '🌙'} {t.charAt(0).toUpperCase() + t.slice(1)}
                   </button>
                 ))}
               </div>
             </div>
+
+            {/* Notification Sound Toggle */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', background: 'var(--bg-secondary)', borderRadius: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <Volume2 size={20} style={{ color: soundNotifications ? 'var(--brand-success)' : 'var(--text-tertiary)' }} />
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 600 }}>Notification Chime</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>Play Ding-Dong sound when new message arrives</div>
+                </div>
+              </div>
+              <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input type="checkbox" checked={soundNotifications} onChange={toggleSoundNotifications} />
+                <span style={{ fontSize: '13px', fontWeight: 600 }}>{soundNotifications ? 'Enabled' : 'Muted'}</span>
+              </label>
+            </div>
+
+            {/* Click Sound Toggle */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', background: 'var(--bg-secondary)', borderRadius: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                {soundClicks ? <Volume2 size={20} style={{ color: 'var(--brand-primary)' }} /> : <VolumeX size={20} style={{ color: 'var(--text-tertiary)' }} />}
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 600 }}>UI Click Sound Feedback</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>Play a soft click sound when tapping controls</div>
+                </div>
+              </div>
+              <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input type="checkbox" checked={soundClicks} onChange={toggleSoundClicks} />
+                <span style={{ fontSize: '13px', fontWeight: 600 }}>{soundClicks ? 'Enabled' : 'Disabled'}</span>
+              </label>
+            </div>
+
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', background: 'var(--bg-secondary)', borderRadius: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <Bell size={20} style={{ color: 'var(--brand-primary)' }} />

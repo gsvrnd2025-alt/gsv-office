@@ -1,9 +1,10 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { AppLayout } from './components/layout/AppLayout';
 import { AuthLayout } from './components/layout/AuthLayout';
 import { useAuthStore } from './store/auth.store';
 import { LoadingScreen } from './components/ui/LoadingScreen';
+import { SoundManager } from './utils/sound';
 
 // Lazy-loaded pages
 const RegisterPage = lazy(() => import('./features/auth/RegisterPage'));
@@ -38,6 +39,56 @@ function GuestRoute({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  useEffect(() => {
+    const handleGlobalClick = (e: MouseEvent) => {
+      let target = e.target as HTMLElement | null;
+      if (!target) return;
+
+      let isClickable = false;
+      let depth = 0;
+      
+      while (target && depth < 4) {
+        const tag = target.tagName;
+        const classes = target.className || '';
+        
+        let hasClickCursor = false;
+        try {
+          hasClickCursor = window.getComputedStyle(target).cursor === 'pointer';
+        } catch {}
+
+        if (
+          tag === 'BUTTON' || 
+          tag === 'A' || 
+          tag === 'SELECT' || 
+          (tag === 'INPUT' && (target as HTMLInputElement).type !== 'text' && (target as HTMLInputElement).type !== 'password' && (target as HTMLInputElement).type !== 'email') ||
+          (typeof classes === 'string' && (
+            classes.includes('dropdown-item') ||
+            classes.includes('tab-item') ||
+            classes.includes('hover-glass') ||
+            classes.includes('btn') ||
+            classes.includes('nav-item') ||
+            classes.includes('convItem')
+          )) ||
+          target.getAttribute('role') === 'button' ||
+          hasClickCursor
+        ) {
+          isClickable = true;
+          break;
+        }
+        
+        target = target.parentElement;
+        depth++;
+      }
+
+      if (isClickable) {
+        SoundManager.playClick();
+      }
+    };
+
+    window.addEventListener('click', handleGlobalClick, { capture: true });
+    return () => window.removeEventListener('click', handleGlobalClick, { capture: true });
+  }, []);
+
   return (
     <BrowserRouter>
       <Suspense fallback={<LoadingScreen />}>

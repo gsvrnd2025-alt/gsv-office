@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { chatApi, usersApi, filesApi } from '../../api';
 import { useAuthStore } from '../../store/auth.store';
+import { SoundManager } from '../../utils/sound';
 import toast from 'react-hot-toast';
 import styles from './ChatPage.module.css';
 
@@ -213,9 +214,30 @@ export default function ChatPage() {
     onError: () => toast.error('Failed to create department group'),
   });
 
+  // 1. Play Ding-Dong chime and scroll for new messages in the currently active chat room
+  const prevMessagesLengthRef = useRef(messages.length);
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+
+    if (messages.length > prevMessagesLengthRef.current) {
+      const lastMsg = messages[messages.length - 1];
+      // Only play the sound if the message exists and was not sent by the logged-in user
+      if (lastMsg && lastMsg.sender_id !== user?.id && lastMsg.sender?.id !== user?.id) {
+        SoundManager.playNotification();
+      }
+    }
+    prevMessagesLengthRef.current = messages.length;
+  }, [messages, user?.id]);
+
+  // 2. Play Ding-Dong chime for new background messages (across all conversations unread sum)
+  const prevUnreadCountSumRef = useRef(0);
+  useEffect(() => {
+    const currentUnreadSum = conversations.reduce((acc: number, c: any) => acc + (Number(c.unread_count) || 0), 0);
+    if (currentUnreadSum > prevUnreadCountSumRef.current) {
+      SoundManager.playNotification();
+    }
+    prevUnreadCountSumRef.current = currentUnreadSum;
+  }, [conversations]);
 
   // Mentions monitoring
   const handleInputChange = (val: string) => {
