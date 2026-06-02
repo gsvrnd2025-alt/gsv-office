@@ -20,7 +20,7 @@ export class ChatService {
 
   async getMessages(conversationId: string, userId: string, page = 1, limit = 50) {
     return this.dataSource.query(`
-      SELECT m.id, m.conversation_id, m.sender_id, m.content, m.file_id, m.reply_to_id, m.created_at, m.updated_at, m.deleted_at,
+      SELECT m.id, m.conversation_id, m.sender_id, m.content, m.file_id, m.reply_to_id, m.created_at, m.edited_at AS updated_at, m.deleted_at,
              CASE
                WHEN m.type = 'image' THEN 'photo'
                WHEN m.type = 'audio' THEN 'music'
