@@ -35,11 +35,11 @@ export class CreateUserDto {
   designation?: string;
 
   @ApiProperty({ required: false })
-  @IsOptional() @IsUUID()
+  @IsOptional() @IsString()
   departmentId?: string;
 
   @ApiProperty({ required: false })
-  @IsOptional() @IsUUID()
+  @IsOptional() @IsString()
   roleId?: string;
 
   @ApiProperty({ enum: ['male', 'female', 'other', 'not_specified'], required: false })
