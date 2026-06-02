@@ -195,6 +195,150 @@ export class UsersService {
     return `EMP-${String(count + 1).padStart(4, '0')}`;
   }
 
+  async syncSheets(adminId?: string) {
+    try {
+      // 1. Fetch current database records
+      const users = await this.usersRepo.query(`SELECT id, employee_id AS "employeeId", login_id AS "loginId", email, full_name AS "fullName", phone, designation, role_id AS "roleId", department_id AS "departmentId", status, password_hash AS "passwordHash" FROM users WHERE deleted_at IS NULL`);
+      const departments = await this.usersRepo.query(`SELECT id, name, description, color FROM departments WHERE deleted_at IS NULL`);
+      const roles = await this.usersRepo.query(`SELECT id, name, description, color, level, is_system AS "isSystem" FROM roles WHERE deleted_at IS NULL`);
+      const settings = await this.usersRepo.query(`SELECT key, value, category, description FROM system_settings`);
+
+      // 2. Fetch sheet sync URL from settings
+      const settingsResult = await this.usersRepo.query(`SELECT value FROM system_settings WHERE key = 'google_sheets_sync_url'`);
+      const syncUrl = settingsResult.length > 0 && settingsResult[0].value
+        ? settingsResult[0].value
+        : 'https://script.google.com/macros/s/AKfycbw6pAarz91qhP5HfTgnustbqF8ftTEpRV0Y03AuwaLRfzoILd3HIeVez0AqerATPyE8/exec';
+
+      // 3. Post data to Apps Script Web App
+      const response = await fetch(syncUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'sync',
+          users,
+          departments,
+          roles,
+          settings,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new BadRequestException(`Google Sheets endpoint returned status ${response.status}`);
+      }
+
+      const result = await response.json();
+      if (!result.success) {
+        throw new BadRequestException(result.message || 'Sync failed on Apps Script');
+      }
+
+      const remoteData = result.data;
+      if (!remoteData) {
+        throw new BadRequestException('Apps Script returned no sync data');
+      }
+
+      // 4. Perform upserts into local PostgreSQL
+      // A. Sync Roles
+      if (Array.isArray(remoteData.roles)) {
+        for (const r of remoteData.roles) {
+          if (!r.id || !r.name) continue;
+          await this.usersRepo.query(
+            `INSERT INTO roles (id, name, description, color, level, is_system, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+             ON CONFLICT (id) DO UPDATE SET
+               name = EXCLUDED.name,
+               description = EXCLUDED.description,
+               color = EXCLUDED.color,
+               level = EXCLUDED.level,
+               is_system = EXCLUDED.is_system,
+               updated_at = NOW()`,
+            [r.id, r.name, r.description || null, r.color || '#6366f1', Number(r.level) || 0, r.isSystem === 'TRUE' || r.isSystem === true]
+          );
+        }
+      }
+
+      // B. Sync Departments
+      if (Array.isArray(remoteData.departments)) {
+        for (const d of remoteData.departments) {
+          if (!d.id || !d.name) continue;
+          await this.usersRepo.query(
+            `INSERT INTO departments (id, name, description, color, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, NOW(), NOW())
+             ON CONFLICT (id) DO UPDATE SET
+               name = EXCLUDED.name,
+               description = EXCLUDED.description,
+               color = EXCLUDED.color,
+               updated_at = NOW()`,
+            [d.id, d.name, d.description || null, d.color || '#6366f1']
+          );
+        }
+      }
+
+      // C. Sync Users
+      if (Array.isArray(remoteData.users)) {
+        for (const u of remoteData.users) {
+          if (!u.id || !u.loginId || !u.email || !u.fullName) continue;
+          await this.usersRepo.query(
+            `INSERT INTO users (id, employee_id, login_id, email, full_name, phone, designation, role_id, department_id, status, password_hash, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
+             ON CONFLICT (id) DO UPDATE SET
+               employee_id = EXCLUDED.employee_id,
+               login_id = EXCLUDED.login_id,
+               email = EXCLUDED.email,
+               full_name = EXCLUDED.full_name,
+               phone = EXCLUDED.phone,
+               designation = EXCLUDED.designation,
+               role_id = EXCLUDED.role_id,
+               department_id = EXCLUDED.department_id,
+               status = EXCLUDED.status,
+               password_hash = EXCLUDED.password_hash,
+               updated_at = NOW()`,
+            [
+              u.id,
+              u.employeeId || null,
+              u.loginId,
+              u.email,
+              u.fullName,
+              u.phone || null,
+              u.designation || null,
+              u.roleId || null,
+              u.departmentId || null,
+              u.status || 'active',
+              u.passwordHash || ''
+            ]
+          );
+        }
+      }
+
+      // D. Sync Settings
+      if (Array.isArray(remoteData.settings)) {
+        for (const s of remoteData.settings) {
+          if (!s.key) continue;
+          await this.usersRepo.query(
+            `INSERT INTO system_settings (key, value, category, description, updated_at)
+             VALUES ($1, $2, $3, $4, NOW())
+             ON CONFLICT (key) DO UPDATE SET
+               value = EXCLUDED.value,
+               category = EXCLUDED.category,
+               description = EXCLUDED.description,
+               updated_at = NOW()`,
+            [s.key, s.value || '', s.category || '', s.description || '']
+          );
+        }
+      }
+
+      await this.auditService.log({
+        userId: adminId,
+        action: 'update',
+        resourceType: 'user',
+        description: `Google Sheets Synchronization successful`,
+      });
+
+      return { success: true, message: 'Google Sheets synchronization completed successfully' };
+    } catch (err: any) {
+      throw new BadRequestException(`Google Sheets Synchronization failed: ${err.message}`);
+    }
+  }
+
   sanitize(user: User): Partial<User> {
     const { passwordHash, twoFactorSecret, ...safe } = user as any;
     return safe;

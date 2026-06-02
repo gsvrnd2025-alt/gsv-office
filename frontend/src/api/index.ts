@@ -58,6 +58,7 @@ export const usersApi = {
   updateStatus: (id: string, status: string, roleId?: string, permissions?: string[]) => api.patch(`/users/${id}/status`, { status, roleId, permissions }),
   resetPassword: (id: string, data: any) => api.patch(`/users/${id}/reset-password`, data),
   delete: (id: string) => api.delete(`/users/${id}`),
+  syncSheets: () => api.post('/users/sync-sheets'),
 };
 
 export const rolesApi = {

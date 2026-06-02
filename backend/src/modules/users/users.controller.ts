@@ -44,6 +44,13 @@ export class UsersController {
     return this.usersService.create(dto, adminId);
   }
 
+  @Post('sync-sheets')
+  @RequirePermissions(['users', 'update'])
+  @ApiOperation({ summary: 'Synchronize users and settings with Google Sheets' })
+  async syncSheets(@CurrentUser('id') adminId: string) {
+    return this.usersService.syncSheets(adminId);
+  }
+
   @Put(':id')
   @RequirePermissions(['users', 'update'])
   @ApiOperation({ summary: 'Update user details' })

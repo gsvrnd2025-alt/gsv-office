@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard, MessageSquare, FolderOpen, Ticket, Mail, Users,
   Shield, Receipt, Package, ShoppingCart, BarChart3, Puzzle, Server,
-  ChevronLeft, ChevronRight, LogOut, Settings, Inbox, HardDrive
+  ChevronLeft, ChevronRight, LogOut, Settings, Inbox, HardDrive, Laptop
 } from 'lucide-react';
 import { useAuthStore } from '../../store/auth.store';
 import { authApi, usersApi } from '../../api';
@@ -21,6 +21,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', section: 'main' },
+  { to: '/workspace', icon: Laptop, label: 'Workspace', section: 'main' },
   { to: '/chat', icon: MessageSquare, label: 'Team Chat', section: 'main' },
   { to: '/files', icon: FolderOpen, label: 'Files', section: 'main' },
   { to: '/tickets', icon: Ticket, label: 'Helpdesk', section: 'main' },

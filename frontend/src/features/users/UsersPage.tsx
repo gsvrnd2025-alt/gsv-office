@@ -42,6 +42,22 @@ export default function UsersPage() {
     onError: () => toast.error('Reset failed'),
   });
 
+  const [syncing, setSyncing] = useState(false);
+  const syncMutation = useMutation({
+    mutationFn: () => usersApi.syncSheets(),
+    onMutate: () => { setSyncing(true); },
+    onSuccess: () => {
+      toast.success('Google Sheet synchronization successful');
+      qc.invalidateQueries({ queryKey: ['users'] });
+      qc.invalidateQueries({ queryKey: ['roles'] });
+      qc.invalidateQueries({ queryKey: ['departments'] });
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.message || 'Sync failed');
+    },
+    onSettled: () => { setSyncing(false); }
+  });
+
   const users = data?.data || [];
   const meta = data?.meta || {};
 
@@ -55,9 +71,14 @@ export default function UsersPage() {
           <h1>👥 User Management</h1>
           <p>Manage team members, roles, and access</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
-          <Plus size={16} /> New User
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button className="btn btn-secondary" onClick={() => syncMutation.mutate()} disabled={syncing}>
+            <RefreshCw size={16} className={syncing ? 'spin' : ''} /> {syncing ? 'Syncing...' : 'Sync Google Sheet'}
+          </button>
+          <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
+            <Plus size={16} /> New User
+          </button>
+        </div>
       </div>
 
       {/* Filters */}

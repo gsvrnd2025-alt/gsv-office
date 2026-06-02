@@ -10,6 +10,7 @@ import { SoundManager } from './utils/sound';
 const RegisterPage = lazy(() => import('./features/auth/RegisterPage'));
 const LoginPage = lazy(() => import('./features/auth/LoginPage'));
 const DashboardPage = lazy(() => import('./features/dashboard/DashboardPage'));
+const EOfficePage = lazy(() => import('./features/workspace/EOfficePage'));
 const ChatPage = lazy(() => import('./features/chat/ChatPage'));
 const FilesPage = lazy(() => import('./features/files/FilesPage'));
 const TicketsPage = lazy(() => import('./features/tickets/TicketsPage'));
@@ -107,6 +108,7 @@ export default function App() {
           }>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage />} />
+            <Route path="workspace" element={<EOfficePage />} />
             <Route path="chat" element={<ChatPage />} />
             <Route path="chat/:conversationId" element={<ChatPage />} />
             <Route path="files" element={<FilesPage />} />

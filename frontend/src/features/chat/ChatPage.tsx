@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Send, Plus, Search, MessageSquare, Hash, Phone, Video,
-  MoreVertical, Smile, Paperclip, CheckCheck, File,
+  MoreVertical, Smile, Paperclip, CheckCheck, Check, File,
   Download, Folder, Volume2, ChevronRight, X, Users2,
   Pin, ArrowRight, Mic, Sparkles, Copy, Trash2
 } from 'lucide-react';
@@ -222,15 +222,25 @@ export default function ChatPage() {
   const createGroupMutation = useMutation({
     mutationFn: (data: { name: string; description: string; type: string; members?: string[] }) =>
       chatApi.createConversation(data),
-    onSuccess: (res: any) => {
+    onSuccess: (res: any, variables: any) => {
       const newRoom = res.data?.data || res.data;
-      toast.success(`Group "${newRoom.name || 'Room'}" established! 🏢`);
+      if (variables.type === 'private') {
+        toast.success(`Secure chat with ${variables.name.replace('DM with ', '')} established! 💬`);
+      } else {
+        toast.success(`Group "${newRoom.name || 'Room'}" established! 🏢`);
+      }
       setShowCreateGroup(false);
       setGroupForm({ name: '', description: '', members: [] });
       qc.invalidateQueries({ queryKey: ['conversations'] });
       if (newRoom.id) navigate(`/chat/${newRoom.id}`);
     },
-    onError: () => toast.error('Failed to create department group'),
+    onError: (err: any, variables: any) => {
+      if (variables.type === 'private') {
+        toast.error('Failed to initiate secure chat handshake');
+      } else {
+        toast.error('Failed to create department group');
+      }
+    },
   });
 
   // 1. Play Ding-Dong chime and scroll for new messages in the currently active chat room
@@ -361,7 +371,9 @@ export default function ChatPage() {
 
   const startDM = async (targetUser: any) => {
     const existing = conversations.find(
-      (c: any) => c.type === 'private' && c.name?.includes(targetUser.fullName)
+      (c: any) => c.type === 'private' && 
+        (c.name?.toLowerCase().includes(targetUser.fullName.toLowerCase()) || 
+         c.name?.toLowerCase().includes(targetUser.loginId.toLowerCase()))
     );
     if (existing) {
       navigate(`/chat/${existing.id}`);
@@ -443,6 +455,18 @@ export default function ChatPage() {
   };
 
   const handleCallHandshake = (type: 'audio' | 'video') => {
+    if (activeConv && activeConv.type === 'private') {
+      const partnerName = activeConv.name?.replace('DM with ', '');
+      const partnerUser = otherUsers.find(
+        (u: any) => u.fullName.toLowerCase() === partnerName?.toLowerCase() || u.loginId.toLowerCase() === partnerName?.toLowerCase()
+      );
+      const isPartnerOnline = partnerUser ? partnerUser.isOnline : false;
+      if (!isPartnerOnline) {
+        toast.error(`Teammate "${partnerName || 'User'}" is offline. Call handshakes are blocked.`);
+        return;
+      }
+    }
+
     setCallingState('calling');
     setActiveCall(true);
     toast(`Initiating secure ${type} handshake resonance... 📞`);
@@ -985,7 +1009,21 @@ export default function ChatPage() {
                           msg.isSending ? (
                             <span className="spinner-border" style={{ display: 'inline-block', width: '8px', height: '8px', border: '1.5px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite', marginLeft: '4px' }} />
                           ) : (
-                            <CheckCheck size={10} style={{ color: activeConv.type === 'private' ? 'var(--brand-primary)' : 'var(--text-tertiary)', marginLeft: '4px' }} />
+                            (() => {
+                              if (activeConv && activeConv.type === 'private') {
+                                const partnerName = activeConv.name?.replace('DM with ', '');
+                                const partnerUser = otherUsers.find(
+                                  (u: any) => u.fullName?.toLowerCase() === partnerName?.toLowerCase() || u.loginId?.toLowerCase() === partnerName?.toLowerCase()
+                                );
+                                const isPartnerOnline = partnerUser ? partnerUser.isOnline : false;
+                                if (!isPartnerOnline) {
+                                  return <Check size={10} style={{ color: 'var(--text-tertiary)', marginLeft: '4px' }} />;
+                                } else {
+                                  return <CheckCheck size={10} style={{ color: '#34b7f1', marginLeft: '4px' }} />;
+                                }
+                              }
+                              return <CheckCheck size={10} style={{ color: 'var(--text-tertiary)', marginLeft: '4px' }} />;
+                            })()
                           )
                         )}
                       </div>
