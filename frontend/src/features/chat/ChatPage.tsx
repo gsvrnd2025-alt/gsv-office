@@ -200,7 +200,7 @@ export default function ChatPage() {
   });
 
   const createGroupMutation = useMutation({
-    mutationFn: (data: { name: string; description: string; type: string }) =>
+    mutationFn: (data: { name: string; description: string; type: string; members?: string[] }) =>
       chatApi.createConversation(data),
     onSuccess: (res: any) => {
       const newRoom = res.data?.data || res.data;
