@@ -40,6 +40,23 @@ export class ChatService {
        VALUES ($1, $2, $3, $4) RETURNING *`,
       [dto.type || 'private', dto.name, dto.description, dto.createdBy]
     );
+
+    // Add the creator
+    await this.dataSource.query(
+      `INSERT INTO conversation_members (conversation_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [conv.id, dto.createdBy]
+    );
+
+    // Add any target members (e.g. for DMs)
+    if (dto.members && Array.isArray(dto.members)) {
+      for (const memberId of dto.members) {
+        await this.dataSource.query(
+          `INSERT INTO conversation_members (conversation_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [conv.id, memberId]
+        );
+      }
+    }
+
     return conv;
   }
 

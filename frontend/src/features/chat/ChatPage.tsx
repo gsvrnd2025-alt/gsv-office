@@ -314,7 +314,8 @@ export default function ChatPage() {
     createGroupMutation.mutate({
       name: `DM with ${targetUser.fullName}`,
       description: `Direct secure handshake with ${targetUser.fullName}`,
-      type: 'private'
+      type: 'private',
+      members: [targetUser.id]
     });
   };
 
