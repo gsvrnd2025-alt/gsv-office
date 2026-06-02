@@ -16,13 +16,17 @@ export class ChatController {
   @Get('conversations')
   @RequirePermissions(['chat', 'read'])
   getConversations(@CurrentUser('id') userId: string, @Query() q: any) {
-    return this.svc.getConversations(userId, q.page, q.limit);
+    const page = parseInt(q.page, 10) || 1;
+    const limit = parseInt(q.limit, 10) || 20;
+    return this.svc.getConversations(userId, page, limit);
   }
 
   @Get('conversations/:id/messages')
   @RequirePermissions(['chat', 'read'])
   getMessages(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('id') userId: string, @Query() q: any) {
-    return this.svc.getMessages(id, userId, q.page, q.limit);
+    const page = parseInt(q.page, 10) || 1;
+    const limit = parseInt(q.limit, 10) || 50;
+    return this.svc.getMessages(id, userId, page, limit);
   }
 
   @Post('conversations')

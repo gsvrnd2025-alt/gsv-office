@@ -698,11 +698,13 @@ export default function ChatPage() {
                   <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(255,255,255,0.05)', border: '1.5px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, color: '#fff' }}>
                     {initials(u.fullName)}
                   </div>
-                  <span style={{ position: 'absolute', bottom: 0, right: 0, width: '7px', height: '7px', borderRadius: '50%', border: '1.5px solid var(--bg-card)', background: u.isOnline ? 'var(--brand-success)' : 'var(--text-tertiary)' }} />
+                  {u.isOnline && (
+                    <span style={{ position: 'absolute', bottom: 0, right: 0, width: '7px', height: '7px', borderRadius: '50%', border: '1.5px solid var(--bg-card)', background: 'var(--brand-success)' }} />
+                  )}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                   <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.fullName}</span>
-                  <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{u.isOnline ? '🟢 Online' : 'Offline'}</span>
+                  <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{u.isOnline ? 'Online' : 'Offline'}</span>
                 </div>
               </div>
             ))}
@@ -789,29 +791,30 @@ export default function ChatPage() {
               <div>
                 <div className={styles.chatName}>{activeConv.name || 'Secure DM'}</div>
                 <div className={styles.chatStatus}>
-                  <span className="status-dot online" style={{
-                    width: '6px',
-                    height: '6px',
-                    background: activeConv.type === 'private'
-                      ? (() => {
-                          const partnerName = activeConv.name?.replace('DM with ', '');
-                          const partner = otherUsers.find((u: any) => u.fullName === partnerName);
-                          return partner?.isOnline ? 'var(--brand-success)' : 'var(--text-tertiary)';
-                        })()
-                      : 'var(--brand-primary)'
-                  }} />
                   {activeConv.type === 'private' ? (
                     (() => {
                       const partnerName = activeConv.name?.replace('DM with ', '');
-                      const partner = otherUsers.find((u: any) => u.fullName === partnerName);
-                      if (partner) {
-                        return partner.isOnline 
-                          ? '🟢 Online' 
-                          : `Offline | Last seen ${partner.lastSeen ? new Date(partner.lastSeen).toLocaleDateString('en-IN') : 'Never'}`;
+                      const partner = otherUsers.find((u: any) => u.fullName?.toLowerCase() === partnerName?.toLowerCase() || u.loginId?.toLowerCase() === partnerName?.toLowerCase());
+                      const isOnline = partner ? partner.isOnline : false;
+                      if (isOnline) {
+                        return (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span className="status-dot online" style={{ width: '6px', height: '6px', background: 'var(--brand-success)' }} />
+                            <span>Online</span>
+                          </div>
+                        );
+                      } else {
+                        return (
+                          <span>Offline {partner?.lastSeen ? `| Last seen ${new Date(partner.lastSeen).toLocaleDateString('en-IN')}` : ''}</span>
+                        );
                       }
-                      return 'Offline';
                     })()
-                  ) : 'Department Public Room'}
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span className="status-dot online" style={{ width: '6px', height: '6px', background: 'var(--brand-primary)' }} />
+                      <span>Department Public Room</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
