@@ -1,6 +1,7 @@
 .chatLayout {
   display: flex;
-  height: calc(100vh - var(--topbar-height) - 48px);
+  flex: 1;
+  min-height: 0;
   border-radius: var(--radius-xl);
   overflow: hidden;
   border: 1px solid var(--border-color);
