@@ -56,14 +56,14 @@ export default function LoginPage() {
           Sign in to your workspace
         </h2>
         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px', marginBottom: '28px' }}>
-          Use your Employee ID or email address
+          Use your Employee ID, email address, or mobile number
         </p>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {/* Login ID */}
           <div>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: 'rgba(255,255,255,0.7)', marginBottom: '8px' }}>
-              Employee ID or Email
+              Employee ID, Email, or Mobile Number
             </label>
             <div style={{ position: 'relative' }}>
               <User size={16} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'rgba(255,255,255,0.4)' }} />
@@ -71,7 +71,7 @@ export default function LoginPage() {
                 type="text"
                 value={loginId}
                 onChange={e => setLoginId(e.target.value)}
-                placeholder="e.g. admin or admin@gsv.local"
+                placeholder="e.g. admin, admin@gsv.local, or 9876543210"
                 autoComplete="username"
                 style={{
                   width: '100%', padding: '12px 14px 12px 40px',

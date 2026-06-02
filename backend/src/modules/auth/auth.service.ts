@@ -25,9 +25,9 @@ export class AuthService {
   ) {}
 
   async validateUser(loginId: string, password: string): Promise<User | null> {
-    // Try login by loginId or email
+    // Try login by loginId, email, or phone (mobile number)
     const user = await this.usersRepo.findOne({
-      where: [{ loginId }, { email: loginId }],
+      where: [{ loginId }, { email: loginId }, { phone: loginId }],
       relations: ['role', 'department'],
     });
 
