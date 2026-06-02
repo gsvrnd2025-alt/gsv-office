@@ -108,13 +108,19 @@ export default function ChatPage() {
 
   const handleSaveToPC = async (fileName: string, content: string = 'GSV Office Mock SMB Shared Payload Content', fileUrl?: string) => {
     try {
-      let blob: Blob;
       if (fileUrl) {
-        const response = await fetch(fileUrl);
-        blob = await response.blob();
-      } else {
-        blob = new Blob([content], { type: 'text/plain' });
+        const a = document.createElement('a');
+        a.href = fileUrl;
+        a.download = fileName || 'download';
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        toast.success('Download initiated! 💾');
+        return;
       }
+
+      const blob = new Blob([content], { type: 'text/plain' });
 
       if ('showSaveFilePicker' in window) {
         const handle = await (window as any).showSaveFilePicker({
@@ -991,9 +997,7 @@ export default function ChatPage() {
                                   <Download size={14} style={{ color: 'var(--brand-primary)' }} />
                                 </span>
                               </div>
-                              <audio controls style={{ width: '100%', height: '32px' }}>
-                                <source src={msg.file_url || msg.fileUrl || "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"} type={msg.mime_type || msg.mimeType || "audio/mp3"} />
-                              </audio>
+                              <audio controls src={msg.file_url || msg.fileUrl || "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"} style={{ width: '100%', marginTop: '4px', height: '40px' }} />
                             </div>
                           )}
 
