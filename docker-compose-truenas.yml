@@ -4,7 +4,8 @@ name: gsv-office
 
 networks:
   gsv_network:
-    driver: bridge
+    name: ix-gsv-office_gsv_network
+    external: true
 
 volumes:
   postgres_data:

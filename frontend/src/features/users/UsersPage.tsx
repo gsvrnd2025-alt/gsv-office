@@ -18,7 +18,7 @@ export default function UsersPage() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['users', search, statusFilter, page],
-    queryFn: () => usersApi.getAll({ search, status: statusFilter || undefined, page, limit: 15 }).then(r => r.data?.data || r.data),
+    queryFn: () => usersApi.getAll({ search, status: statusFilter || undefined, page, limit: 15 }).then(r => r.data),
   });
 
   const { data: roles = [] } = useQuery({ queryKey: ['roles'], queryFn: () => rolesApi.getAll().then(r => r.data?.data || r.data || []) });
