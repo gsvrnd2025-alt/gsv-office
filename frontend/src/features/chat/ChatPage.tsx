@@ -601,7 +601,7 @@ export default function ChatPage() {
       )}
 
       {/* Sidebar */}
-      <div className={styles.convSidebar} style={{ borderRight: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.01)' }}>
+      <div className={styles.convSidebar}>
         <div className={styles.convHeader}>
           <h2 className={styles.convTitle}>
             <MessageSquare size={18} style={{ color: 'var(--brand-primary)' }} />
@@ -628,7 +628,7 @@ export default function ChatPage() {
         </div>
 
         {/* Tab Filters */}
-        <div style={{ display: 'flex', gap: '4px', padding: '0 16px 12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        <div style={{ display: 'flex', gap: '4px', padding: '0 16px 12px 16px', borderBottom: '1px solid var(--border-color)' }}>
           {[
             { key: 'all', label: 'All' },
             { key: 'channels', label: 'Channels' },
@@ -651,55 +651,51 @@ export default function ChatPage() {
           ))}
         </div>
 
-        {/* Conversations List */}
-        <div className={styles.convList} style={{ maxHeight: '25vh', overflowY: 'auto' }}>
-          {filteredConvs.map((conv: any) => (
-            <div
-              key={conv.id}
-              className={`${styles.convItem} ${conv.id === conversationId ? styles.active : ''}`}
-              onClick={() => navigate(`/chat/${conv.id}`)}
-              style={{
-                borderRadius: '8px', margin: '4px 8px', padding: '8px 12px',
-                borderLeft: conv.id === conversationId ? '4px solid #6366f1' : '4px solid transparent'
-              }}
-            >
-              <div className={`${styles.convAvatar} ${conv.type === 'group' || conv.type === 'department' ? styles.groupAvatar : ''}`} style={{ background: 'var(--gradient-brand)' }}>
-                {conv.type === 'group' || conv.type === 'department' ? <Hash size={16} /> : (conv.name?.charAt(0).toUpperCase() || 'U')}
-              </div>
-              <div className={styles.convMeta}>
-                <div className={styles.convName}>
-                  <span style={{ fontWeight: 600 }}>{conv.name || 'Secure DM'}</span>
+        {/* Active Conversations Section */}
+        <div className={`${styles.sidebarSection} ${styles.activeConversationsSection}`}>
+          <div className={styles.convList}>
+            {filteredConvs.map((conv: any) => (
+              <div
+                key={conv.id}
+                className={`${styles.convItem} ${conv.id === conversationId ? styles.active : ''}`}
+                onClick={() => navigate(`/chat/${conv.id}`)}
+                style={{
+                  borderRadius: '8px', margin: '4px 8px', padding: '8px 12px',
+                  borderLeft: conv.id === conversationId ? '4px solid #6366f1' : '4px solid transparent'
+                }}
+              >
+                <div className={`${styles.convAvatar} ${conv.type === 'group' || conv.type === 'department' ? styles.groupAvatar : ''}`} style={{ background: 'var(--gradient-brand)' }}>
+                  {conv.type === 'group' || conv.type === 'department' ? <Hash size={16} /> : (conv.name?.charAt(0).toUpperCase() || 'U')}
                 </div>
-                <div className={styles.convPreview}>
-                  <span>{conv.last_message_preview || 'Ready to resonance.'}</span>
+                <div className={styles.convMeta}>
+                  <div className={styles.convName}>
+                    <span style={{ fontWeight: 600 }}>{conv.name || 'Secure DM'}</span>
+                  </div>
+                  <div className={styles.convPreview}>
+                    <span>{conv.last_message_preview || 'Ready to resonance.'}</span>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
 
-        {/* Members Directory */}
-        <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '16px 0 0 0', display: 'flex', flexDirection: 'column', flex: 1, overflowY: 'auto' }}>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--brand-primary)', padding: '0 20px 8px 20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+        {/* Teammates Directory Section */}
+        <div className={`${styles.sidebarSection} ${styles.teammatesSection}`}>
+          <div className={styles.sectionHeader}>
             👥 Teammate Directories DMs
           </div>
-          <div style={{ overflowY: 'auto', flex: 1, maxHeight: '25vh' }}>
+          <div className={styles.sectionList}>
             {otherUsers.map((u: any) => (
               <div
                 key={u.id}
                 onClick={() => startDM(u)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '10px',
-                  padding: '8px 20px', cursor: 'pointer', transition: 'all 0.15s'
-                }}
-                className="hover-glass"
+                className={styles.teammateRow}
               >
-                <div style={{ position: 'relative', flexShrink: 0 }}>
-                  <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(255,255,255,0.05)', border: '1.5px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, color: '#fff' }}>
-                    {initials(u.fullName)}
-                  </div>
+                <div className={styles.teammateAvatar}>
+                  {initials(u.fullName)}
                   {u.isOnline && (
-                    <span style={{ position: 'absolute', bottom: 0, right: 0, width: '7px', height: '7px', borderRadius: '50%', border: '1.5px solid var(--bg-card)', background: 'var(--brand-success)' }} />
+                    <span className={styles.statusDot} />
                   )}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -711,28 +707,21 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Bookmarks Collapsible */}
-        <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '12px 0 0 0', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--brand-primary)', padding: '0 20px 8px 20px', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        {/* Bookmarks Section */}
+        <div className={`${styles.sidebarSection} ${styles.bookmarksSection}`}>
+          <div className={styles.sectionHeader}>
             <span>🔖 Bookmarked Files</span>
             <span className="badge badge-primary" style={{ fontSize: '9px', padding: '1px 4px' }}>{bookmarks.length}</span>
           </div>
-          <div style={{ maxHeight: '120px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px', padding: '0 8px 12px 8px' }}>
+          <div className={styles.sectionList}>
             {bookmarks.length === 0 ? (
               <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', padding: '4px 12px' }}>No bookmarked files</div>
             ) : (
               bookmarks.map((b: any) => (
-                <div
-                  key={b.id}
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '6px 10px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px',
-                    border: '1px solid rgba(255,255,255,0.04)', fontSize: '11px'
-                  }}
-                >
+                <div key={b.id} className={styles.bookmarkRow}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                     {b.type === 'folder' ? <Folder size={12} style={{ color: 'var(--brand-primary)', flexShrink: 0 }} /> : <File size={12} style={{ color: 'var(--brand-primary)', flexShrink: 0 }} />}
-                    <span style={{ fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={b.favoriteName}>
+                    <span style={{ fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={b.favoriteName}>
                       {b.favoriteName}
                     </span>
                   </div>

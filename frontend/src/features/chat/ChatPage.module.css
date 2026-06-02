@@ -17,6 +17,113 @@
   display: flex;
   flex-direction: column;
   background: var(--bg-card);
+  height: 100%;
+}
+
+.sidebarSection {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border-color);
+  padding: 12px 0;
+}
+
+.activeConversationsSection {
+  flex: 1.2;
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+}
+
+.teammatesSection {
+  flex: 1;
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+}
+
+.bookmarksSection {
+  flex: 0 0 auto;
+  max-height: 150px;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 12px;
+  border-bottom: none;
+}
+
+.sectionHeader {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--brand-primary);
+  padding: 0 20px 8px 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sectionList {
+  overflow-y: auto;
+  flex: 1;
+  padding: 0 8px;
+}
+
+.teammateRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  margin: 2px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.teammateRow:hover {
+  background: var(--bg-hover);
+}
+
+.teammateAvatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--gradient-brand);
+  border: 1.5px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #ffffff;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+}
+
+.statusDot {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid var(--bg-card);
+  background: var(--brand-success);
+}
+
+.statusDotOffline {
+  background: var(--text-tertiary) !important;
+}
+
+.bookmarkRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  font-size: 11px;
+  margin: 2px 8px;
 }
 
 .convHeader {
