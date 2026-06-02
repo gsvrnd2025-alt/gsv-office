@@ -110,6 +110,7 @@ export const filesApi = {
   getAccessRequests: () => api.get('/files/access-requests'),
   requestAccess: (data: any) => api.post('/files/access-requests', data),
   reviewAccessRequest: (data: any) => api.post('/files/access-requests/review', data),
+  saveToCloud: (id: string) => api.post(`/files/${id}/save-to-cloud`),
 };
 
 export const ticketsApi = {

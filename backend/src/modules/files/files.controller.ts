@@ -70,4 +70,10 @@ export class FilesController {
     await this.svc.deleteFile(id, userId);
     return { message: 'File deleted' };
   }
+
+  @Post(':id/save-to-cloud')
+  @RequirePermissions(['files', 'upload'])
+  async saveToCloud(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('id') userId: string) {
+    return this.svc.saveToCloud(id, userId);
+  }
 }

@@ -45,6 +45,8 @@ export default function ChatPage() {
   // WhatsApp-style Custom Features
   const [showAttachmentsDropdown, setShowAttachmentsDropdown] = useState(false);
   const [fileSearch, setFileSearch] = useState('');
+  const [sendingMessages, setSendingMessages] = useState<any[]>([]);
+  const [uploadAccept, setUploadAccept] = useState('*');
   
   // 1. Mentions (@) popup
   const [showMentions, setShowMentions] = useState(false);
@@ -129,6 +131,15 @@ export default function ChatPage() {
   const folderInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const handleSaveToCloud = async (fileId: string) => {
+    try {
+      await filesApi.saveToCloud(fileId);
+      toast.success('Signal saved to Cloud successfully! ☁️');
+    } catch (err) {
+      toast.error('Failed to sync signal with cloud storage.');
+    }
+  };
+
   // React Queries
   const { data: conversations = [] } = useQuery({
     queryKey: ['conversations'],
@@ -153,7 +164,7 @@ export default function ChatPage() {
 
   // Mutations
   const sendMutation = useMutation({
-    mutationFn: async (payload: { content: string; type?: string; files?: any[] }) => {
+    mutationFn: async (payload: { content: string; type?: string; files?: any[]; tempId?: string }) => {
       let fileId = undefined;
       let fileName = undefined;
       let fileUrl = undefined;
@@ -191,13 +202,21 @@ export default function ChatPage() {
         mimeType
       }).then(r => r.data?.data || r.data);
     },
-    onSuccess: () => {
+    onSuccess: (data, variables) => {
       setMessage('');
       setStagedFiles([]);
+      if (variables.tempId) {
+        setSendingMessages(prev => prev.filter(m => m.id !== variables.tempId));
+      }
       qc.invalidateQueries({ queryKey: ['messages', conversationId] });
       qc.invalidateQueries({ queryKey: ['conversations'] });
     },
-    onError: () => toast.error('Failed to propagate chat signal'),
+    onError: (err, variables) => {
+      if (variables.tempId) {
+        setSendingMessages(prev => prev.filter(m => m.id !== variables.tempId));
+      }
+      toast.error('Failed to propagate chat signal');
+    },
   });
 
   const createGroupMutation = useMutation({
@@ -299,18 +318,34 @@ export default function ChatPage() {
     e.preventDefault();
     if (!message.trim() && stagedFiles.length === 0) return;
     
+    const tempId = `temp-${Date.now()}`;
+    const isFolder = stagedFiles.some(f => f.type === 'folder');
+    const attachmentType = stagedFiles.length > 0 ? (isFolder ? 'folder' : stagedFiles[0].type) : 'text';
+
+    const tempMsg = {
+      id: tempId,
+      content: message.trim() || (stagedFiles.length > 0 ? `Sent staged ${stagedFiles.length} payload(s)` : ''),
+      sender_id: user?.id,
+      sender: { id: user?.id, fullName: user?.fullName || 'Me' },
+      created_at: new Date().toISOString(),
+      type: attachmentType,
+      isSending: true,
+      file_name: stagedFiles[0]?.name,
+      file_size: stagedFiles[0]?.size,
+    };
+    
+    setSendingMessages(prev => [...prev, tempMsg]);
+
     if (stagedFiles.length > 0) {
-      const isFolder = stagedFiles.some(f => f.type === 'folder');
-      const attachmentType = isFolder ? 'folder' : stagedFiles[0].type;
-      
       sendMutation.mutate({
         content: message.trim() || `Sent staged ${stagedFiles.length} payload(s)`,
         type: attachmentType,
-        files: stagedFiles
+        files: stagedFiles,
+        tempId
       });
       toast.success('Attachment payload propagated securely. 📦');
     } else {
-      sendMutation.mutate({ content: message.trim() });
+      sendMutation.mutate({ content: message.trim(), tempId });
     }
   };
 
@@ -439,6 +474,7 @@ export default function ChatPage() {
     const timeB = new Date(b.created_at || b.createdAt || 0).getTime();
     return timeA - timeB;
   });
+  sortedMessages = [...sortedMessages, ...sendingMessages];
   if (fileSearch.trim()) {
     const query = fileSearch.toLowerCase();
     sortedMessages = sortedMessages.filter(
@@ -562,7 +598,7 @@ export default function ChatPage() {
               value={search}
               onChange={e => setSearch(e.target.value)}
               className="form-control"
-              style={{ paddingLeft: '36px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
+              style={{ paddingLeft: '36px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
             />
           </div>
         </div>
@@ -764,7 +800,7 @@ export default function ChatPage() {
                   value={fileSearch}
                   onChange={e => setFileSearch(e.target.value)}
                   className="form-control"
-                  style={{ paddingLeft: '28px', height: '28px', fontSize: '11px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
+                  style={{ paddingLeft: '28px', height: '28px', fontSize: '11px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
                 />
               </div>
               <div className={styles.chatActions}>
@@ -776,7 +812,7 @@ export default function ChatPage() {
           </div>
 
           {/* Messages list */}
-          <div className={styles.messagesArea} style={{ background: 'radial-gradient(rgba(99, 102, 241, 0.03) 1px, transparent 1px)', backgroundSize: '24px 24px' }}>
+          <div className={styles.messagesArea}>
             {sortedMessages.map((msg: any, i: number) => {
               const isOwn = msg.sender_id === user?.id || msg.sender?.id === user?.id;
               const senderName = msg.sender_name || msg.sender?.fullName || 'System Teammate';
@@ -897,6 +933,14 @@ export default function ChatPage() {
                             >
                               🔖 Bookmark
                             </span>
+                            {msg.file_id && (
+                              <span
+                                onClick={() => handleSaveToCloud(msg.file_id)}
+                                style={{ fontSize: '10px', color: 'var(--brand-primary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '2px', fontWeight: 600 }}
+                              >
+                                ☁️ Save to Cloud
+                              </span>
+                            )}
                           </div>
                         </div>
                       )}
@@ -937,7 +981,13 @@ export default function ChatPage() {
 
                       <div className={styles.messageTime} style={{ marginTop: reactions.length > 0 ? '10px' : '4px' }}>
                         {formatTime(msg.created_at || msg.createdAt)}
-                        {isOwn && <CheckCheck size={10} style={{ color: activeConv.type === 'private' ? 'var(--brand-primary)' : 'var(--text-tertiary)', marginLeft: '4px' }} />}
+                        {isOwn && (
+                          msg.isSending ? (
+                            <span className="spinner-border" style={{ display: 'inline-block', width: '8px', height: '8px', border: '1.5px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite', marginLeft: '4px' }} />
+                          ) : (
+                            <CheckCheck size={10} style={{ color: activeConv.type === 'private' ? 'var(--brand-primary)' : 'var(--text-tertiary)', marginLeft: '4px' }} />
+                          )
+                        )}
                       </div>
                     </div>
 
@@ -991,7 +1041,7 @@ export default function ChatPage() {
           )}
 
           {/* Chat Input controls bar */}
-          <div className={styles.chatInput} style={{ borderTop: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.01)', position: 'relative' }}>
+          <div className={styles.chatInput} style={{ borderTop: '1px solid var(--border-color)', background: 'var(--bg-card)', position: 'relative' }}>
             {isRecording ? (
               /* Voice Recording sliding timeline HUD */
               <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', background: 'rgba(239,68,68,0.05)', borderRadius: '12px', border: '1.5px dashed var(--brand-danger)' }} className="animate-slide-in">
@@ -1025,7 +1075,16 @@ export default function ChatPage() {
                   </button>
                   {showAttachmentsDropdown && (
                     <div className="dropdown-menu" style={{ bottom: '100%', top: 'auto', left: 0, marginBottom: '8px', display: 'block', background: 'rgba(26, 21, 44, 0.95)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                      <div className="dropdown-item" onClick={() => { fileInputRef.current?.click(); setShowAttachmentsDropdown(false); }}>
+                      <div className="dropdown-item" onClick={() => { setUploadAccept('image/*'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
+                        📸 Photos
+                      </div>
+                      <div className="dropdown-item" onClick={() => { setUploadAccept('video/*'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
+                        🎥 Videos
+                      </div>
+                      <div className="dropdown-item" onClick={() => { setUploadAccept('.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
+                        📄 Documents
+                      </div>
+                      <div className="dropdown-item" onClick={() => { setUploadAccept('.zip,.rar,.tar,.gz,.7z'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
                         🤐 Zip File Upload
                       </div>
                       <div className="dropdown-item" onClick={() => { folderInputRef.current?.click(); setShowAttachmentsDropdown(false); }}>
@@ -1044,7 +1103,7 @@ export default function ChatPage() {
                   className={styles.messageInput}
                   disabled={sendMutation.isPending}
                   autoFocus
-                  style={{ background: '#ffffff', color: '#111827', border: '1.5px solid var(--brand-primary)', boxShadow: '0 2px 10px rgba(99, 102, 241, 0.1)', fontWeight: 500 }}
+                  style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1.5px solid var(--brand-primary)', boxShadow: '0 2px 10px rgba(99, 102, 241, 0.1)', fontWeight: 500 }}
                 />
 
                 <button
@@ -1094,7 +1153,7 @@ export default function ChatPage() {
                   <Send size={18} />
                 </button>
 
-                <input type="file" ref={fileInputRef} style={{ display: 'none' }} multiple onChange={e => handleFileUpload(e, false)} />
+                <input type="file" ref={fileInputRef} style={{ display: 'none' }} multiple accept={uploadAccept} onChange={e => handleFileUpload(e, false)} />
                 <input
                   type="file"
                   ref={folderInputRef}
@@ -1103,6 +1162,24 @@ export default function ChatPage() {
                   onChange={e => handleFileUpload(e, true)}
                 />
               </form>
+            )}
+
+            {sendMutation.isPending && stagedFiles.length > 0 && (
+              <div style={{
+                position: 'absolute', bottom: '80px', right: '20px', zIndex: 1100,
+                background: 'rgba(26, 21, 44, 0.95)', border: '1.5px solid var(--brand-primary)',
+                boxShadow: '0 8px 32px rgba(99, 102, 241, 0.3)', borderRadius: '12px',
+                padding: '12px 18px', display: 'flex', alignItems: 'center', gap: '12px',
+                color: '#fff', backdropFilter: 'blur(8px)', animation: 'slideUp 0.3s ease'
+              }}>
+                <div style={{ width: '18px', height: '18px', border: '2px solid rgba(255,255,255,0.1)', borderTopColor: 'var(--brand-primary)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--brand-primary)' }}>Uploading Attachment</span>
+                  <span style={{ fontSize: '12px', fontWeight: 500, opacity: 0.9, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {stagedFiles[0]?.name}
+                  </span>
+                </div>
+              </div>
             )}
           </div>
         </div>
