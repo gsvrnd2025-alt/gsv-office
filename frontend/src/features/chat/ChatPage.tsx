@@ -345,19 +345,17 @@ export default function ChatPage() {
   // Mutations
   const sendMutation = useMutation({
     mutationFn: async (payload: { content: string; type?: string; files?: any[]; tempId?: string }) => {
-      let fileId = undefined;
-      let fileName = undefined;
-      let fileUrl = undefined;
-      let fileSize = undefined;
-      let mimeType = undefined;
-
       if (payload.files && payload.files.length > 0) {
-        const staged = payload.files[0];
-        const fd = new FormData();
-        
-        try {
-          let uploadRes;
-          if (payload.type === 'folder' && staged.files) {
+        if (payload.type === 'folder') {
+          const staged = payload.files[0];
+          const fd = new FormData();
+          let fileId = undefined;
+          let fileName = undefined;
+          let fileUrl = undefined;
+          let fileSize = undefined;
+          let mimeType = undefined;
+          
+          try {
             staged.files.forEach((file: File) => {
               fd.append('files', file);
             });
@@ -365,35 +363,78 @@ export default function ChatPage() {
             fd.append('relativePaths', JSON.stringify(relativePaths));
             const folderName = staged.name.split('/')[0] || 'Uploaded_Folder';
             fd.append('folderName', folderName);
-            uploadRes = await filesApi.uploadFolder(fd);
-          } else {
+            const uploadRes = await filesApi.uploadFolder(fd);
+            const fileData = uploadRes.data?.data || uploadRes.data;
+            if (fileData) {
+              fileId = fileData.id;
+              fileName = fileData.originalName || fileData.name;
+              fileUrl = fileData.storageUrl || fileData.url;
+              fileSize = fileData.size || fileData.sizeBytes;
+              mimeType = fileData.mimeType;
+            }
+          } catch (err) {
+            console.error('Folder upload failed in chat propagation:', err);
+            toast.error('Folder upload failed.');
+          }
+
+          return chatApi.sendMessage(conversationId!, {
+            content: payload.content,
+            type: 'folder',
+            fileId,
+            fileName,
+            fileUrl,
+            fileSize,
+            mimeType
+          }).then(r => r.data?.data || r.data);
+        } else {
+          // Multiple standard file uploads loop (up to 10 files)
+          let lastRes = null;
+          for (let i = 0; i < payload.files.length; i++) {
+            const staged = payload.files[i];
+            const fd = new FormData();
             fd.append('file', staged.blob);
-            uploadRes = await filesApi.upload(fd);
-          }
+            
+            let fileId = undefined;
+            let fileName = undefined;
+            let fileUrl = undefined;
+            let fileSize = undefined;
+            let mimeType = undefined;
 
-          const fileData = uploadRes.data?.data || uploadRes.data;
-          if (fileData) {
-            fileId = fileData.id;
-            fileName = fileData.originalName || fileData.name;
-            fileUrl = fileData.storageUrl || fileData.url;
-            fileSize = fileData.size || fileData.sizeBytes;
-            mimeType = fileData.mimeType;
+            try {
+              const uploadRes = await filesApi.upload(fd);
+              const fileData = uploadRes.data?.data || uploadRes.data;
+              if (fileData) {
+                fileId = fileData.id;
+                fileName = fileData.originalName || fileData.name;
+                fileUrl = fileData.storageUrl || fileData.url;
+                fileSize = fileData.size || fileData.sizeBytes;
+                mimeType = fileData.mimeType;
+              }
+            } catch (err) {
+              console.error(`File ${staged.name} upload failed:`, err);
+              continue;
+            }
+
+            const contentText = i === 0 ? payload.content : '';
+            lastRes = await chatApi.sendMessage(conversationId!, {
+              content: contentText || `Sent staged file: ${fileName}`,
+              type: staged.type || 'file',
+              fileId,
+              fileName,
+              fileUrl,
+              fileSize,
+              mimeType
+            }).then(r => r.data?.data || r.data);
           }
-        } catch (err) {
-          console.error('File/Folder upload failed in chat propagation:', err);
-          toast.error('Upload failed, sending text only.');
+          return lastRes;
         }
+      } else {
+        // Plain text message
+        return chatApi.sendMessage(conversationId!, {
+          content: payload.content,
+          type: 'text'
+        }).then(r => r.data?.data || r.data);
       }
-
-      return chatApi.sendMessage(conversationId!, {
-        content: payload.content,
-        type: payload.type || 'text',
-        fileId,
-        fileName,
-        fileUrl,
-        fileSize,
-        mimeType
-      }).then(r => r.data?.data || r.data);
     },
     onSuccess: (data, variables) => {
       setMessage('');
@@ -609,7 +650,7 @@ export default function ChatPage() {
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, isFolder = false) => {
-    const files = Array.from(e.target.files || []);
+    let files = Array.from(e.target.files || []);
     if (files.length > 0) {
       if (isFolder) {
         const relativePath = (files[0] as any).webkitRelativePath || '';
@@ -626,6 +667,14 @@ export default function ChatPage() {
         setStagedFiles(prev => [...prev, stagedFolder]);
         toast.success(`Folder "${folderName}" (${files.length} files) staged successfully! 📁`);
       } else {
+        if (files.length > 10) {
+          toast.error("You can select a maximum of 10 files at a time. Slicing to the first 10 files.");
+          files = files.slice(0, 10);
+        }
+        if (stagedFiles.length + files.length > 10) {
+          toast.error("You can stage a maximum of 10 files total.");
+          return;
+        }
         const staged = files.map(file => {
           const ext = file.name.split('.').pop()?.toLowerCase() || '';
           let type = 'file';
@@ -656,7 +705,16 @@ export default function ChatPage() {
       }
     }
     if (files.length > 0) {
-      const staged = files.map(file => {
+      let filesToStage = files;
+      if (filesToStage.length > 10) {
+        toast.error("You can paste a maximum of 10 files at a time. Slicing to the first 10 files.");
+        filesToStage = filesToStage.slice(0, 10);
+      }
+      if (stagedFiles.length + filesToStage.length > 10) {
+        toast.error("You can stage a maximum of 10 files total.");
+        return;
+      }
+      const staged = filesToStage.map(file => {
         const ext = file.name.split('.').pop()?.toLowerCase() || '';
         let type = 'file';
         if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) type = 'photo';
@@ -671,7 +729,7 @@ export default function ChatPage() {
         };
       });
       setStagedFiles(prev => [...prev, ...staged]);
-      toast.success(`${files.length} pasted file(s) staged successfully! 📋`);
+      toast.success(`${filesToStage.length} pasted file(s) staged successfully! 📋`);
     }
   };
 
@@ -1910,9 +1968,11 @@ export default function ChatPage() {
               }}>
                 <div style={{ width: '18px', height: '18px', border: '2px solid var(--border-color)', borderTopColor: 'var(--brand-primary)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--brand-primary)' }}>Uploading Attachment</span>
+                  <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--brand-primary)' }}>
+                    Uploading {stagedFiles.length > 1 ? `${stagedFiles.length} Attachments` : 'Attachment'}
+                  </span>
                   <span style={{ fontSize: '12px', fontWeight: 500, opacity: 0.9, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {stagedFiles[0]?.name}
+                    {stagedFiles.length > 1 ? `${stagedFiles.length} files staged` : stagedFiles[0]?.name}
                   </span>
                 </div>
               </div>
