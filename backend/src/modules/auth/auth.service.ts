@@ -163,10 +163,12 @@ export class AuthService {
       throw new NotFoundException('No employee found with this ID, email, or mobile number.');
     }
 
-    const metadata = user.metadata || {};
-    metadata.passwordResetStatus = 'pending';
-    metadata.passwordResetRequestedAt = new Date().toISOString();
-    await this.usersRepo.update(user.id, { metadata });
+    user.metadata = {
+      ...(user.metadata || {}),
+      passwordResetStatus: 'pending',
+      passwordResetRequestedAt: new Date().toISOString(),
+    };
+    await this.usersRepo.save(user);
 
     await this.auditService.log({
       userId: user.id,
@@ -189,10 +191,12 @@ export class AuthService {
     const user = await this.usersRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
-    const metadata = user.metadata || {};
-    metadata.passwordResetStatus = 'approved';
-    metadata.passwordResetApprovedAt = new Date().toISOString();
-    await this.usersRepo.update(userId, { metadata });
+    user.metadata = {
+      ...(user.metadata || {}),
+      passwordResetStatus: 'approved',
+      passwordResetApprovedAt: new Date().toISOString(),
+    };
+    await this.usersRepo.save(user);
 
     await this.auditService.log({
       userId,
@@ -207,11 +211,12 @@ export class AuthService {
     const user = await this.usersRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
-    const metadata = user.metadata || {};
+    const metadata = { ...(user.metadata || {}) };
     delete metadata.passwordResetStatus;
     delete metadata.passwordResetRequestedAt;
     delete metadata.passwordResetApprovedAt;
-    await this.usersRepo.update(userId, { metadata });
+    user.metadata = metadata;
+    await this.usersRepo.save(user);
 
     await this.auditService.log({
       userId,
@@ -236,7 +241,7 @@ export class AuthService {
       throw new NotFoundException('No employee found with this ID, email, or mobile number.');
     }
 
-    const metadata = user.metadata || {};
+    const metadata = { ...(user.metadata || {}) };
     if (metadata.passwordResetStatus !== 'approved') {
       throw new BadRequestException('Password reset request has not been approved by the administrator yet.');
     }
@@ -246,11 +251,11 @@ export class AuthService {
     delete metadata.passwordResetRequestedAt;
     delete metadata.passwordResetApprovedAt;
     
-    await this.usersRepo.update(user.id, {
-      passwordHash: hash,
-      metadata,
-      forcePasswordChange: false,
-    });
+    user.passwordHash = hash;
+    user.metadata = metadata;
+    user.forcePasswordChange = false;
+
+    await this.usersRepo.save(user);
 
     await this.auditService.log({
       userId: user.id,
