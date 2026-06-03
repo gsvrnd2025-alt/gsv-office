@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
+import { useParams, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Send, Plus, Search, MessageSquare, Hash, Phone, Video,
@@ -76,6 +76,8 @@ function DraggableRow({ children, className, style }: any) {
 export default function ChatPage() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const dmUserId = searchParams.get('userId');
   const { sidebarCollapsed, setSidebarCollapsed } = useOutletContext<any>() || {};
   const { user } = useAuthStore();
   const qc = useQueryClient();
@@ -523,6 +525,17 @@ export default function ChatPage() {
     }
     prevUnreadCountSumRef.current = currentUnreadSum;
   }, [conversations]);
+
+  // 3. Handle global search routing for DM chats
+  useEffect(() => {
+    if (dmUserId && users.length > 0) {
+      const targetUser = users.find((u: any) => u.id === dmUserId);
+      if (targetUser) {
+        startDM(targetUser);
+      }
+      setSearchParams({}, { replace: true });
+    }
+  }, [dmUserId, users, conversations]);
 
   // Mentions monitoring
   const handleInputChange = (val: string) => {

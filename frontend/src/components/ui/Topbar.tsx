@@ -1,10 +1,10 @@
 import { Menu, Bell, Sun, Moon, Search } from 'lucide-react';
 import { useAuthStore } from '../../store/auth.store';
 import { useThemeStore } from '../../store/theme.store';
-import { useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { notificationsApi } from '../../api';
+import { notificationsApi, chatApi, usersApi } from '../../api';
 import styles from './Topbar.module.css';
 import toast from 'react-hot-toast';
 
@@ -18,6 +18,96 @@ export function Topbar({ onMenuClick }: TopbarProps) {
   const { theme, toggleTheme } = useThemeStore();
   const qc = useQueryClient();
   const [showNotifications, setShowNotifications] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSearchDropdown, setShowSearchDropdown] = useState(false);
+  const navigate = useNavigate();
+
+  // Queries for global search
+  const { data: conversationsData } = useQuery({
+    queryKey: ['conversations'],
+    queryFn: () => chatApi.getConversations().then(r => r.data?.data || r.data || []),
+  });
+
+  const { data: usersData } = useQuery({
+    queryKey: ['users', '', '', 1],
+    queryFn: () => usersApi.getAll().then(r => r.data?.data || r.data || []),
+  });
+
+  const systemPages = [
+    { title: 'Dashboard / Home', path: '/dashboard', keywords: ['home', 'dashboard', 'main', 'index'] },
+    { title: 'Document Workspace', path: '/workspace', keywords: ['workspace', 'document', 'editor', 'compiler', 'notes', 'sticky'] },
+    { title: 'Remote Desktop', path: '/remote-desktop', keywords: ['remote', 'desktop', 'rdp', 'vnc', 'connection'] },
+    { title: 'Team Chat Rooms', path: '/chat', keywords: ['chat', 'message', 'team', 'dm', 'channel', 'group'] },
+    { title: 'File Manager / Cloud', path: '/files', keywords: ['files', 'cloud', 'storage', 'folders', 'documents', 'photos'] },
+    { title: 'Helpdesk Tickets', path: '/tickets', keywords: ['tickets', 'helpdesk', 'support', 'issues', 'bugs'] },
+    { title: 'Email Inbox / Mail', path: '/email', keywords: ['email', 'mail', 'inbox', 'send', 'compose'] },
+    { title: 'Users Directory', path: '/users', keywords: ['users', 'directory', 'teammates', 'employees', 'admin'] },
+    { title: 'Roles & Access', path: '/roles', keywords: ['roles', 'permissions', 'access', 'security'] },
+    { title: 'Requests Approval', path: '/requests', keywords: ['requests', 'approval', 'access requests'] },
+    { title: 'ZFS Storage Quotas', path: '/storage', keywords: ['storage', 'quotas', 'zfs', 'disk'] },
+    { title: 'Billing & GST Invoices', path: '/billing', keywords: ['billing', 'invoices', 'gst', 'tax', 'payments'] },
+    { title: 'Inventory Management', path: '/inventory', keywords: ['inventory', 'products', 'stock', 'warehouse'] },
+    { title: 'Purchase Orders', path: '/purchase', keywords: ['purchase', 'orders', 'supply', 'vendors'] },
+    { title: 'System Analytics', path: '/analytics', keywords: ['analytics', 'charts', 'reports', 'usage'] },
+    { title: 'App Plugins Manager', path: '/plugins', keywords: ['plugins', 'manager', 'extensions'] },
+    { title: 'Server Administration', path: '/server', keywords: ['server', 'admin', 'docker', 'terminal', 'logs'] },
+    { title: 'My Account Profile', path: '/profile', keywords: ['profile', 'account', 'settings', 'avatar'] },
+  ];
+
+  // Hotkey listener Ctrl+K or Cmd+K
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        const searchInputEl = document.getElementById('global-search-input');
+        searchInputEl?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const normalizedQuery = searchQuery.toLowerCase().trim();
+
+  // Get matching pages
+  const matchingPages = normalizedQuery === '' ? [] : systemPages.filter(p => 
+    p.title.toLowerCase().includes(normalizedQuery) || 
+    p.keywords.some(k => k.includes(normalizedQuery))
+  );
+
+  // Get matching chats
+  const conversations = conversationsData || [];
+  const matchingChats = normalizedQuery === '' ? [] : conversations.filter((c: any) => 
+    c.name?.toLowerCase().includes(normalizedQuery)
+  );
+
+  // Get matching users
+  const users = usersData?.data ? usersData.data : (Array.isArray(usersData) ? usersData : []);
+  const otherUsers = users.filter((u: any) => u.id !== user?.id);
+  const matchingUsers = normalizedQuery === '' ? [] : otherUsers.filter((u: any) => 
+    u.fullName?.toLowerCase().includes(normalizedQuery) ||
+    u.loginId?.toLowerCase().includes(normalizedQuery) ||
+    u.department?.name?.toLowerCase().includes(normalizedQuery)
+  );
+
+  // Combine suggestions
+  const suggestions = [
+    ...matchingPages.map(p => ({
+      title: p.title,
+      category: 'System Page 🖥️',
+      action: () => { navigate(p.path); setSearchQuery(''); setShowSearchDropdown(false); }
+    })),
+    ...matchingChats.map((c: any) => ({
+      title: c.name || `Chat with ${c.type}`,
+      category: 'Active Chat 💬',
+      action: () => { navigate(`/chat/${c.id}`); setSearchQuery(''); setShowSearchDropdown(false); }
+    })),
+    ...matchingUsers.map((u: any) => ({
+      title: `${u.fullName} (${u.department?.name || 'LocalTeammate'})`,
+      category: 'Teammate Contact 👥',
+      action: () => { navigate(`/chat?userId=${u.id}`); setSearchQuery(''); setShowSearchDropdown(false); }
+    }))
+  ].slice(0, 10);
 
   // Queries
   const { data: notifCountData } = useQuery({
@@ -81,16 +171,59 @@ export function Topbar({ onMenuClick }: TopbarProps) {
 
       {/* Center: Search */}
       {!isChatPage && (
-        <div className={styles.center}>
+        <div className={styles.center} style={{ position: 'relative' }}>
           <div className={styles.searchBar}>
             <Search size={15} className={styles.searchIcon} />
             <input
+              id="global-search-input"
               type="text"
-              placeholder="Search anything..."
+              placeholder="Search anything... (Ctrl+K)"
               className={styles.searchInput}
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              onFocus={() => setShowSearchDropdown(true)}
+              onBlur={() => setTimeout(() => setShowSearchDropdown(false), 250)}
+              autoComplete="off"
             />
             <kbd className={styles.searchKbd}>⌘K</kbd>
           </div>
+
+          {/* Premium global search dropdown suggestions list */}
+          {showSearchDropdown && normalizedQuery.length > 0 && (
+            <div style={{
+              position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '8px',
+              background: 'rgba(26, 21, 44, 0.96)', border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: '12px', boxShadow: '0 12px 40px rgba(0,0,0,0.6)', zIndex: 1200,
+              maxHeight: '320px', overflowY: 'auto', padding: '6px 0', backdropFilter: 'blur(20px)',
+              animation: 'slideUp 0.2s ease', borderTop: '2px solid var(--brand-primary)'
+            }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--brand-primary)', padding: '6px 16px', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                🔍 Global Search Results ({suggestions.length})
+              </div>
+              {suggestions.length === 0 ? (
+                <div style={{ padding: '16px', color: 'var(--text-tertiary)', fontSize: '11px', textAlign: 'center' }}>
+                  No pages, chats or contacts matching "{searchQuery}"
+                </div>
+              ) : (
+                suggestions.map((s, idx) => (
+                  <div
+                    key={idx}
+                    onMouseDown={(e) => { e.preventDefault(); s.action(); }}
+                    style={{
+                      padding: '10px 16px', cursor: 'pointer', transition: 'all 0.15s',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                    }}
+                    className="dropdown-item"
+                  >
+                    <span style={{ fontSize: '12px', fontWeight: 600, color: '#fff' }}>{s.title}</span>
+                    <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px', background: 'rgba(99, 102, 241, 0.15)', color: 'var(--brand-primary)' }}>
+                      {s.category}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
       )}
 
