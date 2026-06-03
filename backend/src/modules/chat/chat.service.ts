@@ -47,13 +47,18 @@ export class ChatService {
 
   async createConversation(dto: any) {
     if (dto.type === 'private' && dto.members && dto.members.length === 1) {
+      // Find a conversation that has exactly these two users and NO ONE ELSE
+      const user1 = dto.createdBy;
+      const user2 = dto.members[0];
+      
       const existing = await this.dataSource.query(
         `SELECT c.* FROM conversations c
-         JOIN conversation_members cm1 ON c.id = cm1.conversation_id AND cm1.user_id = $1
-         JOIN conversation_members cm2 ON c.id = cm2.conversation_id AND cm2.user_id = $2
          WHERE c.type = 'private'
+         AND EXISTS (SELECT 1 FROM conversation_members cm WHERE cm.conversation_id = c.id AND cm.user_id = $1)
+         AND EXISTS (SELECT 1 FROM conversation_members cm WHERE cm.conversation_id = c.id AND cm.user_id = $2)
+         AND (SELECT COUNT(*) FROM conversation_members cm WHERE cm.conversation_id = c.id) = 2
          LIMIT 1`,
-        [dto.createdBy, dto.members[0]]
+        [user1, user2]
       );
       if (existing.length > 0) {
         return existing[0];

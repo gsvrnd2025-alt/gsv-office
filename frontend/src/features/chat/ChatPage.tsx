@@ -586,16 +586,19 @@ export default function ChatPage() {
   };
 
   const startDM = async (targetUser: any) => {
+    // Check locally first
     const existing = conversations.find(
       (c: any) => c.type === 'private' && 
         (c.name?.toLowerCase().includes(targetUser.fullName.toLowerCase()) || 
          c.name?.toLowerCase().includes(targetUser.loginId.toLowerCase()))
     );
+    
     if (existing) {
       navigate(`/chat/${existing.id}`);
       return;
     }
 
+    // Otherwise, request backend (backend will return existing if we missed it locally)
     createGroupMutation.mutate({
       name: `DM with ${targetUser.fullName}`,
       description: `Direct secure handshake with ${targetUser.fullName}`,
