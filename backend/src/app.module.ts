@@ -27,7 +27,6 @@ import { ServerModule } from './modules/server/server.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { WebrtcModule } from './modules/webrtc/webrtc.module';
 import { StorageModule } from './modules/storage/storage.module';
-import { DevicesModule } from './modules/devices/devices.module';
 import { HealthController } from './health.controller';
 
 // Config
@@ -118,7 +117,6 @@ import mailConfig from './config/mail.config';
     AuditModule,
     WebrtcModule,
     StorageModule,
-    DevicesModule,
   ],
   controllers: [HealthController],
   providers: [

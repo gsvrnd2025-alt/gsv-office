@@ -93,16 +93,6 @@ export const departmentsApi = {
   delete: (id: string) => api.delete(`/departments/${id}`),
 };
 
-export const devicesApi = {
-  getAll: () => api.get('/devices'),
-  getById: (id: string) => api.get(`/devices/${id}`),
-  register: (data: any) => api.post('/devices', data),
-  update: (id: string, data: any) => api.put(`/devices/${id}`, data),
-  delete: (id: string) => api.delete(`/devices/${id}`),
-  updateMetrics: (id: string, data: any) => api.post(`/devices/${id}/metrics`, data),
-  triggerAction: (id: string, action: string, payload?: any) => api.post(`/devices/${id}/action`, { action, payload }),
-};
-
 export const dashboardApi = {
   getStats: () => api.get('/dashboard/stats'),
   getActivity: () => api.get('/dashboard/activity'),
