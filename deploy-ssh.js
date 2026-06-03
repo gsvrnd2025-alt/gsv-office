@@ -85,19 +85,18 @@ conn.on('ready', () => {
 }).connect(SSH_CONFIG);
 
 function runDockerCompose() {
-  console.log('\n🐋 Step 3: Initiating Docker Compose commands on TrueNAS SCALE...');
+  console.log('\n🐋 Step 3: Initiating TrueNAS App deployment commands...');
   
-  // Ensure external network is created, stop/remove any conflicting container names, pull fresh images, and start new ones
+  // Pull fresh Docker images to local cache, clean up any conflicting standalone containers, and start/restart the official TrueNAS app
   const composeCmd = [
-    `docker network create ix-gsv-office_gsv_network || true`,
+    `docker image pull ghcr.io/gsvrnd2025-alt/gsv-office-api:latest`,
+    `docker image pull ghcr.io/gsvrnd2025-alt/gsv-office-nginx:latest`,
     `docker stop gsv_nginx gsv_api gsv_postgres gsv_redis gsv_minio gsv_mailserver || true`,
     `docker rm gsv_nginx gsv_api gsv_postgres gsv_redis gsv_minio gsv_mailserver || true`,
-    `cd ${REMOTE_APP_DIR}`,
-    `docker compose pull`,
-    `docker compose down --remove-orphans`,
-    `docker compose up -d`,
-    `sleep 5`,
-    `docker compose ps`
+    `midclt call app.stop "gsv-office" || true`,
+    `midclt call app.start "gsv-office"`,
+    `sleep 10`,
+    `midclt call app.query`
   ].join(' && ');
   
   console.log(`Executing remote command:\n${composeCmd}\n`);
