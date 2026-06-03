@@ -68,8 +68,12 @@ export default function FilesPage() {
   });
 
   const { data: files = [] } = useQuery({
-    queryKey: ['files', folderId, search],
-    queryFn: () => filesApi.getFiles({ folderId, search: search || undefined }).then(r => r.data?.data || r.data || [])
+    queryKey: ['files', folderId, search, categoryFilter],
+    queryFn: () => filesApi.getFiles({ 
+      folderId, 
+      search: search || undefined,
+      recursive: categoryFilter !== 'all' ? 'true' : undefined
+    }).then(r => r.data?.data || r.data || [])
   });
 
   // Access Mutators

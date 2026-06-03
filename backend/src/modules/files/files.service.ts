@@ -44,16 +44,16 @@ export class FilesService {
     );
   }
 
-  async getFiles(userId: string, folderId?: string, search?: string) {
+  async getFiles(userId: string, folderId?: string, search?: string, recursive = false) {
     const qb = `
       SELECT f.*, u.full_name AS owner_name FROM files f
       LEFT JOIN users u ON u.id = f.owner_id
       WHERE (f.owner_id = $1 OR f.is_public = true) AND f.deleted_at IS NULL
-      ${folderId ? 'AND f.folder_id = $2' : 'AND f.folder_id IS NULL'}
+      ${recursive ? '' : (folderId ? 'AND f.folder_id = $2' : 'AND f.folder_id IS NULL')}
       ${search ? `AND (f.name ILIKE '%${search}%' OR f.original_name ILIKE '%${search}%')` : ''}
       ORDER BY f.created_at DESC
     `;
-    return this.dataSource.query(qb, folderId ? [userId, folderId] : [userId]);
+    return this.dataSource.query(qb, (folderId && !recursive) ? [userId, folderId] : [userId]);
   }
 
   async createFolder(dto: { name: string; parentId?: string; ownerId: string }) {

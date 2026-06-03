@@ -26,8 +26,13 @@ export class FilesController {
 
   @Get()
   @RequirePermissions(['files', 'read'])
-  getFiles(@CurrentUser('id') userId: string, @Query('folderId') folderId?: string, @Query('search') search?: string) {
-    return this.svc.getFiles(userId, folderId, search);
+  getFiles(
+    @CurrentUser('id') userId: string, 
+    @Query('folderId') folderId?: string, 
+    @Query('search') search?: string,
+    @Query('recursive') recursive?: string
+  ) {
+    return this.svc.getFiles(userId, folderId, search, recursive === 'true');
   }
 
   @Get('shared')
