@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
 
 export default function RequestsPage() {
   const qc = useQueryClient();
+  const [activeTab, setActiveTab] = useState<'pending' | 'active' | 'blocked'>('pending');
   const [approveUser, setApproveUser] = useState<any>(null);
   const [requestComments, setRequestComments] = useState<Record<string, string>>(() => {
     try {
@@ -18,12 +19,19 @@ export default function RequestsPage() {
   });
 
   // Queries
-  const { data: pendingUsersData, isLoading: loadingUsers } = useQuery({
-    queryKey: ['users', '', 'pending', 1],
+  const { data: usersData, isLoading: loadingUsers } = useQuery({
+    queryKey: ['users-requests', activeTab],
+    queryFn: () => usersApi.getAll({ status: activeTab }).then((r: any) => r.data?.data || r.data || []),
+  });
+
+  const usersList = usersData?.data ? usersData.data : (Array.isArray(usersData) ? usersData : []);
+
+  const { data: pendingUsersData } = useQuery({
+    queryKey: ['users-requests', 'pending'],
     queryFn: () => usersApi.getAll({ status: 'pending' }).then((r: any) => r.data?.data || r.data || []),
   });
 
-  const pendingUsers = pendingUsersData?.data ? pendingUsersData.data : (Array.isArray(pendingUsersData) ? pendingUsersData : []);
+  const pendingCount = pendingUsersData?.data ? pendingUsersData.data.length : (Array.isArray(pendingUsersData) ? pendingUsersData.length : 0);
 
   // Mutations
   const approveUserMutation = useMutation({
@@ -32,6 +40,7 @@ export default function RequestsPage() {
     onSuccess: () => {
       toast.success('Registration request approved successfully! 🎉');
       qc.invalidateQueries({ queryKey: ['users'] });
+      qc.invalidateQueries({ queryKey: ['users-requests'] });
       qc.invalidateQueries({ queryKey: ['pending-users-count'] });
       setApproveUser(null);
     },
@@ -41,11 +50,12 @@ export default function RequestsPage() {
   const rejectUserMutation = useMutation({
     mutationFn: (id: string) => usersApi.updateStatus(id, 'blocked'),
     onSuccess: () => {
-      toast.success('Registration request rejected');
+      toast.success('User has been blocked/disabled');
       qc.invalidateQueries({ queryKey: ['users'] });
+      qc.invalidateQueries({ queryKey: ['users-requests'] });
       qc.invalidateQueries({ queryKey: ['pending-users-count'] });
     },
-    onError: () => toast.error('Rejection failed'),
+    onError: () => toast.error('Action failed'),
   });
 
   const initials = (name: string) => name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U';
@@ -64,18 +74,35 @@ export default function RequestsPage() {
       <div className="card" style={{ backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.08)' }}>
         <div className="card-header" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', padding: '16px 20px', background: 'rgba(255,255,255,0.02)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ fontSize: '15px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-            👥 Pending Account Signups
-            <span style={{
-              background: 'var(--brand-primary)',
-              color: '#fff',
-              fontSize: '12px',
-              fontWeight: 700,
-              padding: '2px 8px',
-              borderRadius: '10px',
-            }}>
-              {pendingUsers.length}
-            </span>
+            👥 Account Registration & Signup Logs
           </h3>
+        </div>
+
+        {/* Tab Filters */}
+        <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.08)', gap: '16px', padding: '0 20px', background: 'rgba(255,255,255,0.01)' }}>
+          {[
+            { key: 'pending', label: '📥 Pending Review', badge: pendingCount },
+            { key: 'active', label: '✅ Approved / Active' },
+            { key: 'blocked', label: '🚫 Rejected / Blocked' }
+          ].map(tab => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key as any)}
+              style={{
+                background: 'none', border: 'none', padding: '12px 6px',
+                color: activeTab === tab.key ? 'var(--brand-primary)' : 'var(--text-tertiary)',
+                borderBottom: activeTab === tab.key ? '2px solid var(--brand-primary)' : '2px solid transparent',
+                fontWeight: 600, fontSize: '13px', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: '6px'
+              }}
+            >
+              {tab.label}
+              {tab.badge !== undefined && tab.badge > 0 && (
+                <span className="badge badge-primary" style={{ fontSize: '9px', padding: '1px 5px' }}>{tab.badge}</span>
+              )}
+            </button>
+          ))}
         </div>
 
         <div className="table-container" style={{ minHeight: '300px' }}>
@@ -86,7 +113,7 @@ export default function RequestsPage() {
                 <th>Dept / Designation</th>
                 <th>Email Address</th>
                 <th>Requested At</th>
-                <th style={{ width: '150px', textAlign: 'right' }}>Actions</th>
+                <th style={{ width: '180px', textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -98,18 +125,18 @@ export default function RequestsPage() {
                     ))}
                   </tr>
                 ))
-              ) : pendingUsers.length === 0 ? (
+              ) : usersList.length === 0 ? (
                 <tr>
                   <td colSpan={5}>
                     <div style={{ padding: '80px 0', textAlign: 'center', color: 'var(--text-tertiary)' }}>
                       <div style={{ fontSize: '40px', marginBottom: '12px' }}>🎉</div>
                       <h4 style={{ color: 'var(--text-primary)', marginBottom: '4px' }}>All caught up!</h4>
-                      <p style={{ fontSize: '13px' }}>No pending user registration requests</p>
+                      <p style={{ fontSize: '13px' }}>No requests in this category</p>
                     </div>
                   </td>
                 </tr>
               ) : (
-                pendingUsers.map((u: any) => (
+                usersList.map((u: any) => (
                   <React.Fragment key={u.id}>
                     <tr>
                       <td>
@@ -131,43 +158,68 @@ export default function RequestsPage() {
                       </td>
                       <td>
                         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                          <button
-                            className="btn btn-sm btn-ghost"
-                            style={{ color: 'var(--brand-danger)', padding: '6px' }}
-                            title="Reject Request"
-                            onClick={() => { if (confirm(`Reject registration for ${u.fullName}?`)) rejectUserMutation.mutate(u.id); }}
-                          >
-                            <X size={16} />
-                          </button>
-                          <button
-                            className="btn btn-sm btn-primary"
-                            style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px' }}
-                            onClick={() => setApproveUser(u)}
-                          >
-                            <Check size={14} /> Approve
-                          </button>
+                          {activeTab === 'pending' && (
+                            <>
+                              <button
+                                className="btn btn-sm btn-ghost"
+                                style={{ color: 'var(--brand-danger)', padding: '6px' }}
+                                title="Reject Request"
+                                onClick={() => { if (confirm(`Reject registration for ${u.fullName}?`)) rejectUserMutation.mutate(u.id); }}
+                              >
+                                <X size={16} />
+                              </button>
+                              <button
+                                className="btn btn-sm btn-primary"
+                                style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px' }}
+                                onClick={() => setApproveUser(u)}
+                              >
+                                <Check size={14} /> Approve
+                              </button>
+                            </>
+                          )}
+                          {activeTab === 'active' && (
+                            <button
+                              className="btn btn-sm btn-ghost"
+                              style={{ color: 'var(--brand-danger)', padding: '4px 10px', fontSize: '11px', border: '1px solid rgba(239,68,68,0.2)', height: 'auto' }}
+                              title="Block User"
+                              onClick={() => { if (confirm(`Block and disable account for ${u.fullName}?`)) rejectUserMutation.mutate(u.id); }}
+                            >
+                              <X size={12} /> Block User
+                            </button>
+                          )}
+                          {activeTab === 'blocked' && (
+                            <button
+                              className="btn btn-sm btn-primary"
+                              style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 12px', fontSize: '11px', height: 'auto' }}
+                              onClick={() => setApproveUser(u)}
+                            >
+                              <Check size={12} /> Approve / Unblock
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
-                    <tr style={{ background: 'transparent' }}>
-                      <td colSpan={5} style={{ paddingTop: 0, paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '46px' }}>
-                          <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>💬 Admin Comment:</span>
-                          <input
-                            type="text"
-                            className="form-control"
-                            placeholder="Add optional admin review note here..."
-                            style={{ height: '28px', padding: '4px 8px', fontSize: '11px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '6px' }}
-                            value={requestComments[u.id] || ''}
-                            onChange={e => {
-                              const val = e.target.value;
-                              setRequestComments(prev => ({ ...prev, [u.id]: val }));
-                              localStorage.setItem('gsv-request-comments', JSON.stringify({ ...requestComments, [u.id]: val }));
-                            }}
-                          />
-                        </div>
-                      </td>
-                    </tr>
+                    {activeTab === 'pending' && (
+                      <tr style={{ background: 'transparent' }}>
+                        <td colSpan={5} style={{ paddingTop: 0, paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '46px' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>💬 Admin Comment:</span>
+                            <input
+                              type="text"
+                              className="form-control"
+                              placeholder="Add optional admin review note here..."
+                              style={{ height: '28px', padding: '4px 8px', fontSize: '11px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '6px' }}
+                              value={requestComments[u.id] || ''}
+                              onChange={e => {
+                                const val = e.target.value;
+                                setRequestComments(prev => ({ ...prev, [u.id]: val }));
+                                localStorage.setItem('gsv-request-comments', JSON.stringify({ ...requestComments, [u.id]: val }));
+                              }}
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    )}
                   </React.Fragment>
                 ))
               )}

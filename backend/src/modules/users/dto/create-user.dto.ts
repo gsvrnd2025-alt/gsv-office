@@ -3,12 +3,12 @@ import { ApiProperty, PartialType } from '@nestjs/swagger';
 
 export class CreateUserDto {
   @ApiProperty({ example: 'john.doe' })
-  @IsString() @IsNotEmpty()
-  loginId: string;
+  @IsOptional() @IsString()
+  loginId?: string;
 
   @ApiProperty({ example: 'john@gsv.local' })
-  @IsEmail()
-  email: string;
+  @IsOptional() @IsEmail()
+  email?: string;
 
   @ApiProperty({ example: 'John Doe' })
   @IsString() @IsNotEmpty()
@@ -23,8 +23,8 @@ export class CreateUserDto {
   lastName?: string;
 
   @ApiProperty({ example: 'TempPass@123', minLength: 8 })
-  @IsString() @MinLength(8)
-  password: string;
+  @IsOptional() @IsString() @MinLength(8)
+  password?: string;
 
   @ApiProperty({ required: false })
   @IsOptional() @IsString()

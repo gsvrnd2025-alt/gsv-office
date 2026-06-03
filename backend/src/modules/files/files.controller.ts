@@ -85,13 +85,20 @@ export class FilesController {
     @Body('relativePaths') relativePaths: any,
     @CurrentUser('id') userId: string
   ) {
-    return this.svc.saveFolderZip({
+    return this.svc.saveFolderStructure({
       files,
       folderName,
       folderId,
       relativePaths,
       ownerId: userId
     });
+  }
+
+  @Delete('folders/:id')
+  @RequirePermissions(['files', 'delete'])
+  async deleteFolder(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('id') userId: string) {
+    await this.svc.deleteFolder(id, userId);
+    return { message: 'Folder deleted' };
   }
 
   @Delete(':id')
@@ -105,5 +112,47 @@ export class FilesController {
   @RequirePermissions(['files', 'upload'])
   async saveToCloud(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('id') userId: string) {
     return this.svc.saveToCloud(id, userId);
+  }
+
+  @Post('files/:id/rename')
+  @RequirePermissions(['files', 'upload'])
+  async renameFile(@Param('id', ParseUUIDPipe) id: string, @Body('name') name: string, @CurrentUser('id') userId: string) {
+    return this.svc.renameFile(id, name, userId);
+  }
+
+  @Post('folders/:id/rename')
+  @RequirePermissions(['files', 'create_folder'])
+  async renameFolder(@Param('id', ParseUUIDPipe) id: string, @Body('name') name: string, @CurrentUser('id') userId: string) {
+    return this.svc.renameFolder(id, name, userId);
+  }
+
+  @Post('move-or-copy')
+  @RequirePermissions(['files', 'upload'])
+  async moveOrCopy(@Body() dto: any, @CurrentUser('id') userId: string) {
+    return this.svc.moveOrCopy({ ...dto, userId });
+  }
+
+  @Post('share-to-user')
+  @RequirePermissions(['files', 'upload'])
+  async shareToUser(@Body() dto: any, @CurrentUser('id') userId: string) {
+    return this.svc.shareToUser({ ...dto, userId });
+  }
+
+  @Get('access-requests')
+  @RequirePermissions(['files', 'read'])
+  async getAccessRequests(@CurrentUser('id') userId: string) {
+    return this.svc.getAccessRequests(userId);
+  }
+
+  @Post('access-requests')
+  @RequirePermissions(['files', 'read'])
+  async requestAccess(@Body() dto: any) {
+    return this.svc.requestAccess(dto);
+  }
+
+  @Post('access-requests/review')
+  @RequirePermissions(['files', 'upload'])
+  async reviewAccessRequest(@Body() dto: any) {
+    return this.svc.reviewAccessRequest(dto);
   }
 }

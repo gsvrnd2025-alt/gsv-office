@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Plus, Search, MoreVertical, Edit, Trash2, Lock, 
-  UserX, UserCheck, RefreshCw, X, HardDrive, Database, Clock, Key 
+  UserX, UserCheck, RefreshCw, X, HardDrive, Database, Clock, Key, Settings 
 } from 'lucide-react';
-import { usersApi, rolesApi, departmentsApi, storageApi } from '../../api';
+import { usersApi, rolesApi, departmentsApi, storageApi, serverApi } from '../../api';
 import toast from 'react-hot-toast';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -16,6 +16,7 @@ export default function UsersPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  const [showSheetsSettings, setShowSheetsSettings] = useState(false);
   const [editUser, setEditUser] = useState<any>(null);
   const [page, setPage] = useState(1);
   const [selectedUserForDetail, setSelectedUserForDetail] = useState<any>(null);
@@ -28,6 +29,16 @@ export default function UsersPage() {
 
   const { data: roles = [] } = useQuery({ queryKey: ['roles'], queryFn: () => rolesApi.getAll().then(r => r.data?.data || r.data || []) });
   const { data: departments = [] } = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.getAll().then(r => r.data?.data || r.data || []) });
+
+  const { data: allUsersData = [] } = useQuery({
+    queryKey: ['users-list-all'],
+    queryFn: () => usersApi.getAll({ limit: 1000 }).then(r => r.data?.data?.data || r.data?.data || r.data || []),
+  });
+
+  const { data: settings = [] } = useQuery({
+    queryKey: ['system-settings'],
+    queryFn: () => serverApi.getSettings().then(r => r.data?.data || r.data || []),
+  });
 
   const { data: userLogs = [] } = useQuery({
     queryKey: ['user-logs', selectedUserForDetail?.id],
@@ -88,6 +99,10 @@ export default function UsersPage() {
     onError: () => toast.error('Failed to update storage quota'),
   });
 
+  const saveSettingMutation = useMutation({
+    mutationFn: (variables: { key: string; value: string }) => serverApi.updateSetting(variables.key, variables.value),
+  });
+
   const [syncing, setSyncing] = useState(false);
   const syncMutation = useMutation({
     mutationFn: () => usersApi.syncSheets(),
@@ -126,9 +141,17 @@ export default function UsersPage() {
           <h1>👥 User Management</h1>
           <p>Manage team members, roles, and access</p>
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button className="btn btn-secondary" onClick={() => syncMutation.mutate()} disabled={syncing}>
-            <RefreshCw size={16} className={syncing ? 'spin' : ''} /> {syncing ? 'Syncing...' : 'Sync Google Sheet'}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button className="btn btn-secondary" onClick={() => syncMutation.mutate()} disabled={syncing} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <RefreshCw size={14} className={syncing ? 'spin' : ''} /> {syncing ? 'Syncing...' : 'Sync Google Sheet'}
+          </button>
+          <button
+            className="btn btn-secondary btn-icon"
+            onClick={() => setShowSheetsSettings(true)}
+            title="Google Sheets Settings"
+            style={{ width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Settings size={16} />
           </button>
           <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
             <Plus size={16} /> New User
@@ -338,13 +361,23 @@ export default function UsersPage() {
         )}
       </div>
 
+      {/* Google Sheets Settings Modal */}
+      {showSheetsSettings && (
+        <SheetsSettingsModal
+          settings={settings}
+          saveSettingMutation={saveSettingMutation}
+          onClose={() => setShowSheetsSettings(false)}
+          qc={qc}
+        />
+      )}
+
       {/* Create/Edit Modal */}
       {(showCreate || editUser) && (
         <UserModal
           user={editUser}
           roles={roles}
           departments={departments}
-          totalUsers={meta.total || 0}
+          existingUsers={allUsersData}
           onClose={() => { setShowCreate(false); setEditUser(null); }}
           onSuccess={() => { setShowCreate(false); setEditUser(null); qc.invalidateQueries({ queryKey: ['users'] }); toast.success(editUser ? 'User updated' : 'User created'); }}
         />
@@ -378,14 +411,84 @@ function UserActionMenu({ user, onStatus, onReset, onDelete }: any) {
   );
 }
 
-function getStarting4Letters(name: string): string {
-  const clean = name.replace(/[^a-zA-Z]/g, '');
-  if (clean.length === 0) return 'Gsvo';
-  const raw = clean.slice(0, 4);
-  return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+function SheetsSettingsModal({ settings, saveSettingMutation, onClose, qc }: any) {
+  const deployIdObj = settings.find((s: any) => s.key === 'google_sheets_deployment_id');
+  const sheetUrlObj = settings.find((s: any) => s.key === 'google_sheets_spreadsheet_url');
+
+  const [deploymentId, setDeploymentId] = useState(deployIdObj?.value || '');
+  const [spreadsheetUrl, setSpreadsheetUrl] = useState(sheetUrlObj?.value || '');
+  const [saving, setSaving] = useState(false);
+
+  const handleConfigure = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await saveSettingMutation.mutateAsync({ key: 'google_sheets_deployment_id', value: deploymentId });
+      await saveSettingMutation.mutateAsync({ key: 'google_sheets_spreadsheet_url', value: spreadsheetUrl });
+      toast.success('Google Sheets configuration configured successfully! 📊');
+      qc.invalidateQueries({ queryKey: ['system-settings'] });
+      onClose();
+    } catch {
+      toast.error('Failed to configure sync settings.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal animate-scale-in" style={{ maxWidth: '500px' }}>
+        <div className="modal-header">
+          <h3 className="modal-title">📊 Google Sheets Sync Settings</h3>
+          <button className="btn btn-ghost btn-icon btn-sm" onClick={onClose}>✕</button>
+        </div>
+        <form onSubmit={handleConfigure}>
+          <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+              Configure your Google Sheets integration parameters. These settings sync roles, departments, and user database rosters with your corporate Google Spreadsheet.
+            </p>
+            <div className="form-group">
+              <label className="form-label">Google Apps Script Deployment ID *</label>
+              <input
+                type="text"
+                className="form-control"
+                value={deploymentId}
+                onChange={e => setDeploymentId(e.target.value)}
+                placeholder="AKfycbw6pAarz91..."
+                required
+              />
+              <small style={{ color: 'var(--text-tertiary)', fontSize: '10px', marginTop: '4px', display: 'block' }}>
+                The script web app deployment ID from your Google Apps Script editor dashboard.
+              </small>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Google Spreadsheet URL *</label>
+              <input
+                type="url"
+                className="form-control"
+                value={spreadsheetUrl}
+                onChange={e => setSpreadsheetUrl(e.target.value)}
+                placeholder="https://docs.google.com/spreadsheets/d/.../edit"
+                required
+              />
+              <small style={{ color: 'var(--text-tertiary)', fontSize: '10px', marginTop: '4px', display: 'block' }}>
+                The full HTTP address of the Google Sheets document to link with the GSV cloud network.
+              </small>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={saving}>
+              {saving ? 'Configuring...' : 'Configure Sync Settings'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
 }
 
-function UserModal({ user, roles, departments, totalUsers, onClose, onSuccess }: any) {
+function UserModal({ user, roles, departments, existingUsers, onClose, onSuccess }: any) {
   const qc = useQueryClient();
   const [form, setForm] = useState({
     fullName: user?.fullName || '', loginId: user?.loginId || '',
@@ -404,18 +507,35 @@ function UserModal({ user, roles, departments, totalUsers, onClose, onSuccess }:
       // Auto-generate fields only when creating a new user
       if (!user) {
         if (key === 'fullName') {
-          const cleanName = value.toLowerCase().replace(/[^a-z]/g, '');
-          updated.loginId = cleanName ? `${cleanName}${totalUsers + 1}` : '';
-
-          const first4 = getStarting4Letters(value);
-          const last4 = f.phone ? f.phone.replace(/[^0-9]/g, '').slice(-4) : '2026';
-          updated.password = value ? `${first4}@${last4}` : '';
-        }
-
-        if (key === 'phone') {
-          const first4 = getStarting4Letters(f.fullName);
-          const last4 = value.replace(/[^0-9]/g, '').slice(-4) || '2026';
-          updated.password = f.fullName ? `${first4}@${last4}` : '';
+          const base = value.trim().split(/\s+/)[0].replace(/[^a-zA-Z]/g, '');
+          if (base) {
+            const baseCapitalized = base.charAt(0).toUpperCase() + base.slice(1).toLowerCase();
+            
+            // Calculate next unique serial number from existing users
+            let maxSerial = 0;
+            if (Array.isArray(existingUsers)) {
+              existingUsers.forEach((u: any) => {
+                const login = u.loginId || '';
+                if (login.toLowerCase().startsWith(baseCapitalized.toLowerCase())) {
+                  const serialPart = login.slice(baseCapitalized.length);
+                  const num = parseInt(serialPart, 10);
+                  if (!isNaN(num) && num > maxSerial) {
+                    maxSerial = num;
+                  }
+                }
+              });
+            }
+            const nextSerial = `${baseCapitalized}${String(maxSerial + 1).padStart(3, '0')}`;
+            updated.loginId = nextSerial;
+            updated.email = `${nextSerial.toLowerCase()}@gsv.local`;
+            
+            // Auto-generate password starting with first name and ending in @ABCD
+            updated.password = `${baseCapitalized}@ABCD`;
+          } else {
+            updated.loginId = '';
+            updated.email = '';
+            updated.password = '';
+          }
         }
       }
 
@@ -584,8 +704,8 @@ function QuickRoleModal({ onClose, onSuccess }: any) {
             </div>
           </div>
           <div className="modal-footer">
-            <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-primary btn-sm" disabled={loading}>{loading ? 'Creating...' : 'Create'}</button>
+            <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? 'Creating...' : 'Create'}</button>
           </div>
         </form>
       </div>
@@ -627,8 +747,8 @@ function QuickDeptModal({ onClose, onSuccess }: any) {
             </div>
           </div>
           <div className="modal-footer">
-            <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-primary btn-sm" disabled={loading}>{loading ? 'Creating...' : 'Create'}</button>
+            <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? 'Creating...' : 'Create'}</button>
           </div>
         </form>
       </div>

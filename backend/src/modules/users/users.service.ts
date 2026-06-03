@@ -82,7 +82,51 @@ export class UsersService implements OnApplicationBootstrap {
 
   async create(dto: CreateUserDto, createdBy?: string): Promise<User> {
     const cleanDto = this.cleanPayload(dto);
-    // Check for duplicates
+
+    // Auto-generate loginId if not provided
+    let loginId = cleanDto.loginId;
+    if (!loginId || loginId.trim() === '') {
+      const base = (cleanDto.firstName || cleanDto.fullName || 'user')
+        .trim()
+        .split(/\s+/)[0]
+        .replace(/[^a-zA-Z0-9]/g, '');
+      const baseCapitalized = base.charAt(0).toUpperCase() + base.slice(1).toLowerCase();
+      
+      const existingUsers = await this.usersRepo.query(
+        `SELECT login_id FROM users WHERE login_id ~* $1`,
+        [`^${baseCapitalized}\\d{3}$`]
+      );
+      
+      let maxSerial = 0;
+      for (const u of existingUsers) {
+        const serialPart = u.login_id.slice(baseCapitalized.length);
+        const num = parseInt(serialPart, 10);
+        if (!isNaN(num) && num > maxSerial) {
+          maxSerial = num;
+        }
+      }
+      loginId = `${baseCapitalized}${String(maxSerial + 1).padStart(3, '0')}`;
+      cleanDto.loginId = loginId;
+    }
+
+    // Auto-generate email if not provided
+    if (!cleanDto.email || cleanDto.email.trim() === '') {
+      cleanDto.email = `${loginId.toLowerCase()}@gsv.local`;
+    }
+
+    // Auto-generate password if not provided
+    let password = cleanDto.password;
+    if (!password || password.trim() === '') {
+      const base = (cleanDto.firstName || cleanDto.fullName || 'User')
+        .trim()
+        .split(/\s+/)[0]
+        .replace(/[^a-zA-Z]/g, '');
+      const baseCapitalized = base.charAt(0).toUpperCase() + base.slice(1).toLowerCase() || 'User';
+      password = `${baseCapitalized}@ABCD`;
+      cleanDto.password = password;
+    }
+
+    // Check for duplicates after generating
     const existing = await this.usersRepo.findOne({
       where: [{ email: cleanDto.email }, { loginId: cleanDto.loginId }],
     });
@@ -220,11 +264,17 @@ export class UsersService implements OnApplicationBootstrap {
       const roles = await this.usersRepo.query(`SELECT id, name, description, color, level, is_system AS "isSystem" FROM roles WHERE deleted_at IS NULL`);
       const settings = await this.usersRepo.query(`SELECT key, value, category, description FROM system_settings`);
 
-      // 2. Fetch sheet sync URL from settings
-      const settingsResult = await this.usersRepo.query(`SELECT value FROM system_settings WHERE key = 'google_sheets_sync_url'`);
-      const syncUrl = settingsResult.length > 0 && settingsResult[0].value
-        ? settingsResult[0].value
-        : 'https://script.google.com/macros/s/AKfycbw6pAarz91qhP5HfTgnustbqF8ftTEpRV0Y03AuwaLRfzoILd3HIeVez0AqerATPyE8/exec';
+      // 2. Fetch sheet sync settings
+      const deployResult = await this.usersRepo.query(`SELECT value FROM system_settings WHERE key = 'google_sheets_deployment_id'`);
+      const deploymentId = deployResult.length > 0 && deployResult[0].value ? deployResult[0].value : '';
+      
+      const sheetUrlResult = await this.usersRepo.query(`SELECT value FROM system_settings WHERE key = 'google_sheets_spreadsheet_url'`);
+      const spreadsheetUrl = sheetUrlResult.length > 0 && sheetUrlResult[0].value ? sheetUrlResult[0].value : '';
+
+      let syncUrl = 'https://script.google.com/macros/s/AKfycbw6pAarz91qhP5HfTgnustbqF8ftTEpRV0Y03AuwaLRfzoILd3HIeVez0AqerATPyE8/exec';
+      if (deploymentId && deploymentId.trim() !== '') {
+        syncUrl = `https://script.google.com/macros/s/${deploymentId.trim()}/exec`;
+      }
 
       // 3. Post data to Apps Script Web App
       const response = await fetch(syncUrl, {
@@ -232,6 +282,7 @@ export class UsersService implements OnApplicationBootstrap {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'sync',
+          spreadsheetUrl,
           users,
           departments,
           roles,

@@ -4,25 +4,25 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 .chatLayout {
-  /* WhatsApp Design Tokens - Light Theme Default */
+  /* WhatsApp Design Tokens - Light Theme Default (Enhanced for Day Mode Contrast) */
   --wa-bg: #efeae2;
-  --wa-header: #f0f2f5;
+  --wa-header: #e4e6eb;
   --wa-sidebar: #ffffff;
-  --wa-own-bubble: #d9fdd3;
+  --wa-own-bubble: #cbfdc3;
   --wa-other-bubble: #ffffff;
-  --wa-own-text: #111b21;
-  --wa-other-text: #111b21;
-  --wa-own-time: #667781;
-  --wa-other-time: #667781;
-  --wa-accent: #00a884;
-  --wa-check-read: #53bdeb;
-  --wa-check-sent: #8696a0;
-  --wa-border: #e9edef;
-  --wa-hover: #f0f2f5;
-  --wa-selected: #eae6df;
-  --wa-text-primary: #111b21;
-  --wa-text-secondary: #667781;
-  --wa-text-tertiary: #8696a0;
+  --wa-own-text: #050505;
+  --wa-other-text: #050505;
+  --wa-own-time: #4a5568;
+  --wa-other-time: #4a5568;
+  --wa-accent: #008069;
+  --wa-check-read: #1fa2ff;
+  --wa-check-sent: #4f5d64;
+  --wa-border: #cbd5e1;
+  --wa-hover: #f1f5f9;
+  --wa-selected: #cbd5e0;
+  --wa-text-primary: #050505;
+  --wa-text-secondary: #1e293b;
+  --wa-text-tertiary: #475569;
 
   display: flex;
   flex: 1;
@@ -463,8 +463,8 @@
 }
 
 .messageText {
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 16px;
+  line-height: 1.6;
   word-break: break-word;
   color: inherit;
 }
@@ -497,7 +497,7 @@
   background: var(--wa-sidebar);
   border: none;
   border-radius: 20px;
-  font-size: 13px;
+  font-size: 15px;
   font-family: inherit;
   color: var(--wa-text-primary);
   outline: none;
@@ -537,17 +537,11 @@
   background: var(--wa-bg);
 }
 
-/* Scrollable Filter Pills Container */
 .filterScrollContainer {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 8px 16px;
-  overflow-x: auto;
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none;  /* IE/Edge */
-}
-.filterScrollContainer::-webkit-scrollbar {
-  display: none; /* Safari/Chrome */
 }
 
 .filterPill {

@@ -108,13 +108,18 @@ export const filesApi = {
   getFiles: (params?: any) => api.get('/files', { params }),
   getShared: () => api.get('/files/shared'),
   createFolder: (data: any) => api.post('/files/folders', data),
-  upload: (formData: FormData) => api.post('/files/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
-  uploadFolder: (formData: FormData) => api.post('/files/upload-folder', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  upload: (formData: FormData, onUploadProgress?: (progressEvent: any) => void) => api.post('/files/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress }),
+  uploadFolder: (formData: FormData, onUploadProgress?: (progressEvent: any) => void) => api.post('/files/upload-folder', formData, { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress }),
   delete: (id: string) => api.delete(`/files/${id}`),
+  deleteFolder: (id: string) => api.delete(`/files/folders/${id}`),
   getAccessRequests: () => api.get('/files/access-requests'),
   requestAccess: (data: any) => api.post('/files/access-requests', data),
   reviewAccessRequest: (data: any) => api.post('/files/access-requests/review', data),
   saveToCloud: (id: string) => api.post(`/files/${id}/save-to-cloud`),
+  renameFile: (id: string, name: string) => api.post(`/files/files/${id}/rename`, { name }),
+  renameFolder: (id: string, name: string) => api.post(`/files/folders/${id}/rename`, { name }),
+  moveOrCopy: (data: { itemType: 'file' | 'folder'; itemId: string; targetFolderId: string | null; action: 'move' | 'copy' }) => api.post('/files/move-or-copy', data),
+  shareToUser: (data: { itemType: 'file' | 'folder'; itemId: string; targetUserId: string; action: 'move' | 'copy' }) => api.post('/files/share-to-user', data),
 };
 
 export const ticketsApi = {

@@ -230,7 +230,9 @@ INSERT INTO system_settings (key, value, category, description, is_public) VALUE
     ('chat_message_retention_days', '365', 'chat', 'Days to retain chat messages', false),
     ('maintenance_mode', 'false', 'system', 'Enable maintenance mode', false),
     ('allow_registration', 'false', 'auth', 'Allow self-registration', false),
-    ('session_timeout_minutes', '60', 'auth', 'Session timeout in minutes', false);
+    ('session_timeout_minutes', '60', 'auth', 'Session timeout in minutes', false),
+    ('google_sheets_deployment_id', '', 'integration', 'Google Sheets Apps Script Macro Deployment ID', false),
+    ('google_sheets_spreadsheet_url', '', 'integration', 'Google Sheets Target Spreadsheet URL', false);
 
 -- ─── Default Product Category ─────────────────────────────────────────
 INSERT INTO product_categories (id, name, description) VALUES

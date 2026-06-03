@@ -6,7 +6,7 @@ import {
   Clock, ArrowLeft, RefreshCw, Paperclip, Minimize2, Maximize2, X,
   AlertCircle, Tag, Users, Bell
 } from 'lucide-react';
-import { emailApi } from '../../api';
+import { emailApi, usersApi } from '../../api';
 import toast from 'react-hot-toast';
 
 export default function EmailPage() {
@@ -28,11 +28,22 @@ export default function EmailPage() {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
 
+  // Auto-complete recipient selection states
+  const [activeSearchInput, setActiveSearchInput] = useState<'to' | 'cc' | null>(null);
+  const [searchFilter, setSearchFilter] = useState('');
+
   const { data: emails = [], isLoading, refetch } = useQuery({
     queryKey: ['emails', folder],
     queryFn: () => emailApi.getEmails(folder).then(r => r.data?.data || r.data || []),
     refetchInterval: 15000,
   });
+
+  const { data: usersData } = useQuery({
+    queryKey: ['users-list-email'],
+    queryFn: () => usersApi.getAll().then(r => r.data?.data?.data || r.data?.data || r.data || []),
+  });
+
+  const allUsers = Array.isArray(usersData) ? usersData : (usersData?.data ? usersData.data : []);
 
   const sendEmailMutation = useMutation({
     mutationFn: (variables: any) => emailApi.sendEmail(variables),
@@ -104,6 +115,21 @@ export default function EmailPage() {
     });
   };
 
+  const handleSelectRecipient = (emailAddress: string) => {
+    if (activeSearchInput === 'to') {
+      const parts = to.split(',').map(s => s.trim()).filter(Boolean);
+      parts.pop(); // Remove current search term segment
+      parts.push(emailAddress);
+      setTo(parts.join(', ') + ', ');
+    } else if (activeSearchInput === 'cc') {
+      const parts = cc.split(',').map(s => s.trim()).filter(Boolean);
+      parts.pop();
+      parts.push(emailAddress);
+      setCc(parts.join(', ') + ', ');
+    }
+    setActiveSearchInput(null);
+  };
+
   const folders = [
     { key: 'inbox', label: 'Inbox', icon: Inbox },
     { key: 'starred', label: 'Starred', icon: Star },
@@ -114,14 +140,12 @@ export default function EmailPage() {
   // Client-side search and category filtering
   const filteredEmails = emails
     .filter((email: any) => {
-      // Folder logic for custom folder "starred"
       if (folder === 'starred') {
         return email.is_starred;
       }
       return true;
     })
     .filter((email: any) => {
-      // Search logic
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
       return (
@@ -132,7 +156,6 @@ export default function EmailPage() {
       );
     })
     .filter((email: any) => {
-      // Category simulation
       const subjectLower = (email.subject || '').toLowerCase();
       const bodyLower = (email.body_text || '').toLowerCase();
       if (activeCategory === 'social') {
@@ -144,7 +167,6 @@ export default function EmailPage() {
       if (activeCategory === 'updates') {
         return subjectLower.includes('sync') || subjectLower.includes('setting') || subjectLower.includes('audit') || bodyLower.includes('system');
       }
-      // Primary: everything else
       const isSocial = subjectLower.includes('chat') || subjectLower.includes('group') || bodyLower.includes('teammate') || bodyLower.includes('department');
       const isPromo = subjectLower.includes('offer') || subjectLower.includes('discount') || subjectLower.includes('quota') || bodyLower.includes('purchase');
       const isUpdate = subjectLower.includes('sync') || subjectLower.includes('setting') || subjectLower.includes('audit') || bodyLower.includes('system');
@@ -152,6 +174,16 @@ export default function EmailPage() {
     });
 
   const unreadInboxCount = emails.filter((e: any) => !e.is_read && e.folder === 'inbox').length;
+
+  const filteredUsers = allUsers.filter((u: any) => {
+    if (!searchFilter) return true;
+    const sf = searchFilter.toLowerCase();
+    return (
+      (u.fullName || '').toLowerCase().includes(sf) ||
+      (u.loginId || '').toLowerCase().includes(sf) ||
+      (u.email || '').toLowerCase().includes(sf)
+    );
+  });
 
   return (
     <div className="page-enter" style={{ display: 'flex', gap: '16px', height: 'calc(100vh - var(--topbar-height) - 48px)', position: 'relative' }}>
@@ -348,7 +380,7 @@ export default function EmailPage() {
             position: 'fixed', bottom: 0, right: '80px', width: '500px', 
             height: composeMinimized ? '44px' : '450px', zIndex: 1100, 
             boxShadow: '0 12px 30px rgba(0,0,0,0.25)', border: '1px solid var(--border-color)',
-            display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'height 0.2s ease-in-out'
+            display: 'flex', flexDirection: 'column', overflow: composeMinimized ? 'hidden' : 'visible', transition: 'height 0.2s ease-in-out'
           }}
         >
           {/* Compose Header */}
@@ -365,21 +397,84 @@ export default function EmailPage() {
           </div>
 
           {!composeMinimized && (
-            <form onSubmit={handleSend} style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+            <form onSubmit={handleSend} style={{ display: 'flex', flexDirection: 'column', flex: 1, position: 'relative' }}>
               {/* Inputs */}
               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <div style={{ borderBottom: '1px solid var(--border-color)', display: 'flex', padding: '8px 16px', alignItems: 'center' }}>
+                <div style={{ borderBottom: '1px solid var(--border-color)', display: 'flex', padding: '8px 16px', alignItems: 'center', position: 'relative' }}>
                   <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', width: '40px' }}>To</span>
-                  <input type="text" className="form-control" style={{ border: 'none', padding: 0, height: 'auto', background: 'transparent' }} placeholder="recipients separated by comma..." value={to} onChange={e => setTo(e.target.value)} required />
+                  <input 
+                    type="text" 
+                    className="form-control" 
+                    style={{ border: 'none', padding: 0, height: 'auto', background: 'transparent' }} 
+                    placeholder="recipients separated by comma..." 
+                    value={to} 
+                    onChange={e => {
+                      setTo(e.target.value);
+                      setSearchFilter(e.target.value.split(',').pop()?.trim() || '');
+                    }}
+                    onFocus={() => {
+                      setActiveSearchInput('to');
+                      setSearchFilter(to.split(',').pop()?.trim() || '');
+                    }}
+                    required 
+                  />
                 </div>
-                <div style={{ borderBottom: '1px solid var(--border-color)', display: 'flex', padding: '8px 16px', alignItems: 'center' }}>
+                <div style={{ borderBottom: '1px solid var(--border-color)', display: 'flex', padding: '8px 16px', alignItems: 'center', position: 'relative' }}>
                   <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', width: '40px' }}>Cc</span>
-                  <input type="text" className="form-control" style={{ border: 'none', padding: 0, height: 'auto', background: 'transparent' }} value={cc} onChange={e => setCc(e.target.value)} />
+                  <input 
+                    type="text" 
+                    className="form-control" 
+                    style={{ border: 'none', padding: 0, height: 'auto', background: 'transparent' }} 
+                    value={cc} 
+                    onChange={e => {
+                      setCc(e.target.value);
+                      setSearchFilter(e.target.value.split(',').pop()?.trim() || '');
+                    }} 
+                    onFocus={() => {
+                      setActiveSearchInput('cc');
+                      setSearchFilter(cc.split(',').pop()?.trim() || '');
+                    }}
+                  />
                 </div>
                 <div style={{ borderBottom: '1px solid var(--border-color)', display: 'flex', padding: '8px 16px', alignItems: 'center' }}>
                   <input type="text" className="form-control" style={{ border: 'none', padding: 0, height: 'auto', background: 'transparent' }} placeholder="Subject" value={subject} onChange={e => setSubject(e.target.value)} required />
                 </div>
               </div>
+
+              {/* Autocomplete Recipient Search List */}
+              {activeSearchInput && (
+                <div 
+                  style={{
+                    position: 'absolute',
+                    top: activeSearchInput === 'to' ? '38px' : '74px', // aligned directly under the respective field
+                    left: '16px', right: '16px',
+                    maxHeight: '180px', overflowY: 'auto',
+                    background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+                    borderRadius: '8px', zIndex: 1200, boxShadow: '0 10px 25px rgba(0,0,0,0.3)'
+                  }}
+                  onMouseLeave={() => setActiveSearchInput(null)}
+                >
+                  {filteredUsers.length === 0 ? (
+                    <div style={{ padding: '8px 16px', fontSize: '12px', color: 'var(--text-tertiary)' }}>No matching users found</div>
+                  ) : (
+                    filteredUsers.map((u: any) => (
+                      <div
+                        key={u.id}
+                        onClick={() => handleSelectRecipient(u.email || `${u.loginId}@gsv.local`)}
+                        style={{
+                          padding: '8px 16px', fontSize: '12px', cursor: 'pointer',
+                          borderBottom: '1px solid rgba(255,255,255,0.03)',
+                          display: 'flex', flexDirection: 'column', gap: '2px'
+                        }}
+                        className="dropdown-item-hover"
+                      >
+                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{u.fullName}</div>
+                        <div style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{u.email || `${u.loginId}@gsv.local`}</div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
 
               {/* Message body */}
               <div style={{ flex: 1, padding: '12px 16px' }}>
@@ -415,6 +510,9 @@ export default function EmailPage() {
         }
         .group:hover .group-hover-hide {
           display: none !important;
+        }
+        .dropdown-item-hover:hover {
+          background: rgba(99,102,241,0.08) !important;
         }
       `}</style>
 

@@ -1,21 +1,56 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useDropzone } from 'react-dropzone';
 import {
   FolderOpen, Upload, Search, Grid, List, Plus, Download, Trash2, Share2,
   ChevronRight, Home, File, FileImage, FileText, FileVideo, FileArchive,
-  Folder, Lock, Unlock, Check, X, ShieldAlert, Key, Users, Copy, RefreshCw
+  Folder, Lock, Unlock, Check, X, ShieldAlert, Key, Users, Copy, RefreshCw,
+  Scissors, Clipboard, CheckSquare, Info
 } from 'lucide-react';
 import { filesApi, usersApi } from '../../api';
 import { useAuthStore } from '../../store/auth.store';
 import toast from 'react-hot-toast';
 import { copyTextToClipboard } from '../../utils/clipboard';
 
+const normalizeFolder = (f: any) => {
+  if (!f) return f;
+  return {
+    ...f,
+    parentId: f.parent_id !== undefined ? f.parent_id : f.parentId,
+    ownerId: f.owner_id !== undefined ? f.owner_id : f.ownerId,
+    deletedAt: f.deleted_at !== undefined ? f.deleted_at : f.deletedAt,
+    createdAt: f.created_at !== undefined ? f.created_at : f.createdAt,
+    updatedAt: f.updated_at !== undefined ? f.updated_at : f.updatedAt,
+    ownerName: f.owner_name !== undefined ? f.owner_name : f.ownerName,
+  };
+};
+
+const normalizeFile = (f: any) => {
+  if (!f) return f;
+  return {
+    ...f,
+    originalName: f.original_name !== undefined ? f.original_name : f.originalName,
+    mimeType: f.mime_type !== undefined ? f.mime_type : f.mimeType,
+    sizeBytes: f.size !== undefined ? Number(f.size) : f.sizeBytes,
+    size: f.size !== undefined ? Number(f.size) : f.size,
+    storagePath: f.storage_path !== undefined ? f.storage_path : f.storagePath,
+    storageUrl: f.storage_url !== undefined ? f.storage_url : f.storageUrl,
+    ownerId: f.owner_id !== undefined ? f.owner_id : f.ownerId,
+    folderId: f.folder_id !== undefined ? f.folder_id : f.folderId,
+    conversationId: f.conversation_id !== undefined ? f.conversation_id : f.conversationId,
+    deletedAt: f.deleted_at !== undefined ? f.deleted_at : f.deletedAt,
+    createdAt: f.created_at !== undefined ? f.created_at : f.createdAt,
+    updatedAt: f.updated_at !== undefined ? f.updated_at : f.updatedAt,
+    ownerName: f.owner_name !== undefined ? f.owner_name : f.ownerName,
+  };
+};
+
 function getFileIcon(mime: string) {
   if (!mime) return <File size={20} />;
   if (mime.startsWith('image/')) return <FileImage size={20} style={{ color: '#8b5cf6' }} />;
   if (mime.startsWith('video/')) return <FileVideo size={20} style={{ color: '#3b82f6' }} />;
-  if (mime.includes('pdf') || mime.includes('word') || mime.includes('text')) return <FileText size={20} style={{ color: '#f59e0b' }} />;
+  if (mime.includes('pdf')) return <FileText size={20} style={{ color: '#ef4444' }} />;
+  if (mime.includes('word') || mime.includes('text') || mime.includes('javascript') || mime.includes('json') || mime.includes('html')) return <FileText size={20} style={{ color: '#f59e0b' }} />;
   if (mime.includes('zip') || mime.includes('tar') || mime.includes('rar')) return <FileArchive size={20} style={{ color: '#10b981' }} />;
   return <File size={20} style={{ color: '#6366f1' }} />;
 }
@@ -40,11 +75,36 @@ export default function FilesPage() {
   const [newFolderName, setNewFolderName] = useState('');
   const [activeTab, setActiveTab] = useState<'files' | 'requests'>('files');
 
-  // Category filter and lightbox states
-  const [categoryFilter, setCategoryFilter] = useState<'all' | 'photos' | 'videos' | 'docs' | 'pdfs'>('all');
-  const [lightboxImage, setLightboxImage] = useState<any>(null);
+  // Category filter and preview states
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'photos' | 'videos' | 'docs' | 'pdfs' | 'programs'>('all');
+  const [previewFile, setPreviewFile] = useState<any>(null);
+  const [previewTextContent, setPreviewTextContent] = useState<string>('');
+  const [loadingTextContent, setLoadingTextContent] = useState(false);
   const [zoomLevel, setZoomLevel] = useState<number>(1);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; file: any } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: any; itemType: 'file' | 'folder' } | null>(null);
+  const [uploadProgressPercent, setUploadProgressPercent] = useState<number | null>(null);
+
+  // Bulk selection, clipboard and custom confirm states
+  const [isBulkMode, setIsBulkMode] = useState(false);
+  const [selectedItems, setSelectedItems] = useState<{ id: string; type: 'file' | 'folder' }[]>([]);
+  const [bulkClipboardItems, setBulkClipboardItems] = useState<{ id: string; type: 'file' | 'folder' }[]>([]);
+  const [bulkClipboardAction, setBulkClipboardAction] = useState<'cut' | 'copy' | null>(null);
+  const [bulkSharingItems, setBulkSharingItems] = useState<{ id: string; type: 'file' | 'folder' }[]>([]);
+  const [confirmModal, setConfirmModal] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    iconType?: 'trash' | 'folder' | 'download' | 'info';
+    confirmText?: string;
+    cancelText?: string;
+    brandColor?: string;
+  } | null>(null);
+  const folderUploadInputRef = useRef<HTMLInputElement>(null);
+
+  // CRUD & Clipboard states
+  const [clipboardItem, setClipboardItem] = useState<{ id: string; type: 'file' | 'folder'; action: 'cut' | 'copy' } | null>(null);
+  const [renamingItem, setRenamingItem] = useState<{ id: string; type: 'file' | 'folder'; name: string } | null>(null);
+  const [sharingItem, setSharingItem] = useState<{ id: string; type: 'file' | 'folder'; name: string } | null>(null);
 
   // Folder Access Request Modal State
   const [lockFolder, setLockFolder] = useState<any>(null);
@@ -65,16 +125,21 @@ export default function FilesPage() {
   // Queries for folders and files
   const { data: folders = [] } = useQuery({
     queryKey: ['folders', folderId],
-    queryFn: () => filesApi.getFolders({ parentId: folderId }).then(r => r.data?.data || r.data || [])
+    queryFn: () => filesApi.getFolders({ parentId: folderId }).then(r => {
+      const data = r.data?.data || r.data || [];
+      return data.map(normalizeFolder);
+    })
   });
 
   const { data: files = [] } = useQuery({
-    queryKey: ['files', folderId, search, categoryFilter],
+    queryKey: ['files', folderId, categoryFilter],
     queryFn: () => filesApi.getFiles({ 
       folderId, 
-      search: search || undefined,
       recursive: categoryFilter !== 'all' ? 'true' : undefined
-    }).then(r => r.data?.data || r.data || [])
+    }).then(r => {
+      const data = r.data?.data || r.data || [];
+      return data.map(normalizeFile);
+    })
   });
 
   // Access Mutators
@@ -98,6 +163,12 @@ export default function FilesPage() {
     onError: () => toast.error('Failed to submit review')
   });
 
+  const deleteFolderMutation = useMutation({
+    mutationFn: (id: string) => filesApi.deleteFolder(id),
+    onSuccess: () => { toast.success('Folder deleted'); qc.invalidateQueries({ queryKey: ['folders'] }); },
+    onError: () => toast.error('Failed to delete folder'),
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => filesApi.delete(id),
     onSuccess: () => { toast.success('File deleted'); qc.invalidateQueries({ queryKey: ['files'] }); },
@@ -110,21 +181,101 @@ export default function FilesPage() {
     onError: () => toast.error('Failed to create folder'),
   });
 
+  const renameFileMutation = useMutation({
+    mutationFn: (variables: { id: string; name: string }) => filesApi.renameFile(variables.id, variables.name),
+    onSuccess: () => {
+      toast.success('File renamed');
+      setRenamingItem(null);
+      qc.invalidateQueries({ queryKey: ['files'] });
+    },
+    onError: () => toast.error('Rename failed'),
+  });
+
+  const renameFolderMutation = useMutation({
+    mutationFn: (variables: { id: string; name: string }) => filesApi.renameFolder(variables.id, variables.name),
+    onSuccess: () => {
+      toast.success('Folder renamed');
+      setRenamingItem(null);
+      qc.invalidateQueries({ queryKey: ['folders'] });
+    },
+    onError: () => toast.error('Rename failed'),
+  });
+
+  const moveOrCopyMutation = useMutation({
+    mutationFn: (variables: any) => filesApi.moveOrCopy(variables),
+    onSuccess: (_, variables) => {
+      toast.success(`${variables.action === 'move' ? 'Moved' : 'Copied'} successfully`);
+      setClipboardItem(null);
+      qc.invalidateQueries({ queryKey: ['folders'] });
+      qc.invalidateQueries({ queryKey: ['files'] });
+    },
+    onError: () => toast.error('Action failed'),
+  });
+
+  const shareToUserMutation = useMutation({
+    mutationFn: (variables: any) => filesApi.shareToUser(variables),
+    onSuccess: () => {
+      toast.success('Shared successfully');
+      setSharingItem(null);
+      qc.invalidateQueries({ queryKey: ['folders'] });
+      qc.invalidateQueries({ queryKey: ['files'] });
+    },
+    onError: () => toast.error('Failed to share'),
+  });
+
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (!acceptedFiles.length) return;
     setUploading(true);
+    setUploadProgressPercent(0);
     let success = 0;
     for (const file of acceptedFiles) {
       const fd = new FormData();
       fd.append('file', file);
       if (folderId) fd.append('folderId', folderId);
-      try { await filesApi.upload(fd); success++; }
-      catch { toast.error(`Failed: ${file.name}`); }
+      try {
+        await filesApi.upload(fd, (progressEvent: any) => {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          setUploadProgressPercent(percent);
+        });
+        success++;
+      } catch {
+        toast.error(`Failed: ${file.name}`);
+      }
     }
     if (success > 0) toast.success(`${success} file(s) uploaded`);
     setUploading(false);
+    setUploadProgressPercent(null);
     qc.invalidateQueries({ queryKey: ['files'] });
   }, [folderId]);
+
+  const onDropFolder = async (files: File[]) => {
+    if (!files.length) return;
+    setUploading(true);
+    setUploadProgressPercent(0);
+    const fd = new FormData();
+    files.forEach((file: File) => {
+      fd.append('files', file);
+    });
+    const relativePaths = files.map((file: any) => file.webkitRelativePath || file.name);
+    fd.append('relativePaths', JSON.stringify(relativePaths));
+    const folderName = relativePaths[0]?.split('/')[0] || 'Uploaded_Folder';
+    fd.append('folderName', folderName);
+    if (folderId) fd.append('folderId', folderId);
+
+    try {
+      await filesApi.uploadFolder(fd, (progressEvent: any) => {
+        const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        setUploadProgressPercent(percent);
+      });
+      toast.success(`Folder "${folderName}" uploaded successfully!`);
+    } catch (err) {
+      toast.error('Folder upload failed.');
+    }
+    setUploading(false);
+    setUploadProgressPercent(null);
+    qc.invalidateQueries({ queryKey: ['folders'] });
+    qc.invalidateQueries({ queryKey: ['files'] });
+  };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop, noClick: true, multiple: true,
@@ -203,13 +354,56 @@ export default function FilesPage() {
     }
   };
 
+  const handleOpenPreview = useCallback((file: any) => {
+    setPreviewFile(file);
+    setZoomLevel(1);
+    setPreviewTextContent('');
+    
+    const ext = (file.extension || file.originalName?.split('.').pop() || file.name?.split('.').pop() || '').toLowerCase();
+    const mime = (file.mimeType || '').toLowerCase();
+    const isText = ['json', 'js', 'jsx', 'ts', 'tsx', 'py', 'java', 'html', 'css', 'txt', 'md', 'xml', 'yaml', 'yml', 'sh', 'bat', 'ini', 'log'].includes(ext) || mime.startsWith('text/') || mime === 'application/json';
+    
+    if (isText && file.storageUrl) {
+      setLoadingTextContent(true);
+      fetch(file.storageUrl)
+        .then(res => res.text())
+        .then(txt => {
+          if (ext === 'json' || mime === 'application/json') {
+            try {
+              const parsed = JSON.parse(txt);
+              setPreviewTextContent(JSON.stringify(parsed, null, 2));
+            } catch {
+              setPreviewTextContent(txt);
+            }
+          } else {
+            setPreviewTextContent(txt);
+          }
+          setLoadingTextContent(false);
+        })
+        .catch(err => {
+          setPreviewTextContent('Error loading content.');
+          setLoadingTextContent(false);
+        });
+    }
+  }, []);
+
   const pendingRequests = accessRequests.filter((r: any) => r.ownerId === user?.id && r.status === 'pending');
 
   // Perform category-based file filtering
   const filteredFiles = files.filter((file: any) => {
-    if (categoryFilter === 'all') return true;
     const mime = (file.mimeType || '').toLowerCase();
     const ext = (file.extension || '').toLowerCase();
+    const name = (file.originalName || file.name || '').toLowerCase();
+    
+    // Search filter: by name OR by extension (e.g., ".pdf" or "pdf")
+    if (search) {
+      const q = search.toLowerCase().replace(/^\./, '');
+      const matchesName = name.includes(search.toLowerCase());
+      const matchesExt = ext === q || mime.includes(q);
+      if (!matchesName && !matchesExt) return false;
+    }
+
+    if (categoryFilter === 'all') return true;
     if (categoryFilter === 'photos') {
       return mime.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(ext);
     }
@@ -221,6 +415,9 @@ export default function FilesPage() {
     }
     if (categoryFilter === 'pdfs') {
       return mime.includes('pdf') || ext === 'pdf';
+    }
+    if (categoryFilter === 'programs') {
+      return ['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cpp', 'c', 'cs', 'go', 'rs', 'php', 'rb', 'sh', 'bat', 'html', 'css', 'json', 'xml', 'yaml', 'yml', 'sql', 'md'].includes(ext);
     }
     return true;
   });
@@ -284,24 +481,154 @@ export default function FilesPage() {
         </div>
       )}
 
-      {/* Lightbox Modal */}
-      {lightboxImage && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', backdropFilter: 'blur(10px)', zIndex: 1200, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }} onClick={() => { setLightboxImage(null); setZoomLevel(1); }}>
+      {/* Rename Overlay Modal */}
+      {renamingItem && (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card card-body" style={{ width: '400px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 700 }}>Rename {renamingItem.type === 'folder' ? 'Folder' : 'File'}</h3>
+            <input
+              type="text"
+              className="form-control"
+              value={renamingItem.name}
+              onChange={e => setRenamingItem({ ...renamingItem, name: e.target.value })}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  if (renamingItem.type === 'file') {
+                    renameFileMutation.mutate({ id: renamingItem.id, name: renamingItem.name });
+                  } else {
+                    renameFolderMutation.mutate({ id: renamingItem.id, name: renamingItem.name });
+                  }
+                }
+              }}
+              autoFocus
+            />
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setRenamingItem(null)}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  if (renamingItem.type === 'file') {
+                    renameFileMutation.mutate({ id: renamingItem.id, name: renamingItem.name });
+                  } else {
+                    renameFolderMutation.mutate({ id: renamingItem.id, name: renamingItem.name });
+                  }
+                }}
+              >
+                Rename
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Share Overlay Modal */}
+      {sharingItem && (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card card-body" style={{ width: '400px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 700 }}>Share "{sharingItem.name}"</h3>
+            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>Select a teammate to copy/move this item to their chat-attachments folder.</p>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '11px', fontWeight: 600 }}>Teammate</label>
+              <select id="share-target-user" className="form-control">
+                {allUsers.filter((u: any) => u.id !== user?.id).map((u: any) => (
+                  <option key={u.id} value={u.id}>{u.fullName} ({u.role?.name || 'User'})</option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '11px', fontWeight: 600 }}>Action</label>
+              <select id="share-action" className="form-control" defaultValue="copy">
+                <option value="copy">👯 Duplicate Copy (Keep original)</option>
+                <option value="move">🚚 Move Ownership (Transfer item)</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '10px' }}>
+              <button className="btn btn-secondary" onClick={() => setSharingItem(null)}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  const targetUserId = (document.getElementById('share-target-user') as HTMLSelectElement).value;
+                  const action = (document.getElementById('share-action') as HTMLSelectElement).value as 'move' | 'copy';
+                  if (!targetUserId) {
+                    toast.error('Please select a teammate');
+                    return;
+                  }
+                  shareToUserMutation.mutate({
+                    itemType: sharingItem.type,
+                    itemId: sharingItem.id,
+                    targetUserId,
+                    action
+                  });
+                }}
+              >
+                Share
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Google Drive-style Preview Modal */}
+      {previewFile && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', backdropFilter: 'blur(10px)', zIndex: 1200, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }} onClick={() => { setPreviewFile(null); setZoomLevel(1); }}>
+          <div style={{ position: 'absolute', top: '20px', left: '20px', display: 'flex', gap: '8px', alignItems: 'center', color: 'white', zIndex: 1300 }}>
+            {getFileIcon(previewFile.mimeType)}
+            <span style={{ fontSize: '14px', fontWeight: 600 }}>{previewFile.originalName}</span>
+            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>({formatBytes(previewFile.sizeBytes || previewFile.size)})</span>
+          </div>
+
           <div style={{ position: 'absolute', top: '20px', right: '20px', display: 'flex', gap: '10px', zIndex: 1300 }} onClick={e => e.stopPropagation()}>
-            <button className="btn btn-secondary btn-sm" onClick={() => setZoomLevel(z => Math.min(3, z + 0.2))}>Zoom In (+)</button>
-            <button className="btn btn-secondary btn-sm" onClick={() => setZoomLevel(z => Math.max(0.5, z - 0.2))}>Zoom Out (-)</button>
-            <button className="btn btn-secondary btn-sm" onClick={() => setZoomLevel(1)}>Reset</button>
-            <button className="btn btn-secondary btn-sm" onClick={() => copyImageToClipboard(lightboxImage.storageUrl)}>Copy Image</button>
-            <a href={lightboxImage.storageUrl} download className="btn btn-primary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Download size={14} /> Download</a>
-            <button className="btn btn-ghost btn-icon btn-sm" style={{ color: 'white' }} onClick={() => { setLightboxImage(null); setZoomLevel(1); }}><X size={20} /></button>
+            {previewFile.mimeType?.startsWith('image/') && (
+              <>
+                <button className="btn btn-secondary btn-sm" onClick={() => setZoomLevel(z => Math.min(3, z + 0.2))}>Zoom In (+)</button>
+                <button className="btn btn-secondary btn-sm" onClick={() => setZoomLevel(z => Math.max(0.5, z - 0.2))}>Zoom Out (-)</button>
+                <button className="btn btn-secondary btn-sm" onClick={() => setZoomLevel(1)}>Reset</button>
+                <button className="btn btn-secondary btn-sm" onClick={() => copyImageToClipboard(previewFile.storageUrl)}>Copy Image</button>
+              </>
+            )}
+            <a href={previewFile.storageUrl} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>Open in New Tab</a>
+            <a href={previewFile.storageUrl} download={previewFile.originalName} className="btn btn-primary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Download size={14} /> Download</a>
+            <button className="btn btn-ghost btn-icon btn-sm" style={{ color: 'white' }} onClick={() => { setPreviewFile(null); setZoomLevel(1); }}><X size={20} /></button>
           </div>
           
-          <div style={{ overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', maxWidth: '90%', maxHeight: '80%' }} onClick={e => e.stopPropagation()}>
-            <img src={lightboxImage.storageUrl} alt={lightboxImage.originalName} style={{ transform: `scale(${zoomLevel})`, transition: 'transform 0.2s', maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
-          </div>
-          
-          <div style={{ position: 'absolute', bottom: '20px', color: 'white', fontSize: '14px', fontWeight: 600 }}>
-            {lightboxImage.originalName} ({formatBytes(lightboxImage.sizeBytes || lightboxImage.size)})
+          <div style={{ width: '90%', height: '80%', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={e => e.stopPropagation()}>
+            {previewFile.mimeType?.startsWith('image/') ? (
+              <div style={{ overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
+                <img src={previewFile.storageUrl} alt={previewFile.originalName} style={{ transform: `scale(${zoomLevel})`, transition: 'transform 0.2s', maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+              </div>
+            ) : previewFile.mimeType?.includes('pdf') || (previewFile.originalName || '').toLowerCase().endsWith('.pdf') ? (
+              <iframe src={previewFile.storageUrl} style={{ width: '100%', height: '100%', borderRadius: '8px', border: 'none', background: 'white' }} title={previewFile.originalName} />
+            ) : previewFile.mimeType?.startsWith('video/') ? (
+              <video controls src={previewFile.storageUrl} style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: '8px' }} />
+            ) : previewFile.mimeType?.startsWith('audio/') ? (
+              <audio controls src={previewFile.storageUrl} style={{ width: '80%' }} />
+            ) : ['json', 'js', 'jsx', 'ts', 'tsx', 'py', 'java', 'html', 'css', 'txt', 'md', 'xml', 'yaml', 'yml', 'sh', 'bat', 'ini', 'log'].includes((previewFile.extension || previewFile.originalName?.split('.').pop() || '').toLowerCase()) || previewFile.mimeType?.startsWith('text/') || previewFile.mimeType === 'application/json' ? (
+              <div style={{ width: '100%', height: '100%', background: '#1e1e1e', borderRadius: '8px', padding: '20px', overflow: 'auto', border: '1px solid #333' }}>
+                {loadingTextContent ? (
+                  <div style={{ color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                    <div className="spinner" style={{ marginRight: '8px' }} /> Loading file content...
+                  </div>
+                ) : (
+                  <pre style={{ margin: 0, color: '#d4d4d4', textAlign: 'left', fontFamily: 'monospace', fontSize: '13px', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                    {previewTextContent}
+                  </pre>
+                )}
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', color: 'white', display: 'flex', flexDirection: 'column', gap: '20px', alignItems: 'center' }}>
+                <File size={64} style={{ color: 'rgba(255,255,255,0.4)' }} />
+                <div>
+                  <h3 style={{ fontSize: '18px', fontWeight: 600 }}>No preview available for this file type</h3>
+                  <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.6)', marginTop: '8px' }}>
+                    Mime Type: {previewFile.mimeType || 'Unknown'} | Extension: {previewFile.extension || 'none'}
+                  </p>
+                </div>
+                <a href={previewFile.storageUrl} download={previewFile.originalName} className="btn btn-primary"><Download size={14} /> Download to View</a>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -314,14 +641,94 @@ export default function FilesPage() {
           borderRadius: '8px', boxShadow: '0 10px 25px rgba(0,0,0,0.3)', zIndex: 1100,
           display: 'flex', flexDirection: 'column', padding: '4px', minWidth: '150px'
         }} onMouseLeave={() => setContextMenu(null)}>
-          <div className="dropdown-item" onClick={() => { copyImageToClipboard(contextMenu.file.storageUrl); setContextMenu(null); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Copy size={13} /> Copy Image</div>
           <div className="dropdown-item" onClick={() => {
-            const copied = copyTextToClipboard(window.location.origin + contextMenu.file.storageUrl);
-            if (copied) toast.success('Link copied! 🔗');
-            else toast.error('Failed to copy link.');
+            setRenamingItem({ id: contextMenu.item.id, type: contextMenu.itemType, name: contextMenu.item.name || contextMenu.item.originalName });
             setContextMenu(null);
-          }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Share2 size={13} /> Copy Link</div>
-          <a href={contextMenu.file.storageUrl} download className="dropdown-item" onClick={() => setContextMenu(null)} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer', color: 'inherit', textDecoration: 'none' }}><Download size={13} /> Download File</a>
+          }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Plus size={13} /> Rename</div>
+          
+          <div className="dropdown-item" onClick={() => {
+            setClipboardItem({ id: contextMenu.item.id, type: contextMenu.itemType, action: 'cut' });
+            setContextMenu(null);
+            toast.success('Cut to clipboard');
+          }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Scissors size={13} /> Cut</div>
+
+          <div className="dropdown-item" onClick={() => {
+            setClipboardItem({ id: contextMenu.item.id, type: contextMenu.itemType, action: 'copy' });
+            setContextMenu(null);
+            toast.success('Copied to clipboard');
+          }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Copy size={13} /> Copy</div>
+
+          <div className="dropdown-item" onClick={() => {
+            setIsBulkMode(true);
+            setSelectedItems([{ id: contextMenu.item.id, type: contextMenu.itemType }]);
+            setContextMenu(null);
+          }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><CheckSquare size={13} /> Bulk Select</div>
+
+          {clipboardItem && contextMenu.itemType === 'folder' && (
+            <div className="dropdown-item" onClick={() => {
+              moveOrCopyMutation.mutate({
+                itemType: clipboardItem.type,
+                itemId: clipboardItem.id,
+                targetFolderId: contextMenu.item.id,
+                action: clipboardItem.action
+              });
+              setContextMenu(null);
+            }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Clipboard size={13} /> Paste Here</div>
+          )}
+
+          {bulkClipboardItems.length > 0 && contextMenu.itemType === 'folder' && (
+            <div className="dropdown-item" onClick={async () => {
+              const toastId = toast.loading('Pasting bulk items...');
+              try {
+                await Promise.all(bulkClipboardItems.map(item =>
+                  moveOrCopyMutation.mutateAsync({
+                    itemType: item.type,
+                    itemId: item.id,
+                    targetFolderId: contextMenu.item.id,
+                    action: bulkClipboardAction
+                  })
+                ));
+                toast.success('Pasted successfully', { id: toastId });
+                setBulkClipboardItems([]);
+                setBulkClipboardAction(null);
+                setContextMenu(null);
+                qc.invalidateQueries({ queryKey: ['folders'] });
+                qc.invalidateQueries({ queryKey: ['files'] });
+              } catch {
+                toast.error('Failed to paste some items', { id: toastId });
+              }
+            }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Clipboard size={13} /> Paste Bulk Here</div>
+          )}
+
+          <div className="dropdown-item" onClick={() => {
+            setSharingItem({ id: contextMenu.item.id, type: contextMenu.itemType, name: contextMenu.item.name || contextMenu.item.originalName });
+            setContextMenu(null);
+          }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Share2 size={13} /> Share with Teammate</div>
+
+          {contextMenu.itemType === 'file' && (
+            <>
+              <div className="dropdown-item" onClick={() => { handleOpenPreview(contextMenu.item); setContextMenu(null); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><ChevronRight size={13} /> Preview</div>
+              <div className="dropdown-item" onClick={() => { window.open(contextMenu.item.storageUrl, '_blank'); setContextMenu(null); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}>🔗 Open in New Tab</div>
+              <a href={contextMenu.item.storageUrl} download={contextMenu.item.originalName} className="dropdown-item" onClick={() => setContextMenu(null)} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer', color: 'inherit', textDecoration: 'none' }}><Download size={13} /> Copy to PC (Download)</a>
+            </>
+          )}
+
+          <div className="dropdown-item" onClick={() => {
+            const isFolder = contextMenu.itemType === 'folder';
+            const name = contextMenu.item.name || contextMenu.item.originalName;
+            setConfirmModal({
+              title: `Delete ${isFolder ? 'Folder' : 'File'}`,
+              message: `Are you sure you want to delete "${name}" permanently?`,
+              onConfirm: () => {
+                if (isFolder) {
+                  deleteFolderMutation.mutate(contextMenu.item.id);
+                } else {
+                  deleteMutation.mutate(contextMenu.item.id);
+                }
+              }
+            });
+            setContextMenu(null);
+          }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer', color: 'var(--brand-danger)' }}><Trash2 size={13} /> Delete</div>
         </div>
       )}
 
@@ -334,11 +741,89 @@ export default function FilesPage() {
         <div style={{ display: 'flex', gap: '10px' }}>
           {activeTab === 'files' && (
             <>
+              {clipboardItem && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    moveOrCopyMutation.mutate({
+                      itemType: clipboardItem.type,
+                      itemId: clipboardItem.id,
+                      targetFolderId: folderId || null,
+                      action: clipboardItem.action
+                    });
+                  }}
+                >
+                  <Clipboard size={14} /> Paste here ({clipboardItem.action === 'cut' ? 'Cut' : 'Copy'})
+                </button>
+              )}
+              {bulkClipboardItems.length > 0 && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={async () => {
+                    const toastId = toast.loading('Pasting bulk items...');
+                    try {
+                      await Promise.all(bulkClipboardItems.map(item =>
+                        moveOrCopyMutation.mutateAsync({
+                          itemType: item.type,
+                          itemId: item.id,
+                          targetFolderId: folderId || null,
+                          action: bulkClipboardAction
+                        })
+                      ));
+                      toast.success('Pasted successfully', { id: toastId });
+                      setBulkClipboardItems([]);
+                      setBulkClipboardAction(null);
+                      qc.invalidateQueries({ queryKey: ['folders'] });
+                      qc.invalidateQueries({ queryKey: ['files'] });
+                    } catch {
+                      toast.error('Failed to paste some items', { id: toastId });
+                    }
+                  }}
+                >
+                  <Clipboard size={14} /> Paste Bulk ({bulkClipboardAction === 'cut' ? 'Move' : 'Copy'})
+                </button>
+              )}
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  setIsBulkMode(!isBulkMode);
+                  setSelectedItems([]);
+                }}
+                style={{ color: isBulkMode ? 'var(--brand-primary)' : 'inherit' }}
+              >
+                <CheckSquare size={15} /> {isBulkMode ? 'Exit Bulk' : 'Bulk Select'}
+              </button>
               <button className="btn btn-secondary btn-sm" onClick={() => setShowNewFolder(true)}><FolderOpen size={15} /> New Folder</button>
               <label className="btn btn-primary btn-sm" style={{ cursor: 'pointer' }}>
-                <Upload size={15} /> Upload {uploading && <div className="spinner" />}
+                <Upload size={15} /> Upload Files {uploading && uploadProgressPercent === null && <div className="spinner" />}
                 <input type="file" multiple style={{ display: 'none' }} onChange={e => { if (e.target.files) onDrop(Array.from(e.target.files)); }} />
               </label>
+              <button 
+                className="btn btn-primary btn-sm" 
+                style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                onClick={() => {
+                  setConfirmModal({
+                    title: 'Upload Directory / Folder?',
+                    message: 'This will stage all files inside the selected directory for upload to your current active folder directory. Do this only if you trust the files.',
+                    iconType: 'folder',
+                    confirmText: 'Select Folder',
+                    cancelText: 'Cancel',
+                    brandColor: 'var(--brand-primary)',
+                    onConfirm: () => {
+                      folderUploadInputRef.current?.click();
+                    }
+                  });
+                }}
+              >
+                <FolderOpen size={15} /> Upload Folder {uploading && uploadProgressPercent === null && <div className="spinner" />}
+              </button>
+              <input 
+                type="file" 
+                ref={folderUploadInputRef} 
+                {...{ webkitdirectory: "", directory: "", multiple: true } as any} 
+                style={{ display: 'none' }} 
+                onChange={e => { if (e.target.files) onDropFolder(Array.from(e.target.files)); }} 
+              />
             </>
           )}
         </div>
@@ -381,13 +866,14 @@ export default function FilesPage() {
               </div>
 
               {/* Horizontal Category Tabs */}
-              <div style={{ display: 'flex', gap: '6px', background: 'var(--bg-secondary)', padding: '3px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+              <div style={{ display: 'flex', gap: '6px', background: 'var(--bg-secondary)', padding: '3px', borderRadius: '8px', border: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
                 {[
                   { key: 'all', label: 'All Files' },
                   { key: 'photos', label: '🖼️ Photos' },
                   { key: 'videos', label: '🎥 Videos' },
                   { key: 'docs', label: '📄 Docs' },
-                  { key: 'pdfs', label: '📕 PDFs' }
+                  { key: 'pdfs', label: '📕 PDFs' },
+                  { key: 'programs', label: '💻 Programs' }
                 ].map(tab => (
                   <button
                     key={tab.key}
@@ -400,9 +886,9 @@ export default function FilesPage() {
                 ))}
               </div>
 
-              <div className="search-bar" style={{ width: '180px' }}>
+              <div className="search-bar" style={{ width: '200px' }}>
                 <Search size={14} style={{ position: 'absolute', left: '12px', color: 'var(--text-tertiary)' }} />
-                <input type="text" placeholder="Search files..." value={search} onChange={e => setSearch(e.target.value)} className="form-control" style={{ paddingLeft: '36px', height: '34px', fontSize: '12px' }} />
+                <input type="text" placeholder="Name or .ext (e.g., .pdf)" value={search} onChange={e => setSearch(e.target.value)} className="form-control" style={{ paddingLeft: '36px', height: '34px', fontSize: '12px' }} />
               </div>
               <div style={{ display: 'flex', gap: '4px' }}>
                 <button className={`btn btn-sm ${viewMode === 'grid' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setViewMode('grid')}><Grid size={14} /></button>
@@ -429,7 +915,31 @@ export default function FilesPage() {
                 const locked = !hasAccess(folder);
                 const isPublic = folder.path?.startsWith('/public');
                 return (
-                  <div key={folder.id} className="card card-hoverable" style={{ padding: '16px', textAlign: 'center', cursor: 'pointer', position: 'relative' }} onDoubleClick={() => handleDoubleClickFolder(folder)}>
+                  <div 
+                    key={folder.id} 
+                    className="card card-hoverable" 
+                    style={{ padding: '16px', textAlign: 'center', cursor: 'pointer', position: 'relative' }} 
+                    onDoubleClick={() => handleDoubleClickFolder(folder)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setContextMenu({ x: e.clientX, y: e.clientY, item: folder, itemType: 'folder' });
+                    }}
+                  >
+                    {isBulkMode && (
+                      <input
+                        type="checkbox"
+                        checked={selectedItems.some(item => item.id === folder.id)}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          if (e.target.checked) {
+                            setSelectedItems(prev => [...prev, { id: folder.id, type: 'folder' }]);
+                          } else {
+                            setSelectedItems(prev => prev.filter(item => item.id !== folder.id));
+                          }
+                        }}
+                        style={{ position: 'absolute', top: '12px', left: '12px', zIndex: 10, width: '16px', height: '16px', cursor: 'pointer' }}
+                      />
+                    )}
                     <Folder size={40} style={{ color: isPublic ? 'var(--brand-primary)' : locked ? 'var(--text-tertiary)' : '#f59e0b', margin: '0 auto 10px' }} />
                     {locked && <Lock size={12} style={{ position: 'absolute', top: '12px', right: '12px', color: 'var(--text-tertiary)' }} />}
                     
@@ -461,20 +971,48 @@ export default function FilesPage() {
                   <div 
                     key={file.id} 
                     className="card card-hoverable group" 
-                    style={{ padding: '16px', textAlign: 'center', position: 'relative' }}
+                    style={{ padding: '16px', textAlign: 'center', position: 'relative', cursor: 'pointer' }}
+                    onClick={() => handleOpenPreview(file)}
+                    onDoubleClick={() => { if (file.storageUrl) window.open(file.storageUrl, '_blank'); }}
                     onContextMenu={(e) => {
-                      if (isImage) {
-                        e.preventDefault();
-                        setContextMenu({ x: e.clientX, y: e.clientY, file });
-                      }
+                      e.preventDefault();
+                      setContextMenu({ x: e.clientX, y: e.clientY, item: file, itemType: 'file' });
                     }}
                   >
-                    {isImage ? (
+                    {isBulkMode && (
+                      <input
+                        type="checkbox"
+                        checked={selectedItems.some(item => item.id === file.id)}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          if (e.target.checked) {
+                            setSelectedItems(prev => [...prev, { id: file.id, type: 'file' }]);
+                          } else {
+                            setSelectedItems(prev => prev.filter(item => item.id !== file.id));
+                          }
+                        }}
+                        style={{ position: 'absolute', top: '12px', left: '12px', zIndex: 10, width: '16px', height: '16px', cursor: 'pointer' }}
+                      />
+                    )}
+                    {isImage && file.storageUrl ? (
                       <div 
-                        style={{ position: 'relative', width: '100%', aspectRatio: '1/1', borderRadius: '8px', overflow: 'hidden', background: 'var(--bg-secondary)', marginBottom: '10px', cursor: 'zoom-in' }} 
-                        onClick={() => setLightboxImage(file)}
+                        style={{ position: 'relative', width: '100%', aspectRatio: '1/1', borderRadius: '8px', overflow: 'hidden', background: 'var(--bg-secondary)', marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} 
                       >
-                        <img src={file.storageUrl} alt={file.originalName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <img
+                          src={file.storageUrl}
+                          alt={file.originalName}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = 'none';
+                            const fallback = target.nextElementSibling as HTMLElement;
+                            if (fallback) fallback.style.display = 'flex';
+                          }}
+                        />
+                        <div style={{ display: 'none', position: 'absolute', inset: 0, alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '6px', color: 'var(--text-tertiary)' }}>
+                          <FileImage size={32} style={{ color: '#8b5cf6' }} />
+                          <span style={{ fontSize: '9px' }}>Image unavailable</span>
+                        </div>
                       </div>
                     ) : (
                       <div style={{ fontSize: '40px', margin: '0 auto 10px', display: 'flex', justifyContent: 'center' }}>
@@ -483,10 +1021,6 @@ export default function FilesPage() {
                     )}
                     <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={file.originalName}>{file.originalName}</div>
                     <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{formatBytes(file.sizeBytes || file.size)}</div>
-                    <div style={{ position: 'absolute', top: '8px', right: '8px', display: 'flex', gap: '2px' }}>
-                      <a href={file.storageUrl} download className="btn btn-ghost btn-icon btn-sm" title="Download"><Download size={12} /></a>
-                      <button className="btn btn-ghost btn-icon btn-sm danger" title="Delete" onClick={() => { if (confirm(`Delete ${file.originalName}?`)) deleteMutation.mutate(file.id); }}><Trash2 size={12} /></button>
-                    </div>
                   </div>
                 );
               })}
@@ -513,16 +1047,38 @@ export default function FilesPage() {
                         <tr 
                           key={item.id}
                           onContextMenu={(e) => {
-                            if (isImage) {
-                              e.preventDefault();
-                              setContextMenu({ x: e.clientX, y: e.clientY, file: item });
-                            }
+                            e.preventDefault();
+                            setContextMenu({ x: e.clientX, y: e.clientY, item, itemType: item.isFolder ? 'folder' : 'file' });
                           }}
                         >
                           <td>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                              {item.isFolder ? <Folder size={18} style={{ color: locked ? 'var(--text-tertiary)' : '#f59e0b', flexShrink: 0 }} /> : getFileIcon(item.mimeType)}
-                              <span style={{ fontSize: '13px', fontWeight: 500, cursor: isImage ? 'zoom-in' : 'inherit' }} onClick={() => isImage && setLightboxImage(item)}>{item.name || item.originalName}</span>
+                              {isBulkMode && (
+                                <input
+                                  type="checkbox"
+                                  checked={selectedItems.some(s => s.id === item.id)}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    if (e.target.checked) {
+                                      setSelectedItems(prev => [...prev, { id: item.id, type: item.isFolder ? 'folder' : 'file' }]);
+                                    } else {
+                                      setSelectedItems(prev => prev.filter(s => s.id !== item.id));
+                                    }
+                                  }}
+                                  style={{ cursor: 'pointer', width: '15px', height: '15px' }}
+                                />
+                              )}
+                              {item.isFolder ? (
+                                <Folder size={18} style={{ color: locked ? 'var(--text-tertiary)' : '#f59e0b', flexShrink: 0 }} />
+                              ) : (
+                                getFileIcon(item.mimeType)
+                              )}
+                              <span 
+                                style={{ fontSize: '13px', fontWeight: 500, cursor: 'pointer' }} 
+                                onClick={() => item.isFolder ? handleDoubleClickFolder(item) : handleOpenPreview(item)}
+                              >
+                                {item.name || item.originalName}
+                              </span>
                             </div>
                           </td>
                           <td style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{item.isFolder ? 'Folder' : (item.mimeType || 'File')}</td>
@@ -539,8 +1095,14 @@ export default function FilesPage() {
                               {item.isFolder && locked && (
                                 <button className="btn btn-secondary btn-xs" onClick={() => setLockFolder(item)}>Unlock</button>
                               )}
-                              {!item.isFolder && <a href={item.storageUrl} download className="btn btn-ghost btn-icon btn-sm" title="Download"><Download size={14} /></a>}
-                              {!item.isFolder && <button className="btn btn-ghost btn-icon btn-sm" title="Delete" onClick={() => { if (confirm(`Delete?`)) deleteMutation.mutate(item.id); }}><Trash2 size={14} /></button>}
+                              {!item.isFolder && <a href={item.storageUrl} download={item.originalName} className="btn btn-ghost btn-icon btn-sm" title="Download"><Download size={14} /></a>}
+                              {!item.isFolder && <button className="btn btn-ghost btn-icon btn-sm" title="Delete" onClick={() => {
+                                setConfirmModal({
+                                  title: 'Delete File',
+                                  message: `Are you sure you want to delete "${item.name || item.originalName}" permanently?`,
+                                  onConfirm: () => deleteMutation.mutate(item.id)
+                                });
+                              }}><Trash2 size={14} /></button>}
                             </div>
                           </td>
                         </tr>
@@ -599,7 +1161,7 @@ export default function FilesPage() {
                         {req.status === 'pending' ? (
                           <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
                             <select
-                              id={`perm-select-${req.id}`}
+                               id={`perm-select-${req.id}`}
                               className="form-control"
                               style={{ width: '130px', height: '28px', fontSize: '11px', padding: '0 8px' }}
                               defaultValue="read"
@@ -634,6 +1196,226 @@ export default function FilesPage() {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+      {confirmModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(12px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000,
+          animation: 'fadeIn 0.25s ease'
+        }}>
+          <div style={{
+            background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+            boxShadow: '0 20px 50px rgba(0,0,0,0.3)', borderRadius: '16px',
+            padding: '24px', width: '400px', display: 'flex', flexDirection: 'column', gap: '16px',
+            animation: 'scaleUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{
+                width: '44px', height: '44px', borderRadius: '12px',
+                background: confirmModal.iconType === 'folder' ? 'rgba(0, 168, 132, 0.1)' : 
+                            confirmModal.iconType === 'download' ? 'rgba(99, 102, 241, 0.1)' :
+                            confirmModal.iconType === 'trash' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(0, 168, 132, 0.1)', 
+                color: confirmModal.iconType === 'folder' ? 'var(--wa-accent)' : 
+                       confirmModal.iconType === 'download' ? 'var(--brand-primary)' :
+                       confirmModal.iconType === 'trash' ? 'var(--brand-danger)' : 'var(--wa-accent)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0
+              }}>
+                {confirmModal.iconType === 'folder' ? <Folder size={22} /> : 
+                 confirmModal.iconType === 'download' ? <Download size={22} /> :
+                 confirmModal.iconType === 'trash' ? <Trash2 size={22} /> : <Info size={22} />}
+              </div>
+              <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{confirmModal.title}</h3>
+            </div>
+            
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>
+              {confirmModal.message}
+            </p>
+            
+            <div style={{ display: 'flex', gap: '12px', marginTop: '8px', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary btn-sm" style={{ padding: '8px 16px', borderRadius: '8px' }} onClick={() => setConfirmModal(null)}>
+                {confirmModal.cancelText || 'Cancel'}
+              </button>
+              <button 
+                className="btn btn-primary btn-sm" 
+                style={{ 
+                  padding: '8px 16px', 
+                  borderRadius: '8px',
+                  background: confirmModal.brandColor || 'var(--brand-danger)', 
+                  borderColor: confirmModal.brandColor || 'var(--brand-danger)',
+                  color: '#fff'
+                }} 
+                onClick={() => {
+                  confirmModal.onConfirm();
+                  setConfirmModal(null);
+                }}
+              >
+                {confirmModal.confirmText || 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Share Overlay Modal */}
+      {bulkSharingItems.length > 0 && (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card card-body" style={{ width: '400px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 700 }}>Share {bulkSharingItems.length} Items</h3>
+            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>Select a teammate to copy/move these items to their chat-attachments folder.</p>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '11px', fontWeight: 600 }}>Teammate</label>
+              <select id="bulk-share-target-user" className="form-control">
+                {allUsers.filter((u: any) => u.id !== user?.id).map((u: any) => (
+                  <option key={u.id} value={u.id}>{u.fullName} ({u.role?.name || 'User'})</option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '11px', fontWeight: 600 }}>Action</label>
+              <select id="bulk-share-action" className="form-control" defaultValue="copy">
+                <option value="copy">👯 Duplicate Copy (Keep original)</option>
+                <option value="move">🚚 Move Ownership (Transfer items)</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '10px' }}>
+              <button className="btn btn-secondary" onClick={() => setBulkSharingItems([])}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                onClick={async () => {
+                  const targetUserId = (document.getElementById('bulk-share-target-user') as HTMLSelectElement).value;
+                  const action = (document.getElementById('bulk-share-action') as HTMLSelectElement).value as 'move' | 'copy';
+                  if (!targetUserId) {
+                    toast.error('Please select a teammate');
+                    return;
+                  }
+                  const toastId = toast.loading('Sharing items...');
+                  try {
+                    await Promise.all(bulkSharingItems.map(item =>
+                      shareToUserMutation.mutateAsync({
+                        itemType: item.type,
+                        itemId: item.id,
+                        targetUserId,
+                        action
+                      })
+                    ));
+                    toast.success('Shared successfully', { id: toastId });
+                    setBulkSharingItems([]);
+                    setSelectedItems([]);
+                    setIsBulkMode(false);
+                    qc.invalidateQueries({ queryKey: ['folders'] });
+                    qc.invalidateQueries({ queryKey: ['files'] });
+                  } catch {
+                    toast.error('Failed to share some items', { id: toastId });
+                  }
+                }}
+              >
+                Share Bulk
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Action Bar */}
+      {(isBulkMode || selectedItems.length > 0) && (
+        <div style={{
+          position: 'fixed', bottom: '80px', left: '50%', transform: 'translateX(-50%)', zIndex: 1100,
+          background: 'var(--bg-card)', border: '1.5px solid var(--brand-primary)',
+          boxShadow: '0 8px 32px rgba(99, 102, 241, 0.3)', borderRadius: '32px',
+          padding: '8px 20px', display: 'flex', alignItems: 'center', gap: '16px',
+          color: 'var(--text-primary)', backdropFilter: 'blur(8px)', animation: 'slideUp 0.3s ease'
+        }}>
+          <span style={{ fontSize: '12px', fontWeight: 700 }}>{selectedItems.length} selected</span>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => {
+              const allItems = [
+                ...folders.map((f: any) => ({ id: f.id, type: 'folder' as const })),
+                ...filteredFiles.map((f: any) => ({ id: f.id, type: 'file' as const }))
+              ];
+              const isAllChecked = allItems.every(item => selectedItems.some(s => s.id === item.id));
+              if (isAllChecked) {
+                setSelectedItems([]);
+              } else {
+                setSelectedItems(allItems);
+              }
+            }}>
+              {(() => {
+                const allItems = [
+                  ...folders.map((f: any) => ({ id: f.id, type: 'folder' as const })),
+                  ...filteredFiles.map((f: any) => ({ id: f.id, type: 'file' as const }))
+                ];
+                const isAllChecked = allItems.length > 0 && allItems.every(item => selectedItems.some(s => s.id === item.id));
+                return isAllChecked ? 'Deselect All' : 'Select All';
+              })()}
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm" disabled={selectedItems.length === 0} onClick={() => {
+              setBulkClipboardItems(selectedItems);
+              setBulkClipboardAction('copy');
+              toast.success(`${selectedItems.length} items copied to clipboard`);
+            }}>
+              Copy Bulk
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm" disabled={selectedItems.length === 0} onClick={() => {
+              setBulkClipboardItems(selectedItems);
+              setBulkClipboardAction('cut');
+              toast.success(`${selectedItems.length} items cut to clipboard`);
+            }}>
+              Cut Bulk
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm" disabled={selectedItems.length === 0} onClick={() => {
+              setBulkSharingItems(selectedItems);
+            }}>
+              Share Bulk
+            </button>
+            <button type="button" className="btn btn-danger btn-sm" disabled={selectedItems.length === 0} onClick={() => {
+              setConfirmModal({
+                title: 'Delete Selected Items',
+                message: `Are you sure you want to delete these ${selectedItems.length} items permanently?`,
+                onConfirm: async () => {
+                  try {
+                    await Promise.all(selectedItems.map(item => {
+                      if (item.type === 'folder') {
+                        return deleteFolderMutation.mutateAsync(item.id);
+                      } else {
+                        return deleteMutation.mutateAsync(item.id);
+                      }
+                    }));
+                    toast.success('Selected items deleted');
+                    setSelectedItems([]);
+                    setIsBulkMode(false);
+                  } catch {
+                    toast.error('Failed to delete some items');
+                  }
+                }
+              });
+            }}>
+              Delete Bulk
+            </button>
+            <button type="button" className="btn btn-secondary btn-sm btn-icon" onClick={() => { setSelectedItems([]); setIsBulkMode(false); }}><X size={14} /></button>
+          </div>
+        </div>
+      )}
+
+      {uploadProgressPercent !== null && (
+        <div style={{
+          position: 'fixed', bottom: '24px', right: '24px', zIndex: 1100,
+          background: 'var(--bg-card)', border: '1.5px solid var(--brand-primary)',
+          boxShadow: '0 8px 32px rgba(99, 102, 241, 0.3)', borderRadius: '12px',
+          padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '8px',
+          color: 'var(--text-primary)', width: '280px', animation: 'slideUp 0.3s ease'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--brand-primary)' }}>Uploading Files...</span>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>{uploadProgressPercent}%</span>
+          </div>
+          <div style={{ width: '100%', height: '6px', background: 'var(--bg-secondary)', borderRadius: '3px', overflow: 'hidden' }}>
+            <div style={{ width: `${uploadProgressPercent}%`, height: '100%', background: 'var(--brand-primary)', transition: 'width 0.1s ease-in-out' }} />
           </div>
         </div>
       )}

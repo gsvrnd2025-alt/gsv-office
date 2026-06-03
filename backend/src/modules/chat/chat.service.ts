@@ -11,6 +11,26 @@ export class ChatService implements OnModuleInit {
     } catch (err) {
       console.error('Error in onModuleInit duplicate conversation merge:', err);
     }
+
+    try {
+      // Ensure folder_id column exists on messages table
+      await this.dataSource.query(`
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS folder_id UUID REFERENCES folders(id) ON DELETE SET NULL;
+      `);
+      
+      // Ensure 'folder' exists in the message_type enum
+      const types = await this.dataSource.query(`
+        SELECT enumlabel FROM pg_enum 
+        JOIN pg_type ON pg_enum.enumtypid = pg_type.oid 
+        WHERE pg_type.typname = 'message_type';
+      `);
+      const hasFolder = types.some((t: any) => t.enumlabel === 'folder');
+      if (!hasFolder) {
+        await this.dataSource.query(`ALTER TYPE message_type ADD VALUE 'folder';`);
+      }
+    } catch (err) {
+      console.error('Failed to run chat db migration:', err);
+    }
   }
 
   async mergeDuplicateConversations() {
@@ -89,7 +109,13 @@ export class ChatService implements OnModuleInit {
   async getConversations(userId: string, page = 1, limit = 20) {
     return this.dataSource.query(`
       SELECT c.*, cm.last_read_at, cm.is_muted, cm.is_archived,
-             COUNT(m.id) FILTER (WHERE m.created_at > COALESCE(cm.last_read_at, '1970-01-01') AND m.sender_id != $1 AND m.deleted_at IS NULL) AS unread_count
+             COUNT(m.id) FILTER (WHERE m.created_at > COALESCE(cm.last_read_at, '1970-01-01') AND m.sender_id != $1 AND m.deleted_at IS NULL) AS unread_count,
+             (
+               SELECT json_agg(json_build_object('id', u.id, 'fullName', u.full_name, 'loginId', u.login_id, 'departmentId', u.department_id, 'department_id', u.department_id))
+               FROM conversation_members mem
+               JOIN users u ON u.id = mem.user_id
+               WHERE mem.conversation_id = c.id
+             ) AS members
       FROM conversations c
       JOIN conversation_members cm ON cm.conversation_id = c.id AND cm.user_id = $1 AND cm.left_at IS NULL
       LEFT JOIN messages m ON m.conversation_id = c.id
@@ -101,7 +127,7 @@ export class ChatService implements OnModuleInit {
 
   async getMessages(conversationId: string, userId: string, page = 1, limit = 500) {
     return this.dataSource.query(`
-      SELECT m.id, m.conversation_id, m.sender_id, m.content, m.file_id, m.reply_to_id, m.created_at, m.deleted_at,
+      SELECT m.id, m.conversation_id, m.sender_id, m.content, m.file_id, m.folder_id, m.reply_to_id, m.created_at, m.deleted_at,
              CASE
                WHEN m.type::text = 'image' THEN 'photo'
                WHEN m.type::text = 'audio' THEN 'music'
@@ -109,18 +135,19 @@ export class ChatService implements OnModuleInit {
              END AS type,
              u.full_name AS sender_name, u.avatar_url AS sender_avatar,
              COALESCE(json_agg(DISTINCT mr.*) FILTER (WHERE mr.message_id IS NOT NULL), '[]') AS reactions,
-             COALESCE(f.original_name, f.name) AS file_name, f.mime_type, f.size AS file_size, f.storage_url AS file_url
+             COALESCE(f.original_name, f.name, fold.name) AS file_name, f.mime_type, f.size AS file_size, f.storage_url AS file_url
       FROM messages m
       JOIN users u ON u.id = m.sender_id
       LEFT JOIN message_reactions mr ON mr.message_id = m.id
       LEFT JOIN files f ON f.id = m.file_id
+      LEFT JOIN folders fold ON fold.id = m.folder_id
       WHERE m.conversation_id = $1 AND m.deleted_at IS NULL
-      GROUP BY m.id, m.conversation_id, m.sender_id, m.content, m.file_id, m.reply_to_id, m.created_at, m.deleted_at, 
+      GROUP BY m.id, m.conversation_id, m.sender_id, m.content, m.file_id, m.folder_id, m.reply_to_id, m.created_at, m.deleted_at, 
              CASE
                WHEN m.type::text = 'image' THEN 'photo'
                WHEN m.type::text = 'audio' THEN 'music'
                ELSE m.type::text
-             END, u.full_name, u.avatar_url, f.original_name, f.name, f.mime_type, f.size, f.storage_url
+             END, u.full_name, u.avatar_url, f.original_name, f.name, fold.name, f.mime_type, f.size, f.storage_url
       ORDER BY m.created_at DESC
       LIMIT $2 OFFSET $3
     `, [conversationId, limit, (page - 1) * limit]);
@@ -171,24 +198,24 @@ export class ChatService implements OnModuleInit {
     return conv;
   }
 
-  async sendMessage(dto: { conversationId: string; senderId: string; content: string; type?: string; fileId?: string; replyToId?: string }) {
+  async sendMessage(dto: { conversationId: string; senderId: string; content: string; type?: string; fileId?: string; folderId?: string; replyToId?: string }) {
     let mappedType = dto.type || 'text';
     if (mappedType === 'photo') mappedType = 'image';
     if (mappedType === 'music') mappedType = 'audio';
-    if (mappedType === 'folder') mappedType = 'file';
 
-    const validTypes = ['text', 'image', 'video', 'audio', 'document', 'file', 'voice_note', 'system'];
+    const validTypes = ['text', 'image', 'video', 'audio', 'document', 'file', 'voice_note', 'system', 'folder'];
     if (!validTypes.includes(mappedType)) {
       mappedType = 'file';
     }
 
     const fileId = (dto.fileId && dto.fileId !== '' && dto.fileId !== 'null' && dto.fileId !== 'undefined') ? dto.fileId : null;
+    const folderId = (dto.folderId && dto.folderId !== '' && dto.folderId !== 'null' && dto.folderId !== 'undefined') ? dto.folderId : null;
     const replyToId = (dto.replyToId && dto.replyToId !== '' && dto.replyToId !== 'null' && dto.replyToId !== 'undefined') ? dto.replyToId : null;
 
     const [msg] = await this.dataSource.query(
-      `INSERT INTO messages (conversation_id, sender_id, content, type, file_id, reply_to_id)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [dto.conversationId, dto.senderId, dto.content, mappedType, fileId, replyToId]
+      `INSERT INTO messages (conversation_id, sender_id, content, type, file_id, folder_id, reply_to_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [dto.conversationId, dto.senderId, dto.content, mappedType, fileId, folderId, replyToId]
     );
 
     if (msg.type === 'image') msg.type = 'photo';
