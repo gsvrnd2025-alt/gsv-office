@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   FileText, Plus, Trash2, Search, Download, 
-  Tag, Palette, X, StickyNote, Minimize2, Maximize2 
+  Tag, Palette, X, StickyNote, Minimize2, Maximize2, Move
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { copyTextToClipboard } from '../../utils/clipboard';
+import { useThemeStore } from '../../store/theme.store';
 
 interface Note {
   id: string;
@@ -23,150 +25,56 @@ const NOTE_COLORS = [
   { name: 'Slate', bg: '#334155', text: '#f8fafc', border: '#64748b' }
 ];
 
-const PREDEFINED_TAGS = ['General', 'Work', 'Personal', 'Meeting', 'Reminder', 'Code'];
+interface DraggableNoteCardProps {
+  note: Note;
+  onUpdate: (id: string, updates: Partial<Note>) => void;
+  onClose: () => void;
+  onDelete: (e: React.MouseEvent) => void;
+  onDownload: (format: 'txt' | 'jpg' | 'pdf', note: Note) => void;
+  categories: string[];
+}
 
-export default function FloatingStickyNotes() {
-  const [isOpen, setIsOpen] = useState(false);
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedTagFilter, setSelectedTagFilter] = useState('All');
-  const [isMinimized, setIsMinimized] = useState(false);
-  const [showSaveDropdown, setShowSaveDropdown] = useState(false);
-
-  // Drag and Resize State
-  const [position, setPosition] = useState({ x: window.innerWidth - 680, y: 120 });
-  const [size, setSize] = useState({ width: 620, height: 440 });
+function DraggableNoteCard({ note, onUpdate, onClose, onDelete, onDownload, categories }: DraggableNoteCardProps) {
+  const { theme } = useThemeStore();
+  const [position, setPosition] = useState({
+    x: 150 + Math.random() * 250,
+    y: 100 + Math.random() * 250
+  });
+  const [size, setSize] = useState({ width: 340, height: 380 });
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
+  const [showSaveMenu, setShowSaveMenu] = useState(false);
 
   const dragStartRef = useRef({ x: 0, y: 0 });
   const positionStartRef = useRef({ x: 0, y: 0 });
   const resizeStartRef = useRef({ x: 0, y: 0 });
   const sizeStartRef = useRef({ width: 0, height: 0 });
-  const saveDropdownRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Load notes
-  const loadNotes = () => {
-    const saved = localStorage.getItem('gsv_sticky_notes');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        setNotes(parsed);
-        if (parsed.length > 0 && !activeNoteId) {
-          setActiveNoteId(parsed[0].id);
-        }
-      } catch (e) {}
-    } else {
-      const defaultNote: Note = {
-        id: 'default-1',
-        title: 'Welcome to GSV Notes 📝',
-        content: 'This is a floating sticky note. You can write your thoughts, reminders, or tasks here.\n\n- Create multiple notes\n- Assign custom tags\n- Change background colors\n- Download notes as TXT, JPG, or PDF!',
-        color: '#fef08a',
-        tag: 'General',
-        updatedAt: new Date().toLocaleString()
-      };
-      setNotes([defaultNote]);
-      setActiveNoteId(defaultNote.id);
-      localStorage.setItem('gsv_sticky_notes', JSON.stringify([defaultNote]));
-    }
-  };
-
-  useEffect(() => {
-    loadNotes();
-    
-    // Sync storage updates from EOfficePage or other tabs
-    const handleSync = () => {
-      loadNotes();
-    };
-    window.addEventListener('storage', handleSync);
-    window.addEventListener('gsv-notes-update', handleSync);
-    return () => {
-      window.removeEventListener('storage', handleSync);
-      window.removeEventListener('gsv-notes-update', handleSync);
-    };
-  }, []);
-
-  // Click outside listener for Save Dropdown
+  const colorObj = NOTE_COLORS.find(c => c.bg === note.color) || NOTE_COLORS[0];
+  
+  // Close dropdown on outside click
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
-      if (saveDropdownRef.current && !saveDropdownRef.current.contains(e.target as Node)) {
-        setShowSaveDropdown(false);
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowSaveMenu(false);
       }
     };
-    if (showSaveDropdown) {
+    if (showSaveMenu) {
       document.addEventListener('mousedown', handleOutsideClick);
     }
-    return () => {
-      document.removeEventListener('mousedown', handleOutsideClick);
-    };
-  }, [showSaveDropdown]);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [showSaveMenu]);
 
-  const saveNotes = (updatedNotes: Note[]) => {
-    setNotes(updatedNotes);
-    localStorage.setItem('gsv_sticky_notes', JSON.stringify(updatedNotes));
-    window.dispatchEvent(new Event('gsv-notes-update'));
-  };
-
-  const createNewNote = () => {
-    const newNote: Note = {
-      id: `note-${Date.now()}`,
-      title: 'New Note',
-      content: '',
-      color: '#fef08a',
-      tag: 'General',
-      updatedAt: new Date().toLocaleString()
-    };
-    const updated = [newNote, ...notes];
-    saveNotes(updated);
-    setActiveNoteId(newNote.id);
-    setIsMinimized(false);
-    toast.success('Created new note! 📝');
-  };
-
-  const deleteNote = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const updated = notes.filter(n => n.id !== id);
-    saveNotes(updated);
-    if (activeNoteId === id) {
-      setActiveNoteId(updated.length > 0 ? updated[0].id : null);
-    }
-    toast.success('Note deleted.');
-  };
-
-  const updateNote = (field: keyof Note, value: string) => {
-    if (!activeNoteId) return;
-    const updated = notes.map(n => {
-      if (n.id === activeNoteId) {
-        return {
-          ...n,
-          [field]: value,
-          updatedAt: new Date().toLocaleString()
-        };
-      }
-      return n;
-    });
-    saveNotes(updated);
-  };
-
-  const activeNote = notes.find(n => n.id === activeNoteId);
-  const filteredNotes = notes.filter(n => {
-    const matchesSearch = 
-      n.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      n.content.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesTag = selectedTagFilter === 'All' || n.tag === selectedTagFilter;
-    return matchesSearch && matchesTag;
-  });
-
-  // Drag Handlers
-  const handleDragStart = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('.drag-handle') === null) return;
+  // Drag handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('.card-drag-handle') === null) return;
     setIsDragging(true);
     dragStartRef.current = { x: e.clientX, y: e.clientY };
     positionStartRef.current = { ...position };
   };
 
-  // Resize Handlers
+  // Resize handlers
   const handleResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -188,8 +96,8 @@ export default function FloatingStickyNotes() {
         const dx = e.clientX - resizeStartRef.current.x;
         const dy = e.clientY - resizeStartRef.current.y;
         setSize({
-          width: Math.max(450, Math.min(1000, sizeStartRef.current.width + dx)),
-          height: Math.max(380, Math.min(800, sizeStartRef.current.height + dy))
+          width: Math.max(280, Math.min(800, sizeStartRef.current.width + dx)),
+          height: Math.max(280, Math.min(800, sizeStartRef.current.height + dy))
         });
       }
     };
@@ -209,441 +117,709 @@ export default function FloatingStickyNotes() {
     };
   }, [isDragging, isResizing, size, position]);
 
-  const handleDownload = (format: 'txt' | 'jpg' | 'pdf') => {
-    if (!activeNote) return;
-    const { title, content, tag, color, updatedAt } = activeNote;
-    setShowSaveDropdown(false);
+  return (
+    <div
+      onMouseDown={handleMouseDown}
+      style={{
+        position: 'fixed',
+        left: `${position.x}px`,
+        top: `${position.y}px`,
+        width: `${size.width}px`,
+        height: `${size.height}px`,
+        background: colorObj.bg,
+        border: `2px solid ${colorObj.border}`,
+        borderRadius: '12px',
+        boxShadow: '0 15px 35px rgba(0,0,0,0.3)',
+        zIndex: 10000,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        color: colorObj.text,
+        transition: isDragging || isResizing ? 'none' : 'width 0.15s, height 0.15s'
+      }}
+    >
+      {/* Editor Header */}
+      <div
+        className="card-drag-handle d-flex justify-content-between align-items-center px-3"
+        style={{
+          height: '42px',
+          background: 'rgba(0,0,0,0.06)',
+          cursor: 'move',
+          borderBottom: '1px solid rgba(0,0,0,0.06)',
+          userSelect: 'none'
+        }}
+      >
+        <span style={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.5px' }}>
+          📌 NOTE EDITOR
+        </span>
+        <div className="d-flex align-items-center gap-2" onClick={e => e.stopPropagation()}>
+          <button
+            onClick={onClose}
+            style={{
+              width: '18px', height: '18px', borderRadius: '50%', border: '1px solid rgba(0,0,0,0.2)',
+              background: '#ef4444', color: '#fff', cursor: 'pointer', display: 'flex',
+              alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 'bold'
+            }}
+            title="Minimize to manager"
+          >
+            ×
+          </button>
+        </div>
+      </div>
 
+      {/* Editor inputs */}
+      <div className="p-3 d-flex flex-column gap-2 flex-grow-1" style={{ minHeight: 0 }}>
+        <input
+          type="text"
+          value={note.title}
+          onChange={e => onUpdate(note.id, { title: e.target.value })}
+          placeholder="Note Title..."
+          style={{
+            background: 'transparent',
+            border: 'none',
+            borderBottom: '1.5px solid rgba(0,0,0,0.1)',
+            outline: 'none',
+            fontWeight: 700,
+            fontSize: '15px',
+            color: 'inherit',
+            paddingBottom: '4px'
+          }}
+        />
+
+        <div className="d-flex align-items-center justify-content-between">
+          <div className="d-flex align-items-center gap-1">
+            <Tag size={12} />
+            <select
+              value={note.tag}
+              onChange={e => onUpdate(note.id, { tag: e.target.value })}
+              style={{
+                background: 'rgba(255,255,255,0.4)',
+                border: '1px solid rgba(0,0,0,0.1)',
+                borderRadius: '4px',
+                fontSize: '11px',
+                padding: '2px 4px',
+                color: '#000',
+                fontWeight: 600
+              }}
+            >
+              {categories.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+          <span style={{ fontSize: '9px', opacity: 0.7 }}>{note.updatedAt}</span>
+        </div>
+
+        <textarea
+          value={note.content}
+          onChange={e => onUpdate(note.id, { content: e.target.value })}
+          placeholder="Start writing note..."
+          style={{
+            flex: 1,
+            background: 'transparent',
+            border: 'none',
+            outline: 'none',
+            resize: 'none',
+            fontSize: '13px',
+            lineHeight: 1.5,
+            color: 'inherit'
+          }}
+        />
+      </div>
+
+      {/* Bottom controls */}
+      <div 
+        className="px-3 py-2 d-flex justify-content-between align-items-center"
+        style={{ background: 'rgba(0,0,0,0.03)', borderTop: '1px solid rgba(0,0,0,0.06)' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Colors selector */}
+        <div className="d-flex gap-1">
+          {NOTE_COLORS.map(c => (
+            <div
+              key={c.name}
+              onClick={() => onUpdate(note.id, { color: c.bg })}
+              style={{
+                width: '14px', height: '14px', borderRadius: '50%', background: c.bg,
+                cursor: 'pointer', border: note.color === c.bg ? '2.5px solid #000' : '1px solid rgba(0,0,0,0.25)',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+              }}
+              title={c.name}
+            />
+          ))}
+        </div>
+
+        <div className="d-flex align-items-center gap-2">
+          {/* Save As dropdown */}
+          <div className="position-relative" ref={dropdownRef}>
+            <button
+              onClick={() => setShowSaveMenu(!showSaveMenu)}
+              className="btn btn-xs d-flex align-items-center gap-1"
+              style={{
+                fontSize: '11px',
+                background: 'rgba(0,0,0,0.08)',
+                border: '1px solid rgba(0,0,0,0.15)',
+                color: 'inherit',
+                fontWeight: 600,
+                padding: '3px 8px',
+                borderRadius: '4px'
+              }}
+            >
+              <Download size={11} /> Save As
+            </button>
+            {showSaveMenu && (
+              <div
+                style={{
+                  position: 'absolute', bottom: '28px', right: 0,
+                  background: '#1e293b', border: '1px solid rgba(255,255,255,0.15)',
+                  borderRadius: '6px', width: '120px', display: 'flex', flexDirection: 'column',
+                  fontSize: '11px', overflow: 'hidden', boxShadow: '0 5px 15px rgba(0,0,0,0.3)',
+                  zIndex: 1000
+                }}
+              >
+                <div className="px-3 py-2 cursor-pointer text-white hover-note-item" onClick={() => onDownload('txt', note)} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>📄 TXT</div>
+                <div className="px-3 py-2 cursor-pointer text-white hover-note-item" onClick={() => onDownload('jpg', note)} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>🖼️ JPG</div>
+                <div className="px-3 py-2 cursor-pointer text-white hover-note-item" onClick={() => onDownload('pdf', note)}>🖨️ PDF</div>
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={onDelete}
+            className="btn btn-xs text-danger border-0 p-1"
+            style={{ background: 'transparent' }}
+            title="Delete permanently"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      </div>
+
+      {/* Resize Handle */}
+      <div
+        onMouseDown={handleResizeStart}
+        style={{
+          position: 'absolute', bottom: 0, right: 0, width: '12px', height: '12px',
+          cursor: 'se-resize', background: 'linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.2) 50%)'
+        }}
+      />
+    </div>
+  );
+}
+
+export default function FloatingStickyNotes() {
+  const { theme } = useThemeStore();
+  const [isManagerOpen, setIsManagerOpen] = useState(false);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [openNoteIds, setOpenNoteIds] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTagFilter, setSelectedTagFilter] = useState('All');
+
+  // Categories list State
+  const [categories, setCategories] = useState<string[]>(() => {
+    const saved = localStorage.getItem('gsv_note_categories');
+    return saved ? JSON.parse(saved) : PREDEFINED_TAGS;
+  });
+
+  // FAB Drag Position
+  const [fabPosition, setFabPosition] = useState({
+    x: window.innerWidth - 80,
+    y: window.innerHeight - 80
+  });
+  const [isDraggingFab, setIsDraggingFab] = useState(false);
+  const fabDragStartRef = useRef({ x: 0, y: 0 });
+  const fabPosStartRef = useRef({ x: 0, y: 0 });
+  const dragDistanceRef = useRef(0);
+
+  // Manager Drag Position
+  const [managerPosition, setManagerPosition] = useState({
+    x: window.innerWidth - 380,
+    y: window.innerHeight - 600
+  });
+  const [isDraggingManager, setIsDraggingManager] = useState(false);
+  const managerDragStartRef = useRef({ x: 0, y: 0 });
+  const managerPosStartRef = useRef({ x: 0, y: 0 });
+
+  // Load notes
+  const loadNotes = () => {
+    const saved = localStorage.getItem('gsv_sticky_notes');
+    if (saved) {
+      try {
+        setNotes(JSON.parse(saved));
+      } catch (e) {}
+    } else {
+      const defaultNote: Note = {
+        id: 'default-1',
+        title: 'Welcome to GSV Notes 📝',
+        content: 'This is a floating sticky note. Click existing notes to open them in floating panels.\n\n- Reposition the FAB button\n- Open multiple notes side-by-side\n- Customize category tags',
+        color: '#fef08a',
+        tag: 'General',
+        updatedAt: new Date().toLocaleString()
+      };
+      setNotes([defaultNote]);
+      localStorage.setItem('gsv_sticky_notes', JSON.stringify([defaultNote]));
+    }
+  };
+
+  useEffect(() => {
+    loadNotes();
+    const handleSync = () => loadNotes();
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('gsv-notes-update', handleSync);
+    return () => {
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('gsv-notes-update', handleSync);
+    };
+  }, []);
+
+  const saveNotes = (updatedNotes: Note[]) => {
+    setNotes(updatedNotes);
+    localStorage.setItem('gsv_sticky_notes', JSON.stringify(updatedNotes));
+    window.dispatchEvent(new Event('gsv-notes-update'));
+  };
+
+  // FAB Drag Mouse Events
+  const handleFabMouseDown = (e: React.MouseEvent) => {
+    setIsDraggingFab(true);
+    dragDistanceRef.current = 0;
+    fabDragStartRef.current = { x: e.clientX, y: e.clientY };
+    fabPosStartRef.current = { ...fabPosition };
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDraggingFab) {
+        const dx = e.clientX - fabDragStartRef.current.x;
+        const dy = e.clientY - fabDragStartRef.current.y;
+        dragDistanceRef.current = Math.sqrt(dx * dx + dy * dy);
+        setFabPosition({
+          x: Math.max(10, Math.min(window.innerWidth - 70, fabPosStartRef.current.x + dx)),
+          y: Math.max(10, Math.min(window.innerHeight - 70, fabPosStartRef.current.y + dy))
+        });
+      }
+    };
+    const handleMouseUp = () => {
+      setIsDraggingFab(false);
+    };
+    if (isDraggingFab) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDraggingFab]);
+
+  const handleFabClick = () => {
+    if (dragDistanceRef.current < 5) {
+      setIsManagerOpen(!isManagerOpen);
+    }
+  };
+
+  // Manager Drag Mouse Events
+  const handleManagerMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('.manager-drag-handle') === null) return;
+    setIsDraggingManager(true);
+    managerDragStartRef.current = { x: e.clientX, y: e.clientY };
+    managerPosStartRef.current = { ...managerPosition };
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDraggingManager) {
+        const dx = e.clientX - managerDragStartRef.current.x;
+        const dy = e.clientY - managerDragStartRef.current.y;
+        setManagerPosition({
+          x: Math.max(10, Math.min(window.innerWidth - 360, managerPosStartRef.current.x + dx)),
+          y: Math.max(10, Math.min(window.innerHeight - 500, managerPosStartRef.current.y + dy))
+        });
+      }
+    };
+    const handleMouseUp = () => {
+      setIsDraggingManager(false);
+    };
+    if (isDraggingManager) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDraggingManager]);
+
+  // Create note
+  const createNewNote = () => {
+    const newNote: Note = {
+      id: `note-${Date.now()}`,
+      title: 'New Note',
+      content: '',
+      color: '#fef08a',
+      tag: 'General',
+      updatedAt: new Date().toLocaleString()
+    };
+    const updated = [newNote, ...notes];
+    saveNotes(updated);
+    setOpenNoteIds(prev => [...prev, newNote.id]);
+    toast.success('Spawned new sticky card! 📝');
+  };
+
+  // Delete note
+  const deleteNote = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = notes.filter(n => n.id !== id);
+    saveNotes(updated);
+    setOpenNoteIds(prev => prev.filter(nid => nid !== id));
+    toast.success('Note deleted permanently.');
+  };
+
+  // Update note fields
+  const updateNote = (id: string, updates: Partial<Note>) => {
+    const updated = notes.map(n => {
+      if (n.id === id) {
+        return {
+          ...n,
+          ...updates,
+          updatedAt: new Date().toLocaleString()
+        };
+      }
+      return n;
+    });
+    saveNotes(updated);
+  };
+
+  // Add custom tags
+  const handleAddNewCategory = () => {
+    const tag = prompt('Enter new category tag:');
+    if (tag && tag.trim().length > 0) {
+      const cleanTag = tag.trim();
+      if (categories.includes(cleanTag)) {
+        toast.error('Tag already exists.');
+        return;
+      }
+      const updated = [...categories, cleanTag];
+      setCategories(updated);
+      localStorage.setItem('gsv_note_categories', JSON.stringify(updated));
+      toast.success(`Category "${cleanTag}" added!`);
+    }
+  };
+
+  // Click note in list
+  const toggleNoteEditor = (id: string) => {
+    if (openNoteIds.includes(id)) {
+      setOpenNoteIds(prev => prev.filter(nid => nid !== id));
+    } else {
+      setOpenNoteIds(prev => [...prev, id]);
+    }
+  };
+
+  // Download logic
+  const handleDownload = (format: 'txt' | 'jpg' | 'pdf', note: Note) => {
+    const { title, content, tag, color, updatedAt } = note;
     if (format === 'txt') {
-      const blob = new Blob([`GSV Office Sticky Note\nTitle: ${title}\nTag: ${tag}\nUpdated: ${updatedAt}\n\n${content}`], { type: 'text/plain;charset=utf-8' });
+      const blob = new Blob([`GSV Notes\nTitle: ${title}\nTag: ${tag}\nUpdated: ${updatedAt}\n\n${content}`], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
       link.download = `${title.replace(/\s+/g, '_')}.txt`;
-      document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
       URL.revokeObjectURL(url);
-      toast.success('Downloaded TXT File!');
     } else if (format === 'jpg') {
       const canvas = document.createElement('canvas');
       canvas.width = 600;
-      canvas.height = 450;
+      canvas.height = 400;
       const ctx = canvas.getContext('2d');
       if (ctx) {
         const colorObj = NOTE_COLORS.find(c => c.bg === color) || NOTE_COLORS[0];
         ctx.fillStyle = colorObj.bg;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
         ctx.fillStyle = colorObj.text;
-        ctx.font = 'bold 18px sans-serif';
-        ctx.fillText(`GSV Notes - [${tag}]`, 30, 45);
-        ctx.font = '12px monospace';
+        ctx.font = 'bold 16px sans-serif';
+        ctx.fillText(`GSV Sticky Notes - ${tag}`, 30, 45);
+        ctx.font = '11px monospace';
         ctx.fillText(`Updated: ${updatedAt}`, 30, 70);
-
-        ctx.strokeStyle = colorObj.border;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(30, 85);
-        ctx.lineTo(570, 85);
-        ctx.stroke();
-
-        ctx.font = 'bold 22px sans-serif';
-        ctx.fillText(title, 30, 125);
-
-        ctx.font = '16px sans-serif';
+        ctx.font = 'bold 20px sans-serif';
+        ctx.fillText(title, 30, 115);
+        ctx.font = '14px sans-serif';
         ctx.fillStyle = color === '#334155' ? '#f8fafc' : '#334155';
         const lines = content.split('\n');
-        let y = 165;
+        let y = 150;
         for (const line of lines) {
           ctx.fillText(line, 30, y);
           y += 24;
           if (y > canvas.height - 30) break;
         }
-
-        const imgUrl = canvas.toDataURL('image/jpeg');
         const link = document.createElement('a');
-        link.href = imgUrl;
+        link.href = canvas.toDataURL('image/jpeg');
         link.download = `${title.replace(/\s+/g, '_')}.jpg`;
-        document.body.appendChild(link);
         link.click();
-        document.body.removeChild(link);
-        toast.success('Downloaded JPG Image!');
       }
-    } else if (format === 'pdf') {
+    } else {
       const printWindow = window.open('', '_blank');
       if (printWindow) {
         printWindow.document.write(`
           <html>
-            <head>
-              <title>${title}</title>
-              <style>
-                body { font-family: sans-serif; padding: 40px; }
-                .card { border: 2px solid ${color}; padding: 30px; border-radius: 8px; background: #fff; }
-                .header { border-bottom: 2px solid ${color}; padding-bottom: 10px; margin-bottom: 20px; }
-                h1 { margin: 0; color: #1e293b; }
-                pre { white-space: pre-wrap; font-size: 16px; }
-              </style>
-            </head>
-            <body>
-              <div class="card">
-                <div class="header">
-                  <span>Tag: <strong>${tag}</strong></span>
-                  <h1>${title}</h1>
-                  <span style="font-size:11px;color:#64748b">Saved: ${updatedAt}</span>
-                </div>
-                <pre>${content}</pre>
+            <head><title>${title}</title></head>
+            <body style="font-family:sans-serif;padding:30px;background:${color};">
+              <div style="border-bottom:1.5px solid #000;padding-bottom:10px;margin-bottom:20px;">
+                <span>Tag: <strong>${tag}</strong></span>
+                <h2>${title}</h2>
+                <span style="font-size:11px;opacity:0.8;">Saved: ${updatedAt}</span>
               </div>
-              <script>
-                window.onload = function() {
-                  window.print();
-                  setTimeout(function() { window.close(); }, 500);
-                }
-              </script>
+              <pre style="white-space:pre-wrap;font-size:15px;line-height:1.5;">${content}</pre>
+              <script>window.onload = function(){ window.print(); setTimeout(window.close, 500); }</script>
             </body>
           </html>
         `);
         printWindow.document.close();
       }
     }
+    toast.success(`Downloaded ${format.toUpperCase()}`);
   };
 
-  return (
-    <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 9999 }}>
-      
-      {/* Floating Action Button (Colorful Neon Glow Icon) */}
-      {!isOpen && (
-        <button 
-          onClick={() => setIsOpen(true)}
-          className="d-flex align-items-center justify-content-center border-0 rounded-circle text-white cursor-pointer gsv-glow-btn"
-          style={{ 
-            width: '60px', 
-            height: '60px', 
-            background: 'linear-gradient(135deg, #ff007f 0%, #ff7b00 50%, #facc15 100%)',
-            boxShadow: '0 0 20px rgba(255, 0, 127, 0.6), 0 4px 10px rgba(0, 0, 0, 0.3)',
-            transition: 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-            transform: 'scale(1)',
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.15) rotate(5deg)'}
-          onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1) rotate(0deg)'}
-          title="Floating Sticky Notes"
-        >
-          <StickyNote size={28} style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }} />
-        </button>
-      )}
+  const filteredNotes = notes.filter(n => {
+    const matchesSearch = 
+      n.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      n.content.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesTag = selectedTagFilter === 'All' || n.tag === selectedTagFilter;
+    return matchesSearch && matchesTag;
+  });
 
-      {/* Expandable sticky notes container */}
-      {isOpen && (
-        <div 
-          onMouseDown={handleDragStart}
+  return (
+    <div style={{ position: 'relative', zIndex: 9999 }}>
+      
+      {/* Draggable FAB Glowing Trigger Button */}
+      <button 
+        onMouseDown={handleFabMouseDown}
+        onClick={handleFabClick}
+        className="d-flex align-items-center justify-content-center border-0 rounded-circle text-white gsv-glow-fab"
+        style={{ 
+          position: 'fixed',
+          left: `${fabPosition.x}px`,
+          top: `${fabPosition.y}px`,
+          width: '60px', 
+          height: '60px', 
+          background: 'linear-gradient(135deg, #fb7185 0%, #f59e0b 50%, #eab308 100%)',
+          boxShadow: '0 0 25px rgba(245, 158, 11, 0.5), 0 5px 15px rgba(0,0,0,0.3)',
+          cursor: isDraggingFab ? 'grabbing' : 'grab',
+          userSelect: 'none',
+          touchAction: 'none'
+        }}
+        title="GSV Sticky Notes (Drag to move)"
+      >
+        <StickyNote size={28} style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.25))' }} />
+      </button>
+
+      {/* Main Notes Manager Panel */}
+      {isManagerOpen && (
+        <div
+          onMouseDown={handleManagerMouseDown}
           className="d-flex flex-column"
-          style={{ 
+          style={{
             position: 'fixed',
-            left: `${position.x}px`,
-            top: `${position.y}px`,
-            width: isMinimized ? '300px' : `${size.width}px`, 
-            height: isMinimized ? '52px' : `${size.height}px`,
-            background: 'rgba(15, 23, 42, 0.98)',
-            backdropFilter: 'blur(25px)',
-            border: '1.5px solid rgba(255,255,255,0.2)',
+            left: `${managerPosition.x}px`,
+            top: `${managerPosition.y}px`,
+            width: '350px',
+            height: '490px',
+            background: 'var(--bg-card)',
+            border: '2px solid var(--border-color)',
             borderRadius: '14px',
-            boxShadow: '0 25px 60px rgba(0,0,0,0.75)',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.4)',
+            color: 'var(--text-primary)',
             overflow: 'hidden',
-            transition: isDragging || isResizing ? 'none' : 'width 0.2s, height 0.2s'
+            transition: isDraggingManager ? 'none' : 'transform 0.15s'
           }}
         >
-          {/* Header Bar (Mac style high contrast controls) */}
-          <div 
-            className="drag-handle d-flex justify-content-between align-items-center px-3 border-bottom"
-            style={{ 
-              height: '52px', 
-              borderColor: 'rgba(255,255,255,0.15)', 
-              background: 'rgba(8, 12, 22, 0.6)',
+          {/* Header Bar */}
+          <div
+            className="manager-drag-handle d-flex justify-content-between align-items-center px-3 border-bottom"
+            style={{
+              height: '50px',
+              borderColor: 'var(--border-color)',
+              background: 'var(--bg-secondary)',
               cursor: 'move',
               userSelect: 'none'
             }}
           >
-            <div className="d-flex align-items-center gap-2 text-white drag-handle">
-              <FileText size={20} className="text-warning" />
-              <strong style={{ fontSize: '14px', letterSpacing: '0.5px', color: '#f8fafc', textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}>GSV Workspace Notes</strong>
+            <div className="d-flex align-items-center gap-2 manager-drag-handle">
+              <FileText size={18} className="text-warning" />
+              <strong style={{ fontSize: '13px', letterSpacing: '0.5px' }}>GSV Workspace Notes</strong>
             </div>
 
             <div className="d-flex align-items-center gap-2" onClick={e => e.stopPropagation()}>
-              {/* High Contrast Colorful Buttons */}
-              <button 
-                onClick={() => setIsMinimized(!isMinimized)}
-                style={{ 
-                  width: '16px', height: '16px', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.4)', 
-                  background: '#eab308', cursor: 'pointer', display: 'flex', alignItems: 'center', 
-                  justifyContent: 'center', padding: 0, color: '#000', fontSize: '9px', fontWeight: 'bold'
+              <button
+                onClick={() => setIsManagerOpen(false)}
+                style={{
+                  width: '18px', height: '18px', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.2)',
+                  background: '#ef4444', color: '#fff', cursor: 'pointer', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 'bold'
                 }}
-                title={isMinimized ? "Maximize" : "Minimize"}
-              >
-                –
-              </button>
-              <button 
-                onClick={() => setIsOpen(false)}
-                style={{ 
-                  width: '16px', height: '16px', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.4)', 
-                  background: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', 
-                  justifyContent: 'center', padding: 0, color: '#fff', fontSize: '9px', fontWeight: 'bold'
-                }}
-                title="Close and Dock to Button"
+                title="Minimize Notes"
               >
                 ×
               </button>
             </div>
           </div>
 
-          {/* Body Content */}
-          {!isMinimized && (
-            <div className="d-flex flex-grow-1" style={{ overflow: 'hidden', position: 'relative' }}>
-              
-              {/* Left Column: Sidebar / Notes List */}
-              <div 
-                className="d-flex flex-column"
-                style={{ 
-                  width: '210px', 
-                  borderRight: '1.5px solid rgba(255,255,255,0.12)',
-                  background: 'rgba(8, 12, 22, 0.4)',
-                  flexShrink: 0
+          {/* Search bar */}
+          <div className="p-3 border-bottom" style={{ borderColor: 'var(--border-color)', background: 'var(--bg-secondary)' }}>
+            <div className="position-relative">
+              <Search size={14} className="position-absolute text-muted" style={{ left: '10px', top: '10px' }} />
+              <input
+                type="text"
+                placeholder="Search notes..."
+                className="form-control text-primary"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                style={{
+                  paddingLeft: '32px',
+                  fontSize: '12px',
+                  background: 'var(--bg-primary)',
+                  borderColor: 'var(--border-color)',
+                  color: 'var(--text-primary)'
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Tag scrollbar menu */}
+          <div className="px-3 py-2 d-flex gap-2 align-items-center border-bottom overflow-x-auto" style={{ borderColor: 'var(--border-color)', scrollbarWidth: 'none' }}>
+            <span
+              onClick={() => setSelectedTagFilter('All')}
+              className="badge cursor-pointer"
+              style={{
+                fontSize: '11px',
+                padding: '6px 10px',
+                borderRadius: '6px',
+                background: selectedTagFilter === 'All' ? 'var(--brand-primary)' : 'var(--bg-secondary)',
+                color: selectedTagFilter === 'All' ? '#fff' : 'var(--text-secondary)'
+              }}
+            >
+              All
+            </span>
+            {categories.map(tg => (
+              <span
+                key={tg}
+                onClick={() => setSelectedTagFilter(tg)}
+                className="badge cursor-pointer"
+                style={{
+                  fontSize: '11px',
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  background: selectedTagFilter === tg ? 'var(--brand-primary)' : 'var(--bg-secondary)',
+                  color: selectedTagFilter === tg ? '#fff' : 'var(--text-secondary)'
                 }}
               >
-                {/* Search */}
-                <div className="p-2 border-bottom" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
-                  <div className="position-relative">
-                    <Search size={14} className="position-absolute text-muted" style={{ left: '8px', top: '9px' }} />
-                    <input 
-                      type="text"
-                      placeholder="Search notes..."
-                      className="form-control form-control-sm text-white"
-                      value={searchQuery}
-                      onChange={e => setSearchQuery(e.target.value)}
-                      style={{ 
-                        paddingLeft: '28px', 
-                        fontSize: '12px',
-                        background: 'rgba(0,0,0,0.5)',
-                        border: '1px solid rgba(255,255,255,0.15)',
-                        borderRadius: '6px'
-                      }}
-                    />
-                  </div>
-                </div>
+                {tg}
+              </span>
+            ))}
+            <button 
+              className="btn btn-ghost p-1 d-flex align-items-center justify-content-center text-primary"
+              style={{ background: 'var(--bg-secondary)', border: 'none', borderRadius: '50%', width: '22px', height: '22px' }}
+              onClick={handleAddNewCategory}
+              title="Add Custom Category Tag"
+            >
+              +
+            </button>
+          </div>
 
-                {/* Filter tags (Slightly larger, scrollable, nice padding) */}
-                <div className="px-2 py-2 d-flex gap-2 overflow-x-auto border-bottom align-items-center" style={{ borderColor: 'rgba(255,255,255,0.1)', fontSize: '13px', scrollbarWidth: 'none' }}>
-                  <span 
-                    onClick={() => setSelectedTagFilter('All')}
-                    style={{ 
-                      padding: '4px 10px', borderRadius: '6px', cursor: 'pointer',
-                      background: selectedTagFilter === 'All' ? 'var(--brand-primary)' : 'rgba(255,255,255,0.08)',
-                      color: '#fff', whiteSpace: 'nowrap', fontWeight: 600
+          {/* Notes History list */}
+          <div className="flex-grow-1 p-3 d-flex flex-column gap-2" style={{ overflowY: 'auto' }}>
+            {filteredNotes.length === 0 ? (
+              <div className="text-center text-muted" style={{ fontSize: '12px', marginTop: '30px' }}>No notes found</div>
+            ) : (
+              filteredNotes.map(n => {
+                const colorObj = NOTE_COLORS.find(c => c.bg === n.color) || NOTE_COLORS[0];
+                const isOpenCard = openNoteIds.includes(n.id);
+                return (
+                  <div
+                    key={n.id}
+                    onClick={() => toggleNoteEditor(n.id)}
+                    className="p-3 border rounded cursor-pointer d-flex justify-content-between align-items-center transition-all hover-manager-card"
+                    style={{
+                      background: 'var(--bg-secondary)',
+                      borderColor: isOpenCard ? 'var(--brand-primary)' : 'var(--border-color)',
+                      borderLeft: `5px solid ${colorObj.bg}`
                     }}
                   >
-                    All
-                  </span>
-                  {PREDEFINED_TAGS.map(tg => (
-                    <span 
-                      key={tg}
-                      onClick={() => setSelectedTagFilter(tg)}
-                      style={{ 
-                        padding: '4px 10px', borderRadius: '6px', cursor: 'pointer',
-                        background: selectedTagFilter === tg ? 'var(--brand-primary)' : 'rgba(255,255,255,0.08)',
-                        color: '#fff', whiteSpace: 'nowrap', fontWeight: 600
-                      }}
-                    >
-                      {tg}
-                    </span>
-                  ))}
-                </div>
-
-                {/* Notes List */}
-                <div className="flex-grow-1 p-2 d-flex flex-column gap-2" style={{ overflowY: 'auto' }}>
-                  {filteredNotes.length === 0 ? (
-                    <div className="text-center text-muted" style={{ fontSize: '12px', marginTop: '20px' }}>No notes</div>
-                  ) : (
-                    filteredNotes.map(n => {
-                      const colorObj = NOTE_COLORS.find(c => c.bg === n.color) || NOTE_COLORS[0];
-                      return (
-                        <div 
-                          key={n.id}
-                          onClick={() => setActiveNoteId(n.id)}
-                          className="p-2 border rounded cursor-pointer position-relative d-flex flex-column gap-1"
-                          style={{ 
-                            background: activeNoteId === n.id ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.03)',
-                            borderColor: activeNoteId === n.id ? 'var(--brand-primary)' : 'rgba(255,255,255,0.08)'
-                          }}
-                        >
-                          <div className="d-flex justify-content-between align-items-center">
-                            <span className="badge" style={{ background: colorObj.bg, color: colorObj.text, fontSize: '10px', border: `1px solid ${colorObj.border}` }}>
-                              {n.tag}
-                            </span>
-                            <button 
-                              className="btn btn-ghost btn-icon btn-sm text-danger p-0 border-0 m-0 d-flex align-items-center justify-content-center"
-                              style={{ width: '18px', height: '18px' }}
-                              onClick={(e) => deleteNote(n.id, e)}
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
-                          <strong style={{ fontSize: '12px', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {n.title || 'Untitled Note'}
-                          </strong>
-                          <span style={{ fontSize: '10px', color: '#94a3b8' }}>{n.updatedAt}</span>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-
-                {/* New button */}
-                <div className="p-2 border-top" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
-                  <button onClick={createNewNote} className="btn btn-primary btn-sm w-100 d-flex align-items-center justify-content-center gap-1" style={{ fontSize: '12px', padding: '6px' }}>
-                    <Plus size={14} /> New Note
-                  </button>
-                </div>
-              </div>
-
-              {/* Right Column: Editor */}
-              <div className="flex-grow-1 d-flex flex-column" style={{ minWidth: 0 }}>
-                {activeNote ? (
-                  <div className="d-flex flex-column flex-grow-1 p-3 gap-2" style={{ overflow: 'hidden' }}>
-                    
-                    {/* Toolbar header options (All high contrast white icons & selectors) */}
-                    <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 pb-2 border-bottom" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
-                      <input 
-                        type="text"
-                        className="form-control bg-transparent border-0 text-white p-0"
-                        style={{ fontSize: '16px', fontWeight: 700, boxShadow: 'none', width: '180px' }}
-                        value={activeNote.title}
-                        onChange={e => updateNote('title', e.target.value)}
-                        placeholder="Title..."
-                      />
-                      
-                      <div className="d-flex align-items-center gap-2">
-                        {/* Tag */}
-                        <div className="d-flex align-items-center gap-1">
-                           <Tag size={13} className="text-warning" />
-                          <select 
-                            value={activeNote.tag}
-                            onChange={e => updateNote('tag', e.target.value)}
-                            className="bg-dark text-white border-0"
-                            style={{ fontSize: '12px', padding: '3px 6px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.2)' }}
-                          >
-                            {PREDEFINED_TAGS.map(tg => (
-                              <option key={tg} value={tg}>{tg}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Colors horizontal strip */}
-                        <div className="d-flex align-items-center gap-1 px-2 py-1 rounded" style={{ background: 'rgba(0,0,0,0.4)' }}>
-                          {NOTE_COLORS.map(c => (
-                            <div 
-                              key={c.name}
-                              onClick={() => updateNote('color', c.bg)}
-                              style={{ 
-                                width: '16px', height: '16px', background: c.bg, borderRadius: '50%',
-                                cursor: 'pointer', border: activeNote.color === c.bg ? '2px solid #fff' : '1px solid rgba(255,255,255,0.4)',
-                                transition: 'transform 0.15s'
-                              }}
-                              onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.25)'}
-                              onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                              title={c.name}
-                            />
-                          ))}
-                        </div>
-
-                        {/* Save Actions dropdown */}
-                        <div className="position-relative" ref={saveDropdownRef}>
-                          <button 
-                            className="btn btn-outline-light btn-sm d-flex align-items-center gap-1" 
-                            style={{ fontSize: '12px', padding: '4px 10px' }}
-                            onClick={() => setShowSaveDropdown(!showSaveDropdown)}
-                          >
-                            <Download size={13} /> Save As
-                          </button>
-                          
-                          {showSaveDropdown && (
-                            <div className="dropdown-menu-list show" style={{
-                              position: 'absolute', bottom: '32px', right: 0, background: '#1e293b', border: '1.5px solid rgba(255,255,255,0.2)',
-                              borderRadius: '8px', width: '130px', zIndex: 999, fontSize: '12px', overflow: 'hidden', display: 'flex', flexDirection: 'column',
-                              boxShadow: '0 10px 20px rgba(0,0,0,0.5)'
-                            }}>
-                              <div className="px-3 py-2 cursor-pointer text-white hover-bg" onClick={() => handleDownload('txt')} style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', fontWeight: 600 }}>📄 Text File (.txt)</div>
-                              <div className="px-3 py-2 cursor-pointer text-white hover-bg" onClick={() => handleDownload('jpg')} style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', fontWeight: 600 }}>🖼️ Image File (.jpg)</div>
-                              <div className="px-3 py-2 cursor-pointer text-white hover-bg" onClick={() => handleDownload('pdf')} style={{ fontWeight: 600 }}>🖨️ PDF Document</div>
-                            </div>
-                          )}
-                        </div>
+                    <div style={{ minWidth: 0, flex: 1, paddingRight: '8px' }}>
+                      <div className="d-flex align-items-center gap-2 mb-1">
+                        <strong style={{ fontSize: '13px', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
+                          {n.title || 'Untitled'}
+                        </strong>
+                        <span className="badge" style={{ background: colorObj.bg, color: colorObj.text, fontSize: '9px', fontWeight: 700, padding: '2px 4px' }}>
+                          {n.tag}
+                        </span>
                       </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {n.content || '(Empty content)'}
+                      </div>
+                      <span style={{ fontSize: '9px', color: 'var(--text-tertiary)' }}>{n.updatedAt}</span>
                     </div>
 
-                    {/* Textarea - flex fill inside container, no overflows */}
-                    <div 
-                      className="flex-grow-1 p-3 rounded"
-                      style={{ 
-                        background: activeNote.color, 
-                        color: activeNote.color === '#334155' ? '#f8fafc' : '#1e293b',
-                        border: '1.5px solid rgba(0,0,0,0.12)',
-                        display: 'flex',
-                        boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.06)'
-                      }}
-                    >
-                      <textarea 
-                        className="w-100 h-100 bg-transparent border-0"
-                        style={{ 
-                          resize: 'none', outline: 'none', fontSize: '14px', lineHeight: 1.5,
-                          color: 'inherit', fontFamily: 'inherit'
-                        }}
-                        value={activeNote.content}
-                        onChange={e => updateNote('content', e.target.value)}
-                        placeholder="Write note here..."
-                      />
+                    <div className="d-flex align-items-center gap-2" onClick={e => e.stopPropagation()}>
+                      <button
+                        className="btn btn-ghost p-1 text-danger border-0"
+                        onClick={(e) => deleteNote(n.id, e)}
+                        title="Delete note"
+                      >
+                        <Trash2 size={13} />
+                      </button>
                     </div>
                   </div>
-                ) : (
-                  <div className="m-auto text-center text-muted" style={{ fontSize: '13px' }}>
-                    <StickyNote size={40} className="mx-auto mb-2 opacity-30 text-warning" />
-                    Select or create a sticky note.
-                  </div>
-                )}
-              </div>
+                );
+              })
+            )}
+          </div>
 
-            </div>
-          )}
-
-          {/* Bottom Right Resize Handle (Lucide/styled icon) */}
-          {!isMinimized && (
-            <div 
-              onMouseDown={handleResizeStart}
-              style={{
-                position: 'absolute', bottom: 0, right: 0, width: '16px', height: '16px',
-                cursor: 'se-resize', background: 'linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.4) 50%)',
-                borderBottomRightRadius: '14px', zIndex: 100
-              }}
-            />
-          )}
+          {/* Footer "New Note" Button */}
+          <div className="p-3 border-top" style={{ borderColor: 'var(--border-color)', background: 'var(--bg-secondary)' }}>
+            <button
+              onClick={createNewNote}
+              className="btn btn-primary w-100 d-flex align-items-center justify-content-center gap-2"
+              style={{ fontSize: '13px', fontWeight: 600, padding: '8px' }}
+            >
+              <Plus size={16} /> New Sticky Card
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Styled css properties */}
+      {/* Render Independent Draggable Note Cards */}
+      {openNoteIds.map(noteId => {
+        const note = notes.find(n => n.id === noteId);
+        if (!note) return null;
+        return (
+          <DraggableNoteCard
+            key={note.id}
+            note={note}
+            categories={categories}
+            onUpdate={updateNote}
+            onClose={() => toggleNoteEditor(note.id)}
+            onDelete={(e) => deleteNote(note.id, e)}
+            onDownload={handleDownload}
+          />
+        );
+      })}
+
       <style>{`
-        .gsv-glow-btn:hover {
-          box-shadow: 0 0 30px rgba(255, 0, 127, 0.8), 0 6px 15px rgba(0, 0, 0, 0.4) !important;
+        .gsv-glow-fab:hover {
+          transform: scale(1.1) !important;
+          box-shadow: 0 0 35px rgba(245, 158, 11, 0.85), 0 8px 20px rgba(0,0,0,0.4) !important;
         }
-        .hover-bg:hover {
-          background: rgba(255, 255, 255, 0.12) !important;
+        .hover-note-item:hover {
+          background: rgba(255,255,255,0.12) !important;
           color: #facc15 !important;
         }
-        .dropdown-menu-list {
-          display: none;
-        }
-        .dropdown-menu-list.show {
-          display: flex;
+        .hover-manager-card:hover {
+          background: var(--bg-hover) !important;
+          transform: translateY(-1px);
         }
       `}</style>
 
     </div>
   );
 }
+
+const PREDEFINED_TAGS = ['General', 'Work', 'Personal', 'Meeting', 'Reminder', 'Code'];
