@@ -69,26 +69,49 @@ export function Topbar({ onMenuClick }: TopbarProps) {
 
   const normalizedQuery = searchQuery.toLowerCase().trim();
 
+  // Extract a clean query by removing generic action/type words
+  const cleanQuery = normalizedQuery
+    .replace(/\b(chat|room|dm|message|msg|contact|teammate|user|people|page|screen|view|go|to|open|show|app|link)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
   // Get matching pages
-  const matchingPages = normalizedQuery === '' ? [] : systemPages.filter(p => 
-    p.title.toLowerCase().includes(normalizedQuery) || 
-    p.keywords.some(k => k.includes(normalizedQuery))
-  );
+  const matchingPages = normalizedQuery === '' ? [] : systemPages.filter(p => {
+    const title = p.title.toLowerCase();
+    const matchesFull = title.includes(normalizedQuery) || p.keywords.some(k => k.includes(normalizedQuery));
+    const matchesClean = cleanQuery !== '' && (title.includes(cleanQuery) || p.keywords.some(k => k.includes(cleanQuery)));
+    return matchesFull || matchesClean;
+  });
 
   // Get matching chats
   const conversations = conversationsData || [];
-  const matchingChats = normalizedQuery === '' ? [] : conversations.filter((c: any) => 
-    c.name?.toLowerCase().includes(normalizedQuery)
-  );
+  const matchingChats = normalizedQuery === '' ? [] : conversations.filter((c: any) => {
+    const nameLower = (c.name || '').toLowerCase();
+    const descLower = (c.description || '').toLowerCase();
+    const matchesFull = nameLower.includes(normalizedQuery) || descLower.includes(normalizedQuery);
+    const matchesClean = cleanQuery !== '' && (nameLower.includes(cleanQuery) || descLower.includes(cleanQuery));
+    return matchesFull || matchesClean;
+  });
 
   // Get matching users
   const users = usersData?.data ? usersData.data : (Array.isArray(usersData) ? usersData : []);
   const otherUsers = users.filter((u: any) => u.id !== user?.id);
-  const matchingUsers = normalizedQuery === '' ? [] : otherUsers.filter((u: any) => 
-    u.fullName?.toLowerCase().includes(normalizedQuery) ||
-    u.loginId?.toLowerCase().includes(normalizedQuery) ||
-    u.department?.name?.toLowerCase().includes(normalizedQuery)
-  );
+  const matchingUsers = normalizedQuery === '' ? [] : otherUsers.filter((u: any) => {
+    const fullNameLower = (u.fullName || '').toLowerCase();
+    const loginIdLower = (u.loginId || '').toLowerCase();
+    const deptLower = (u.department?.name || '').toLowerCase();
+    
+    const matchesFull = fullNameLower.includes(normalizedQuery) ||
+                        loginIdLower.includes(normalizedQuery) ||
+                        deptLower.includes(normalizedQuery);
+                        
+    const matchesClean = cleanQuery !== '' && 
+                         (fullNameLower.includes(cleanQuery) ||
+                          loginIdLower.includes(cleanQuery) ||
+                          deptLower.includes(cleanQuery));
+                          
+    return matchesFull || matchesClean;
+  });
 
   // Combine suggestions
   const suggestions = [
