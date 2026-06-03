@@ -180,10 +180,10 @@ export class AuthService {
   }
 
   async getForgotPasswordRequests(): Promise<User[]> {
-    return this.usersRepo.createQueryBuilder('user')
-      .leftJoinAndSelect('user.role', 'role')
-      .leftJoinAndSelect('user.department', 'department')
-      .where("user.metadata->>'passwordResetStatus' = :status", { status: 'pending' })
+    return this.usersRepo.createQueryBuilder('u')
+      .leftJoinAndSelect('u.role', 'role')
+      .leftJoinAndSelect('u.department', 'department')
+      .where("u.metadata->>'passwordResetStatus' = :status", { status: 'pending' })
       .getMany();
   }
 
