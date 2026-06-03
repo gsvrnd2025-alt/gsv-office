@@ -1517,9 +1517,9 @@ export default function ChatPage() {
                         borderLeft: conv.id === conversationId ? '4px solid #6366f1' : '4px solid transparent'
                       }}
                     >
-                      <div className={`${styles.convAvatar} ${conv.type === 'group' || conv.type === 'department' ? styles.groupAvatar : ''}`} style={{ background: 'var(--gradient-brand)' }}>
-                        {conv.type === 'group' || conv.type === 'department' ? (
-                          <Hash size={16} />
+                      <div className={`${styles.convAvatar} ${conv.type === 'group' || conv.type === 'department' || conv.type === 'broadcast' ? styles.groupAvatar : ''}`} style={{ background: 'var(--gradient-brand)' }}>
+                        {conv.type === 'group' || conv.type === 'department' || conv.type === 'broadcast' ? (
+                          conv.type === 'broadcast' ? <Users2 size={16} /> : <Hash size={16} />
                         ) : (
                           (() => {
                             const other = conv.members?.find((m: any) => m.id !== user?.id);

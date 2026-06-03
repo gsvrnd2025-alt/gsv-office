@@ -18,6 +18,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
   const { theme, toggleTheme } = useThemeStore();
   const qc = useQueryClient();
   const [showNotifications, setShowNotifications] = useState(false);
+  const [activeNotifTab, setActiveNotifTab] = useState<'chats' | 'system'>('chats');
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const navigate = useNavigate();
@@ -260,76 +261,170 @@ export function Topbar({ onMenuClick }: TopbarProps) {
 
           {/* Notifications */}
           <div style={{ position: 'relative' }}>
-            <button
-              className={styles.iconBtn}
-              onClick={() => setShowNotifications(!showNotifications)}
-              title="Notifications"
-              style={{ position: 'relative', border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px', color: 'var(--text-secondary)' }}
-            >
-              <Bell size={18} />
-              {notifCount > 0 && (
-                <span style={{
-                  position: 'absolute', top: '2px', right: '2px',
-                  background: 'var(--brand-danger)', color: 'white',
-                  fontSize: '9px', fontWeight: 700, padding: '2px 4px',
-                  borderRadius: '8px', lineHeight: 1, minWidth: '14px', textAlign: 'center'
-                }}>
-                  {notifCount}
-                </span>
-              )}
-            </button>
+            {(() => {
+              const unreadChats = conversations.filter((c: any) => (Number(c.unread_count) || 0) > 0);
+              const unreadChatSum = unreadChats.reduce((acc: number, c: any) => acc + (Number(c.unread_count) || 0), 0);
+              const totalCombinedNotifCount = notifCount + unreadChatSum;
 
-            {showNotifications && (
-              <div className="animate-scale-in" style={{
-                position: 'absolute', top: 'calc(100% + 8px)', right: 0,
-                width: '280px', background: 'rgba(26, 21, 44, 0.95)',
-                border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px',
-                boxShadow: '0 10px 30px rgba(0,0,0,0.5)', zIndex: 1000,
-                padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px',
-                backdropFilter: 'blur(20px)'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '6px' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--brand-primary)', textTransform: 'uppercase' }}>🔔 Notifications</span>
-                  {notifCount > 0 && (
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      style={{ padding: '2px 6px', fontSize: '9px', height: 'auto' }}
-                      onClick={() => markAllReadMutation.mutate()}
-                    >
-                      Mark all read
-                    </button>
-                  )}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '200px', overflowY: 'auto' }}>
-                  {notifications.length === 0 ? (
-                    <div style={{ padding: '16px', color: 'var(--text-tertiary)', fontSize: '11px', textAlign: 'center' }}>
-                      No notifications
-                    </div>
-                  ) : (
-                    notifications.map((n: any) => (
-                      <div
-                        key={n.id}
-                        onClick={() => !n.isRead && markReadMutation.mutate(n.id)}
-                        style={{
-                          padding: '8px', background: n.isRead ? 'transparent' : 'rgba(99, 102, 241, 0.05)',
-                          border: `1px solid ${n.isRead ? 'transparent' : 'rgba(99, 102, 241, 0.1)'}`,
-                          borderRadius: '8px', cursor: 'pointer', transition: 'all 0.15s',
-                          display: 'flex', flexDirection: 'column', gap: '2px'
-                        }}
-                        className="hover-glass"
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                          <span style={{ fontSize: '11px', fontWeight: 700, color: '#fff' }}>{n.title}</span>
-                          {!n.isRead && <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--brand-danger)' }} />}
-                        </div>
-                        <p style={{ fontSize: '10px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>{n.message}</p>
+              return (
+                <>
+                  <button
+                    className={styles.iconBtn}
+                    onClick={() => setShowNotifications(!showNotifications)}
+                    title="Notifications"
+                    style={{ position: 'relative', border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px', color: 'var(--text-secondary)' }}
+                  >
+                    <Bell size={18} />
+                    {totalCombinedNotifCount > 0 && (
+                      <span style={{
+                        position: 'absolute', top: '2px', right: '2px',
+                        background: 'var(--brand-danger)', color: 'white',
+                        fontSize: '9px', fontWeight: 700, padding: '2px 4px',
+                        borderRadius: '8px', lineHeight: 1, minWidth: '14px', textAlign: 'center'
+                      }}>
+                        {totalCombinedNotifCount}
+                      </span>
+                    )}
+                  </button>
+
+                  {showNotifications && (
+                    <div className="animate-scale-in" style={{
+                      position: 'absolute', top: 'calc(100% + 8px)', right: 0,
+                      width: '320px', background: 'rgba(26, 21, 44, 0.96)',
+                      border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px',
+                      boxShadow: '0 12px 40px rgba(0,0,0,0.6)', zIndex: 1000,
+                      padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px',
+                      backdropFilter: 'blur(20px)'
+                    }}>
+                      {/* Tab toggles */}
+                      <div style={{ display: 'flex', gap: '4px', background: 'rgba(0,0,0,0.2)', padding: '2px', borderRadius: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => setActiveNotifTab('chats')}
+                          style={{
+                            flex: 1, padding: '6px', fontSize: '11px', fontWeight: 700, border: 0, borderRadius: '6px',
+                            background: activeNotifTab === 'chats' ? 'var(--brand-primary)' : 'transparent',
+                            color: '#fff', cursor: 'pointer', transition: 'all 0.2s'
+                          }}
+                        >
+                          Chats ({unreadChatSum})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveNotifTab('system')}
+                          style={{
+                            flex: 1, padding: '6px', fontSize: '11px', fontWeight: 700, border: 0, borderRadius: '6px',
+                            background: activeNotifTab === 'system' ? 'var(--brand-primary)' : 'transparent',
+                            color: '#fff', cursor: 'pointer', transition: 'all 0.2s'
+                          }}
+                        >
+                          System ({notifCount})
+                        </button>
                       </div>
-                    ))
+
+                      {/* Chats tab: WhatsApp style grouped unread chats */}
+                      {activeNotifTab === 'chats' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '250px', overflowY: 'auto' }}>
+                          {unreadChats.length === 0 ? (
+                            <div style={{ padding: '24px 16px', color: 'var(--text-tertiary)', fontSize: '11px', textAlign: 'center' }}>
+                              🟢 No unread messages
+                            </div>
+                          ) : (
+                            unreadChats.map((c: any) => (
+                              <div
+                                key={c.id}
+                                onClick={() => {
+                                  navigate(`/chat/${c.id}`);
+                                  setShowNotifications(false);
+                                }}
+                                style={{
+                                  padding: '10px', background: 'rgba(255, 255, 255, 0.03)',
+                                  border: '1px solid rgba(255, 255, 255, 0.05)',
+                                  borderRadius: '8px', cursor: 'pointer', transition: 'all 0.15s',
+                                  display: 'flex', alignItems: 'center', gap: '10px'
+                                }}
+                                className="hover-glass"
+                              >
+                                {/* Mini Letter Avatar */}
+                                <div style={{
+                                  width: '32px', height: '32px', borderRadius: '50%',
+                                  background: 'var(--brand-primary)', color: '#fff',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  fontWeight: 700, fontSize: '12px', flexShrink: 0
+                                }}>
+                                  {c.name ? c.name.charAt(0).toUpperCase() : 'U'}
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <strong style={{ fontSize: '12px', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                      {c.name || 'Private Chat'}
+                                    </strong>
+                                    <span style={{
+                                      background: 'var(--brand-danger)', color: 'white',
+                                      fontSize: '9px', fontWeight: 700, padding: '2px 6px',
+                                      borderRadius: '8px', minWidth: '16px', textAlign: 'center'
+                                    }}>
+                                      {c.unread_count}
+                                    </span>
+                                  </div>
+                                  <p style={{ fontSize: '10px', color: 'var(--text-secondary)', margin: '2px 0 0 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {c.last_message_preview || 'No messages yet'}
+                                  </p>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+
+                      {/* System tab: standard system notifications */}
+                      {activeNotifTab === 'system' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '250px', overflowY: 'auto' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '4px', marginBottom: '4px' }}>
+                            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Workspace Alerts</span>
+                            {notifCount > 0 && (
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-sm"
+                                style={{ padding: '1px 5px', fontSize: '9px', height: 'auto', border: 0 }}
+                                onClick={() => markAllReadMutation.mutate()}
+                              >
+                                Mark all read
+                              </button>
+                            )}
+                          </div>
+                          {notifications.length === 0 ? (
+                            <div style={{ padding: '24px 16px', color: 'var(--text-tertiary)', fontSize: '11px', textAlign: 'center' }}>
+                              No system alerts
+                            </div>
+                          ) : (
+                            notifications.map((n: any) => (
+                              <div
+                                key={n.id}
+                                onClick={() => !n.isRead && markReadMutation.mutate(n.id)}
+                                style={{
+                                  padding: '8px', background: n.isRead ? 'transparent' : 'rgba(99, 102, 241, 0.05)',
+                                  border: `1px solid ${n.isRead ? 'transparent' : 'rgba(99, 102, 241, 0.1)'}`,
+                                  borderRadius: '8px', cursor: 'pointer', transition: 'all 0.15s',
+                                  display: 'flex', flexDirection: 'column', gap: '2px'
+                                }}
+                                className="hover-glass"
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#fff' }}>{n.title}</span>
+                                  {!n.isRead && <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--brand-danger)' }} />}
+                                </div>
+                                <p style={{ fontSize: '10px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>{n.message}</p>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
                   )}
-                </div>
-              </div>
-            )}
+                </>
+              );
+            })()}
           </div>
 
           {/* User avatar */}

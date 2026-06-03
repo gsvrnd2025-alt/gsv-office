@@ -4,11 +4,14 @@ import {
   MousePointer2, Keyboard, ShieldAlert, Cpu, Network,
   Volume2, Sliders, RefreshCw, X, Radio, Eye, FileCode2,
   Download, Copy, ClipboardCopy, ShieldCheck, AlertCircle, 
-  AlertTriangle, Folder, HardDrive, Terminal
+  AlertTriangle, Folder, HardDrive, Terminal, Users, Phone,
+  Mic, MicOff, Shield, CheckSquare, Clock
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAuthStore } from '../../store/auth.store';
+import { usersApi } from '../../api';
+import { io, Socket } from 'socket.io-client';
 
-// Mock files available on the simulated remote desktop
 interface MockFile {
   name: string;
   type: string;
@@ -38,12 +41,6 @@ const REMOTE_FILES: MockFile[] = [
     }, null, 2)
   },
   { 
-    name: 'api_credentials.env', 
-    type: 'env', 
-    size: '1.1 KB', 
-    content: '# GSV Office Security Context\nPORT=8080\nJWT_SECRET=gsv_jwt_enc_key_3882910\nDB_PASS=truenas_postgres_secure_2026\nSTUN_SERVER=stun:stun.l.google.com:19302\nSHEETS_DEPLOYMENT_ID=AKfycbz_9281a_gsv_sheets_deployment' 
-  },
-  { 
     name: 'readme_deployment.txt', 
     type: 'text', 
     size: '15 KB', 
@@ -52,26 +49,27 @@ const REMOTE_FILES: MockFile[] = [
 ];
 
 export default function RemoteDesktopPage() {
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [isConnected, setIsConnected] = useState(false); // Connected as CLIENT (controlling peer)
-  const [isHostControlled, setIsHostControlled] = useState(false); // Hosting and CLIENT has taken control
-  const [targetId, setTargetId] = useState('');
+  const { user, accessToken } = useAuthStore();
+  const [socket, setSocket] = useState<Socket | null>(null);
+
+  // User directory states
+  const [teammates, setTeammates] = useState<any[]>([]);
+  const [selectedTeammate, setSelectedTeammate] = useState<any | null>(null);
   
-  // Handshake Dialog states
-  const [showHandshake, setShowHandshake] = useState(false);
-  const [handshakeType, setHandshakeType] = useState<'incoming' | 'outgoing' | null>(null);
-  const [handshakePartnerId, setHandshakePartnerId] = useState('');
+  // Connection states
+  const [targetPhone, setTargetPhone] = useState('');
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [isConnected, setIsConnected] = useState(false); // Connected as CLIENT (controlling remote)
+  const [isHosting, setIsHosting] = useState(false); // Currently streaming local screen
+  const [isHostControlled, setIsHostControlled] = useState(false); // Host is currently controlled by remote client
+  const [activePartnerId, setActivePartnerId] = useState<string | null>(null);
+  const [activePartnerName, setActivePartnerName] = useState<string>('');
 
-  // Dynamic Peer ID
-  const [myId] = useState(() => {
-    const p1 = Math.floor(100 + Math.random() * 900);
-    const p2 = Math.floor(100 + Math.random() * 900);
-    const p3 = Math.floor(100 + Math.random() * 900);
-    return `${p1}-${p2}-${p3}`;
-  });
+  // Voice Chat
+  const [isVoiceChatEnabled, setIsVoiceChatEnabled] = useState(false);
+  const [localAudioStream, setLocalAudioStream] = useState<MediaStream | null>(null);
 
-  // Settings Modal State
+  // Settings
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [config, setConfig] = useState({
     resolution: '1080p',
@@ -81,330 +79,460 @@ export default function RemoteDesktopPage() {
     bandwidthLimit: 'unlimited',
   });
 
-  // Remote desktop simulation interactive state
+  // Interlock Method state
+  const [isControlLocked, setIsControlLocked] = useState(false);
+
+  // Permissions settings modal
+  const [showIncomingRequest, setShowIncomingRequest] = useState(false);
+  const [incomingRequestData, setIncomingRequestData] = useState<any | null>(null);
+  const [grantedPermissions, setGrantedPermissions] = useState({
+    fullControl: true,
+    keyboard: true,
+    mouse: true,
+    fileTransfer: true,
+  });
+  const [sessionDuration, setSessionDuration] = useState('1h');
+
+  // Viewport / WebRTC simulation objects
+  const [clientPointer, setClientPointer] = useState({ x: 250, y: 180 });
+  const [localPointerCoords, setLocalPointerCoords] = useState({ x: 0, y: 0 });
+  
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const dataChannelRef = useRef<RTCDataChannel | null>(null);
+  
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [selectedFileIndex, setSelectedFileIndex] = useState<number>(0);
   const [remoteClipboard, setRemoteClipboard] = useState<MockFile | null>(null);
-  
-  // Coordinates overlay & cursor simulation
-  const [clientPointer, setClientPointer] = useState({ x: 250, y: 180 });
-  const [localPointerCoords, setLocalPointerCoords] = useState({ x: 0, y: 0 });
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  
-  // Guard timeline / console logs
   const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
-  const [isPointerLocked, setIsPointerLocked] = useState(false);
 
-  // Connection timer references
-  const incomingRequestTimer = useRef<NodeJS.Timeout | null>(null);
-  const hostPointerTimer = useRef<NodeJS.Timeout | null>(null);
-  const lockEnableTime = useRef<number>(0);
+  // Double escape tracker
+  const lastEscPressTime = useRef<number>(0);
 
-  // Setup logging in simulated console
   const addLog = (msg: string) => {
-    setTerminalLogs(prev => [...prev.slice(-20), `[${new Date().toLocaleTimeString()}] ${msg}`]);
+    setTerminalLogs(prev => [...prev.slice(-15), `[${new Date().toLocaleTimeString()}] ${msg}`]);
   };
 
-  // Host mouse move detection during active remote control
+  // Socket Connection setup
   useEffect(() => {
-    const handleMouseMoveGlobal = (e: MouseEvent) => {
-      if (isHostControlled) {
-        // Enforce a small delay after control starts to prevent accidental triggers from click
-        if (Date.now() - lockEnableTime.current < 800) return;
-        
-        // Detect movement change
-        const mvX = Math.abs(e.movementX);
-        const mvY = Math.abs(e.movementY);
-        if (mvX > 6 || mvY > 6) {
-          triggerEmergencyStop("Host physical mouse movement detected");
+    if (!accessToken) return;
+    
+    // Connect to /webrtc namespace
+    const s = io('/webrtc', {
+      auth: { token: accessToken },
+      transports: ['websocket', 'polling']
+    });
+
+    s.on('connect', () => {
+      addLog('Secure signaling socket tunnel online.');
+    });
+
+    s.on('remote:request', (data: any) => {
+      addLog(`Incoming remote connection request from ${data.callerName} (${data.callerPhone})`);
+      setIncomingRequestData(data);
+      setShowIncomingRequest(true);
+    });
+
+    s.on('remote:response', async (data: any) => {
+      if (data.status === 'rejected') {
+        setIsConnecting(false);
+        toast.error('Remote access request was rejected by host.');
+        addLog(`Host rejected remote access request.`);
+      } else {
+        addLog('Host accepted request. Setting up WebRTC session...');
+        // Establish WebRTC connection
+        setActivePartnerId(data.hostId);
+        setupWebRTC(false, data.hostId);
+      }
+    });
+
+    s.on('remote:signal', async (data: any) => {
+      if (!peerConnectionRef.current) return;
+      try {
+        const signal = data.signal;
+        if (signal.type === 'offer') {
+          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(signal));
+          const answer = await peerConnectionRef.current.createAnswer();
+          await peerConnectionRef.current.setLocalDescription(answer);
+          s.emit('remote:signal', { targetUserId: data.fromId, signal: answer });
+        } else if (signal.type === 'answer') {
+          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(signal));
         }
+      } catch (e) {
+        console.error('Signal error', e);
       }
-    };
+    });
 
-    const handlePointerLockChange = () => {
-      const locked = document.pointerLockElement === viewportRef.current;
-      setIsPointerLocked(locked);
-      if (!locked && isHostControlled) {
-        // Host exited pointer lock manually (e.g. Esc key)
-        triggerEmergencyStop("Host pointer lock released");
+    s.on('remote:ice-candidate', async (data: any) => {
+      if (!peerConnectionRef.current) return;
+      try {
+        await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+      } catch (e) {
+        console.error('Error adding ICE candidate', e);
       }
-    };
+    });
 
-    if (isHostControlled) {
-      document.addEventListener('mousemove', handleMouseMoveGlobal);
-      document.addEventListener('pointerlockchange', handlePointerLockChange);
-    }
+    s.on('remote:control-lock', (data: any) => {
+      setIsControlLocked(data.isLocked);
+      if (data.isLocked) {
+        toast.error('Control Lock: Host is typing or moving mouse. Inputs paused.', { id: 'lock-alert' });
+        addLog('Control Lock: Remote host physical input active.');
+      } else {
+        toast.success('Control released. Inputs enabled.', { id: 'lock-alert' });
+        addLog('Control released: Host yielded controls.');
+      }
+    });
+
+    s.on('remote:terminate', () => {
+      terminateSession(true);
+    });
+
+    setSocket(s);
 
     return () => {
-      document.removeEventListener('mousemove', handleMouseMoveGlobal);
-      document.removeEventListener('pointerlockchange', handlePointerLockChange);
+      s.disconnect();
     };
-  }, [isHostControlled]);
+  }, [accessToken]);
 
-  // Escape key emergency listener
+  // Fetch users for directories (online/offline)
+  const fetchTeammates = async () => {
+    try {
+      const res = await usersApi.getAll();
+      const list = res.data?.data || res.data || [];
+      // Filter out self and sort by online status
+      const cleanList = list.filter((u: any) => u.id !== user?.id);
+      setTeammates(cleanList);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    fetchTeammates();
+    const interval = setInterval(fetchTeammates, 5000);
+    return () => clearInterval(interval);
+  }, [user]);
+
+  // Emergency double Escape press listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (isHostControlled || isConnected) {
-          triggerEmergencyStop("Escape key override triggered");
+        const now = Date.now();
+        if (now - lastEscPressTime.current < 500) {
+          addLog('🚨 Emergency escape keys detected.');
+          terminateSession(false);
+          toast.error('Emergency Exit: Remote connection killed instantly.', { icon: '🚨' });
         }
+        lastEscPressTime.current = now;
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isHostControlled, isConnected]);
+  }, [isConnected, isHosting]);
 
-  // Simulate client pointer moving around on the HOST screen when Host is controlled
+  // Host local input tracking for Interlock mechanism
   useEffect(() => {
-    if (isHostControlled) {
-      hostPointerTimer.current = setInterval(() => {
-        setClientPointer(prev => {
-          const deltaX = Math.floor(Math.random() * 40) - 20;
-          const deltaY = Math.floor(Math.random() * 30) - 15;
-          const nextX = Math.max(20, Math.min(prev.x + deltaX, 780));
-          const nextY = Math.max(20, Math.min(prev.y + deltaY, 440));
-          return { x: nextX, y: nextY };
-        });
-        
-        if (Math.random() > 0.7) {
-          const mockActions = [
-            "Syncing directories...",
-            "Checking local TrueNAS dataset mounts",
-            "Reading system_report.log",
-            "Simulating cursor drag action",
-            "WebRTC channels active: DTLS-SRTP key sync"
-          ];
-          addLog(mockActions[Math.floor(Math.random() * mockActions.length)]);
-        }
-      }, 800);
-    } else {
-      if (hostPointerTimer.current) {
-        clearInterval(hostPointerTimer.current);
+    const handleLocalInput = () => {
+      if (isHosting && isHostControlled && socket && activePartnerId && !isControlLocked) {
+        // Host physically moved mouse or typed: lock control
+        socket.emit('remote:control-lock', { targetUserId: activePartnerId, isLocked: true });
+        setIsControlLocked(true);
       }
-    }
-    return () => {
-      if (hostPointerTimer.current) clearInterval(hostPointerTimer.current);
     };
-  }, [isHostControlled]);
 
-  // Simulate incoming connection request when hosting
-  useEffect(() => {
-    if (isStreaming && !isHostControlled && !showHandshake) {
-      // Simulate client attempting to connect after 4 seconds
-      incomingRequestTimer.current = setTimeout(() => {
-        setHandshakeType('incoming');
-        const randomClients = ['482-192-302', '551-923-884', '201-382-774'];
-        const randomId = randomClients[Math.floor(Math.random() * randomClients.length)];
-        setHandshakePartnerId(randomId);
-        setShowHandshake(true);
-        addLog(`Inbound WebRTC connection initiated from client ID: ${randomId}`);
-      }, 4000);
-    } else {
-      if (incomingRequestTimer.current) {
-        clearTimeout(incomingRequestTimer.current);
-      }
+    if (isHosting && isHostControlled) {
+      window.addEventListener('mousemove', handleLocalInput);
+      window.addEventListener('keydown', handleLocalInput);
     }
 
     return () => {
-      if (incomingRequestTimer.current) clearTimeout(incomingRequestTimer.current);
+      window.removeEventListener('mousemove', handleLocalInput);
+      window.removeEventListener('keydown', handleLocalInput);
     };
-  }, [isStreaming, isHostControlled, showHandshake]);
+  }, [isHosting, isHostControlled, socket, activePartnerId, isControlLocked]);
 
-  const startStreaming = async () => {
+  // WebRTC Setup Helper
+  const setupWebRTC = async (isHost: boolean, partnerId: string) => {
     try {
-      addLog("Initializing media sharing capture...");
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { cursor: "always" } as any,
-        audio: true
-      });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        setIsStreaming(true);
-        addLog("Screen sharing pipeline established. Ready for remote clients.");
-        toast.success("Hosting remote session started successfully! 🖥️");
-      }
-    } catch (err) {
-      console.error("Error accessing screen share:", err);
-      addLog("Failed to start screen capture: Permission Denied");
-      toast.error("Failed to acquire screen capture permissions");
-    }
-  };
+      const configuration = {
+        iceServers: [{ urls: config.stunServer }]
+      };
 
-  const stopStreaming = () => {
-    if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      const tracks = stream.getTracks();
-      tracks.forEach(track => track.stop());
-      videoRef.current.srcObject = null;
-    }
-    setIsStreaming(false);
-    setIsHostControlled(false);
-    setShowHandshake(false);
-    if (document.pointerLockElement) {
-      document.exitPointerLock();
-    }
-    addLog("Screen hosting terminated.");
-    toast.success("Remote hosting session ended.");
-  };
+      const pc = new RTCPeerConnection(configuration);
+      peerConnectionRef.current = pc;
 
-  // Client Initiating Connection
-  const connectToRemote = () => {
-    setIsConnecting(true);
-    addLog(`Sending negotiation offer to Peer ID: ${targetId}`);
-    toast.loading("Establishing secure WebRTC tunnel connection...", { id: 'remote-conn' });
-    
-    setTimeout(() => {
-      setIsConnecting(false);
-      setHandshakeType('outgoing');
-      setHandshakePartnerId(targetId);
-      setShowHandshake(true);
-      toast.dismiss('remote-conn');
-      addLog(`Handshake request acknowledged by remote peer ${targetId}. Awaiting remote security validation.`);
-    }, 1500);
-  };
-
-  const approveHandshake = () => {
-    setShowHandshake(false);
-    if (handshakeType === 'incoming') {
-      // We are host, allowing client to take control
-      setIsHostControlled(true);
-      lockEnableTime.current = Date.now();
-      addLog(`Handshake approved. Client ${handshakePartnerId} granted pointer control.`);
-      toast.success(`Connection established! Client ${handshakePartnerId} is now controlling your screen.`);
-      
-      // Request pointer lock to lock local mouse in center
-      setTimeout(() => {
-        if (viewportRef.current) {
-          viewportRef.current.requestPointerLock();
+      // ICE candidate handler
+      pc.onicecandidate = (event) => {
+        if (event.candidate && socket) {
+          socket.emit('remote:ice-candidate', { targetUserId: partnerId, candidate: event.candidate });
         }
-      }, 500);
-    } else {
-      // We are client, host approved connection, we now control remote
-      setIsConnected(true);
-      addLog(`Tunnel sync established with host ${handshakePartnerId}. Render remote viewport initialized.`);
-      toast.success(`Successfully connected to remote peer ${handshakePartnerId}! ⚡`);
-    }
-  };
+      };
 
-  const rejectHandshake = () => {
-    setShowHandshake(false);
-    const partner = handshakePartnerId;
-    setHandshakeType(null);
-    setHandshakePartnerId('');
-    if (handshakeType === 'incoming') {
-      addLog(`Rejected connection handshake request from ${partner}`);
-      toast.error("Incoming remote control request rejected.");
-    } else {
-      setIsConnected(false);
-      addLog(`Host ${partner} rejected connection negotiation.`);
-      toast.error("Remote host rejected connection handshake request.");
-    }
-  };
+      if (isHost) {
+        // Add stream tracks (screen share)
+        if (localStreamRef.current) {
+          localStreamRef.current.getTracks().forEach(track => pc.addTrack(track, localStreamRef.current!));
+        }
 
-  const triggerEmergencyStop = (reason: string) => {
-    setIsConnected(false);
-    setIsHostControlled(false);
-    setShowHandshake(false);
-    setIsConnecting(false);
-    
-    if (document.pointerLockElement) {
-      document.exitPointerLock();
-    }
-    
-    // Stop local sharing if we were hosting
-    if (isStreaming) {
-      if (videoRef.current && videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach(t => t.stop());
-        videoRef.current.srcObject = null;
+        // Set up WebRTC Data Channel
+        const dc = pc.createDataChannel('control');
+        dataChannelRef.current = dc;
+        setupDataChannel(dc);
+
+        // Create Offer
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket?.emit('remote:signal', { targetUserId: partnerId, signal: offer });
+        addLog('Signaling offer dispatched.');
+      } else {
+        // Requester side
+        pc.ontrack = (event) => {
+          if (videoRef.current && event.streams[0]) {
+            videoRef.current.srcObject = event.streams[0];
+            setIsConnected(true);
+            setIsConnecting(false);
+            addLog('WebRTC Screen mirror feed attached.');
+          }
+        };
+
+        pc.ondatachannel = (event) => {
+          dataChannelRef.current = event.channel;
+          setupDataChannel(event.channel);
+        };
       }
-      setIsStreaming(false);
+    } catch (e) {
+      console.error(e);
+      addLog('Failed to negotiate WebRTC tunnel.');
+      setIsConnecting(false);
+    }
+  };
+
+  const setupDataChannel = (dc: RTCDataChannel) => {
+    dc.onopen = () => addLog('Control data channel linked.');
+    dc.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.type === 'mouse') {
+          setClientPointer({ x: payload.x, y: payload.y });
+          addLog(`Remote mouse: (${payload.x}, ${payload.y})`);
+        } else if (payload.type === 'key') {
+          addLog(`Remote keyboard input: ${payload.key}`);
+        } else if (payload.type === 'file-transfer') {
+          addLog(`File transfer received: ${payload.fileName} (${payload.fileSize})`);
+          toast.success(`Received shared file: ${payload.fileName}`);
+          setRemoteClipboard({
+            name: payload.fileName,
+            type: 'text',
+            size: payload.fileSize,
+            content: payload.content || 'File payload synchronised'
+          });
+        }
+      } catch (e) {}
+    };
+  };
+
+  // Connect via phone number or selected user
+  const initiateConnection = () => {
+    const target = selectedTeammate || teammates.find(t => t.phone === targetPhone);
+    if (!target) {
+      toast.error('User not found in online directory.');
+      return;
+    }
+    if (!target.isOnline) {
+      toast.error('User is currently offline.');
+      return;
     }
 
-    addLog(`🚨 EMERGENCY STOP: ${reason}. Session revoked.`);
-    toast.error(`Emergency Stop Triggered! ${reason}. Remote control revoked.`, {
-      duration: 5000,
-      icon: '🚨'
+    setIsConnecting(true);
+    addLog(`Requesting connection handshake with ${target.fullName}...`);
+    
+    socket?.emit('remote:request', {
+      targetUserId: target.id,
+      callerName: user?.fullName,
+      callerPhone: user?.phone || user?.loginId,
+      callerDept: user?.department?.name || 'Workspace'
     });
   };
 
-  const disconnectRemote = () => {
+  // Host Action: Accept Request
+  const acceptRequest = async () => {
+    if (!incomingRequestData) return;
+    setShowIncomingRequest(false);
+    
+    try {
+      addLog('Acquiring display share capture...');
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          width: config.resolution === '4k' ? 3840 : config.resolution === '1080p' ? 1920 : 1280,
+          height: config.resolution === '4k' ? 2160 : config.resolution === '1080p' ? 1080 : 720,
+          frameRate: Number(config.fps)
+        },
+        audio: config.audio
+      });
+
+      localStreamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      setIsHosting(true);
+      setIsHostControlled(true);
+      setActivePartnerId(incomingRequestData.callerId);
+      setActivePartnerName(incomingRequestData.callerName);
+
+      socket?.emit('remote:response', {
+        targetUserId: incomingRequestData.callerId,
+        status: 'accepted',
+        permissions: grantedPermissions,
+        duration: sessionDuration
+      });
+
+      setupWebRTC(true, incomingRequestData.callerId);
+      toast.success(`Sharing screen and control permissions!`);
+      
+      // Auto close/terminate after duration
+      const durationMs = sessionDuration === '1h' ? 3600000 : sessionDuration === '3h' ? 10800000 : 0;
+      if (durationMs > 0) {
+        setTimeout(() => {
+          terminateSession(false);
+          toast.error('Session expired.');
+        }, durationMs);
+      }
+    } catch (e) {
+      console.error(e);
+      rejectRequest();
+    }
+  };
+
+  // Host Action: Reject Request
+  const rejectRequest = () => {
+    setShowIncomingRequest(false);
+    if (incomingRequestData) {
+      socket?.emit('remote:response', {
+        targetUserId: incomingRequestData.callerId,
+        status: 'rejected'
+      });
+    }
+    setIncomingRequestData(null);
+  };
+
+  // Release Control lock (Interlock check)
+  const requestControlRelease = () => {
+    if (socket && activePartnerId) {
+      socket.emit('remote:control-lock', { targetUserId: activePartnerId, isLocked: false });
+      setIsControlLocked(false);
+    }
+  };
+
+  // Voice chat toggle (Zoom style meetings)
+  const toggleVoiceCall = async () => {
+    try {
+      if (isVoiceChatEnabled) {
+        // Stop audio tracks
+        localAudioStream?.getTracks().forEach(t => t.stop());
+        setLocalAudioStream(null);
+        setIsVoiceChatEnabled(false);
+        addLog('Voice meeting audio stopped.');
+      } else {
+        addLog('Acquiring mic access for voice chat...');
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        setLocalAudioStream(stream);
+        setIsVoiceChatEnabled(true);
+        addLog('Voice chat online.');
+        toast.success('Mic connected! Voice meeting active.');
+      }
+    } catch (e) {
+      toast.error('Failed to get microphone permissions.');
+    }
+  };
+
+  // Clean disconnect
+  const terminateSession = (remoteEvent = false) => {
+    if (socket && activePartnerId && !remoteEvent) {
+      socket.emit('remote:terminate', { targetUserId: activePartnerId });
+    }
+
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(t => t.stop());
+      localStreamRef.current = null;
+    }
+    if (localAudioStream) {
+      localAudioStream.getTracks().forEach(t => t.stop());
+      setLocalAudioStream(null);
+    }
+
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
+    }
+
+    setIsConnecting(false);
     setIsConnected(false);
-    addLog(`Disconnected cleanly from remote host.`);
-    toast.success("Disconnected from remote peer.");
+    setIsHosting(false);
+    setIsHostControlled(false);
+    setIsVoiceChatEnabled(false);
+    setActivePartnerId(null);
+    setIsControlLocked(false);
+
+    addLog('Remote Desk connection closed.');
+    toast.success('Session disconnected.');
   };
 
-  // Tracking mouse movement coordinates in CLIENT view
-  const handleClientMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!viewportRef.current) return;
-    const rect = viewportRef.current.getBoundingClientRect();
-    const x = Math.round(e.clientX - rect.left);
-    const y = Math.round(e.clientY - rect.top);
+  // Send control metrics over data channel
+  const handleViewportClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isConnected || isControlLocked || !dataChannelRef.current) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = Math.round(((e.clientX - rect.left) / rect.width) * 1920);
+    const y = Math.round(((e.clientY - rect.top) / rect.height) * 1080);
     
-    // Scale client pointer coordinates to nominal resolution (1920x1080) for simulation display
-    const scaleX = Math.round((x / rect.width) * 1920);
-    const scaleY = Math.round((y / rect.height) * 1080);
-    
-    setLocalPointerCoords({ x: scaleX, y: scaleY });
+    dataChannelRef.current.send(JSON.stringify({ type: 'mouse', x, y }));
+    addLog(`Click coordinate dispatched: (${x}, ${y})`);
   };
 
-  // Remote Explorer file selection and copying
-  const selectFile = (index: number) => {
-    setSelectedFileIndex(index);
-    addLog(`Selected remote file: ${REMOTE_FILES[index].name}`);
+  const handleViewportKeyPress = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!isConnected || isControlLocked || !dataChannelRef.current) return;
+    dataChannelRef.current.send(JSON.stringify({ type: 'key', key: e.key }));
   };
 
-  const copyRemoteFileToClipboard = (file: MockFile) => {
-    setRemoteClipboard(file);
-    addLog(`Copied file data metadata for "${file.name}" to clipboard channel.`);
-    toast.success(`Remote file "${file.name}" copied to clipboard! Click 'Paste to Local' in panel.`);
-  };
-
-  const pasteFileToLocal = () => {
-    if (!remoteClipboard) {
-      toast.error("No file found in the remote clipboard!");
+  // Paste / File transfer simulation
+  const simulateFileTransfer = (file: MockFile) => {
+    if (!isConnected || !dataChannelRef.current) {
+      toast.error('No connection tunnel active.');
       return;
     }
-    
-    // Trigger browser file download
-    try {
-      const blob = new Blob([remoteClipboard.content], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `local_copy_${remoteClipboard.name}`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      
-      addLog(`Downloaded "${remoteClipboard.name}" from remote clipboard onto local storage.`);
-      toast.success(`Successfully downloaded copy of "${remoteClipboard.name}"! 📥`);
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to copy file to local disk.");
-    }
+    dataChannelRef.current.send(JSON.stringify({
+      type: 'file-transfer',
+      fileName: file.name,
+      fileSize: file.size,
+      content: file.content
+    }));
+    toast.success(`Dispatched ${file.name} over WebRTC channel!`);
+    addLog(`File transfer upload initiated: ${file.name}`);
   };
+
+  // Dynamic lists
+  const onlineTeammates = teammates.filter(t => t.isOnline);
+  const offlineTeammates = teammates.filter(t => !t.isOnline);
 
   return (
     <div className="page-enter" style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '16px', color: 'var(--text-primary)' }}>
       
-      {/* Header controls */}
+      {/* Header */}
       <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
         <div>
           <h1 style={{ fontSize: '24px', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-            🖥️ GSV UltraViewer Remote Sync
+            🖥️ GSV UltraViewer Remote Desk
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
-            Secure remote console and pointer coordination system via peer-to-peer WebRTC connection
+            P2P WebRTC secure remote syncing & voice coordination via user phone numbers
           </p>
         </div>
         <div className="d-flex gap-2 align-items-center">
           <div className="card d-flex flex-row align-items-center gap-2 px-3 py-1" style={{ fontSize: '12px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
-            <Network size={14} style={{ color: 'var(--brand-success)' }} />
-            <span style={{ color: 'var(--text-secondary)' }}>My ID:</span>
-            <span style={{ color: 'var(--brand-primary)', fontWeight: 700 }}>{myId}</span>
+            <Phone size={14} style={{ color: 'var(--brand-success)' }} />
+            <span style={{ color: 'var(--text-secondary)' }}>My P2P ID:</span>
+            <span style={{ color: 'var(--brand-primary)', fontWeight: 700 }}>{user?.phone || user?.loginId}</span>
           </div>
           <button className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => setShowConfigModal(true)}>
             <Settings size={14} /> Configure
@@ -414,101 +542,162 @@ export default function RemoteDesktopPage() {
 
       <div className="row flex-grow-1" style={{ minHeight: '520px' }}>
         
-        {/* Remote Screen Viewport */}
-        <div className="col-lg-9 mb-4 mb-lg-0 d-flex flex-column">
+        {/* Left Side: User list directories */}
+        <div className="col-lg-3 d-flex flex-column gap-3">
+          <div className="card p-3 d-flex flex-column gap-3 flex-grow-1" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', maxHeight: '600px', overflowY: 'auto' }}>
+            <h6 style={{ color: 'var(--brand-primary)', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Users size={16} /> Workspace Directory
+            </h6>
+            
+            {/* Online directory */}
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--brand-success)', borderBottom: '1px solid rgba(0,255,0,0.1)', paddingBottom: '4px', marginBottom: '8px' }}>
+                🟢 ONLINE USERS ({onlineTeammates.length})
+              </div>
+              <div className="d-flex flex-column gap-2">
+                {onlineTeammates.length === 0 ? (
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', padding: '4px' }}>No teammates online</div>
+                ) : (
+                  onlineTeammates.map(t => (
+                    <div 
+                      key={t.id}
+                      onClick={() => setSelectedTeammate(t)}
+                      style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'space-between',
+                        padding: '8px', 
+                        borderRadius: '6px',
+                        background: selectedTeammate?.id === t.id ? 'rgba(99, 102, 241, 0.15)' : 'rgba(255,255,255,0.02)',
+                        border: selectedTeammate?.id === t.id ? '1px solid var(--brand-primary)' : '1px solid rgba(255,255,255,0.05)',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <strong style={{ fontSize: '12px', color: '#fff' }}>{t.fullName}</strong>
+                        <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{t.department?.name || 'Staff'}</div>
+                      </div>
+                      <Phone size={12} className="text-success" />
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Offline directory */}
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '4px', marginBottom: '8px' }}>
+                ⚫ OFFLINE USERS ({offlineTeammates.length})
+              </div>
+              <div className="d-flex flex-column gap-2">
+                {offlineTeammates.map(t => (
+                  <div 
+                    key={t.id}
+                    style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'space-between',
+                      padding: '8px', 
+                      borderRadius: '6px',
+                      opacity: 0.65,
+                      background: 'rgba(255,255,255,0.01)',
+                      border: '1px solid transparent'
+                    }}
+                  >
+                    <div>
+                      <strong style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{t.fullName}</strong>
+                      <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{t.department?.name || 'Staff'}</div>
+                    </div>
+                    <Phone size={12} className="text-muted" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Center: Remote Viewport */}
+        <div className="col-lg-6 d-flex flex-column">
           <div 
             ref={viewportRef}
-            onMouseMove={isConnected ? handleClientMouseMove : undefined}
+            onClick={handleViewportClick}
+            onKeyDown={handleViewportKeyPress}
+            tabIndex={0}
             className="card p-0 overflow-hidden bg-black position-relative d-flex align-items-center justify-content-center flex-grow-1" 
             style={{ 
-              minHeight: '440px', 
+              minHeight: '450px', 
               border: '1.5px solid ' + (isHostControlled ? '#ef4444' : isConnected ? 'var(--brand-primary)' : 'var(--border-color)'),
               background: '#090d16',
               boxShadow: 'inset 0 4px 20px rgba(0,0,0,0.6)',
-              cursor: isConnected ? 'crosshair' : 'default'
+              cursor: isConnected ? (isControlLocked ? 'not-allowed' : 'crosshair') : 'default',
+              outline: 'none'
             }}
           >
-            {/* 1. Hosting State - showing video share */}
-            {isStreaming && (
+            {/* Hosting Feed */}
+            {isHosting && (
               <div className="w-100 h-100 position-relative">
-                <video ref={videoRef} autoPlay playsInline className="w-100 h-100" style={{ objectFit: 'contain' }} />
+                <video ref={videoRef} autoPlay playsInline muted className="w-100 h-100" style={{ objectFit: 'contain' }} />
                 
-                {/* Controlled warning overlay */}
-                {isHostControlled ? (
-                  <div className="position-absolute inset-0 d-flex flex-column align-items-center justify-content-center" style={{ background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(3px)', zIndex: 5, padding: '20px' }}>
-                    <div className="card p-4 text-center animate-scale-in" style={{ maxWidth: '480px', border: '2px solid #ef4444', background: '#111827', color: '#f9fafb' }}>
-                      <AlertCircle size={48} className="text-danger mx-auto mb-3 animate-pulse" />
-                      <h4 style={{ fontWeight: 700, color: '#ef4444' }}>Remote User is Controlling Your Screen</h4>
-                      <p style={{ fontSize: '13px', color: '#d1d5db', lineHeight: 1.5 }}>
-                        Client <span className="badge bg-danger">{handshakePartnerId}</span> has taken mouse control.
-                      </p>
-                      
-                      {/* Host Cursor Locked info */}
-                      <div className="alert alert-warning py-2 px-3 text-start mb-4" style={{ fontSize: '12px', background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24' }}>
-                        <AlertTriangle size={14} className="me-2 d-inline-block" style={{ verticalAlign: 'middle' }} />
-                        <strong>Host Cursor Locked:</strong> Your physical mouse pointer is pinned. Move your mouse or hit <strong>ESC</strong> to disconnect instantly.
+                <div className="position-absolute inset-0 d-flex flex-column align-items-center justify-content-center" style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(3px)', zIndex: 5, padding: '20px' }}>
+                  <div className="card p-4 text-center animate-scale-in" style={{ maxWidth: '420px', border: '2px solid #ef4444', background: '#111827', color: '#f9fafb' }}>
+                    <AlertCircle size={44} className="text-danger mx-auto mb-3 animate-pulse" />
+                    <h4 style={{ fontWeight: 700, color: '#ef4444' }}>Remote Sync Active</h4>
+                    <p style={{ fontSize: '13px', color: '#d1d5db', lineHeight: 1.5 }}>
+                      Client <strong className="text-primary">{activePartnerName}</strong> is accessing your desktop.
+                    </p>
+                    
+                    {isControlLocked ? (
+                      <div className="alert alert-danger py-2 px-3 text-start mb-3" style={{ fontSize: '11px' }}>
+                        🔒 <strong>Inputs Interlocked:</strong> Host keyboard and mouse overrides are active. Client inputs are locked.
                       </div>
+                    ) : (
+                      <div className="alert alert-warning py-2 px-3 text-start mb-3" style={{ fontSize: '11px' }}>
+                        🔑 Client has input control. Type or move physical mouse to temporarily interlock & lock client inputs.
+                      </div>
+                    )}
 
-                      <div className="d-flex justify-content-center gap-2">
-                        <button className="btn btn-danger w-100" onClick={() => triggerEmergencyStop("Host manually terminated session")} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                          <X size={16} /> EMERGENCY STOP
-                        </button>
-                      </div>
+                    <div className="d-flex gap-2">
+                      <button className="btn btn-danger w-100 btn-sm" onClick={() => terminateSession(false)}>
+                        EMERGENCY TERMINATE (ESC)
+                      </button>
                     </div>
                   </div>
-                ) : (
-                  <div className="position-absolute top-3 start-3 card py-1 px-3 d-flex flex-row align-items-center gap-2" style={{ background: 'rgba(15,23,42,0.85)', border: '1px solid var(--border-color)', color: '#38bdf8', fontSize: '12px' }}>
-                    <span className="pulse-dot bg-success" style={{ width: '8px', height: '8px', borderRadius: '50%' }}></span>
-                    <span>Hosting Live Stream... Awaiting Peer connections</span>
-                  </div>
-                )}
-
-                {/* Simulated client cursor overlay during Host Controlled mode */}
-                {isHostControlled && (
-                  <div 
-                    style={{ 
-                      position: 'absolute', 
-                      left: `${clientPointer.x}px`, 
-                      top: `${clientPointer.y}px`, 
-                      transition: 'left 0.2s ease-out, top 0.2s ease-out',
-                      zIndex: 12,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      pointerEvents: 'none'
-                    }}
-                  >
-                    <MousePointer2 size={18} fill="#ef4444" color="#fff" />
-                    <span style={{ fontSize: '10px', background: '#ef4444', color: '#fff', padding: '1px 5px', borderRadius: '3px', fontWeight: 600 }}>
-                      Client ({clientPointer.x}, {clientPointer.y})
-                    </span>
-                  </div>
-                )}
+                </div>
               </div>
             )}
 
-            {/* 2. Connected Client Mode - Simulated OS desktop view */}
-            {!isStreaming && isConnected && (
-              <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', position: 'relative', background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)', padding: '20px', userSelect: 'none' }}>
+            {/* Controlling Client Feed */}
+            {isConnected && (
+              <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', position: 'relative', background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)', padding: '16px' }}>
                 
-                {/* Remote Connection Header bar */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.06)', backdropFilter: 'blur(10px)', padding: '10px 16px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#60a5fa' }}>
-                    <Eye size={16} />
-                    <span style={{ fontSize: '13px', fontWeight: 700 }}>Controlling peer: {handshakePartnerId}</span>
+                {/* Overlay Lock for Interlock system */}
+                {isControlLocked && (
+                  <div className="position-absolute inset-0 d-flex flex-column align-items-center justify-content-center" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', zIndex: 20 }}>
+                    <div className="card p-3 text-center" style={{ background: '#1e293b', border: '1.5px solid #ef4444', color: '#fff' }}>
+                      <AlertTriangle size={36} className="text-danger mx-auto mb-2" />
+                      <h6 style={{ fontWeight: 700 }}>Host Input Interlock Active</h6>
+                      <p style={{ fontSize: '12px', color: '#cbd5e1' }}>Host is currently active on their system. Controls paused.</p>
+                      <button className="btn btn-sm btn-primary mt-2" onClick={requestControlRelease}>
+                        Request Control Release
+                      </button>
+                    </div>
                   </div>
-                  
-                  {/* Local Simulated pointer tracking indicators */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '11px', color: '#94a3b8' }}>
-                    <span className="badge bg-success bg-opacity-20 text-success border border-success border-opacity-30">Encrypted</span>
-                    <span style={{ fontFamily: 'monospace' }}>Host Pointer: {localPointerCoords.x}, {localPointerCoords.y} px</span>
-                    <span>Latency: 14ms</span>
+                )}
+
+                {/* Remote Connection Header bar */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.06)', backdropFilter: 'blur(10px)', padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#60a5fa' }}>
+                    <Eye size={14} />
+                    <span style={{ fontSize: '12px', fontWeight: 700 }}>P2P Mirror Session: {selectedTeammate?.fullName || 'Teammate'}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '11px', color: '#94a3b8' }}>
+                    <span>Latency: 12ms</span>
                     <span>FPS: {config.fps} ({config.resolution})</span>
                   </div>
                 </div>
 
-                {/* Simulated Desktop Items Grid */}
-                <div style={{ flex: 1, marginTop: '20px', position: 'relative', display: 'flex', gap: '20px', alignContent: 'flex-start', flexWrap: 'wrap' }}>
+                {/* Simulated workspace desktop screen */}
+                <div style={{ flex: 1, marginTop: '16px', position: 'relative', display: 'flex', gap: '20px', alignContent: 'flex-start', flexWrap: 'wrap' }}>
                   <div 
                     onClick={() => setExplorerOpen(true)}
                     style={{ 
@@ -519,437 +708,285 @@ export default function RemoteDesktopPage() {
                       cursor: 'pointer',
                       padding: '8px', 
                       borderRadius: '8px', 
-                      background: explorerOpen ? 'rgba(255,255,255,0.08)' : 'transparent',
-                      transition: 'background 0.2s'
+                      background: explorerOpen ? 'rgba(255,255,255,0.08)' : 'transparent'
                     }}
                   >
-                    <HardDrive size={36} color="#60a5fa" style={{ filter: 'drop-shadow(0 2px 5px rgba(0,0,0,0.5))' }} />
-                    <span style={{ fontSize: '11px', color: '#fff', marginTop: '6px', textAlign: 'center', fontWeight: 600 }}>GSV dataset</span>
+                    <HardDrive size={32} color="#60a5fa" />
+                    <span style={{ fontSize: '11px', color: '#fff', marginTop: '6px', textAlign: 'center', fontWeight: 600 }}>C: Drive</span>
                   </div>
 
-                  <div 
-                    onClick={() => toast.success("TrueNAS system control initialized")}
-                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '80px', cursor: 'pointer', padding: '8px' }}
-                  >
-                    <Terminal size={36} color="#34d399" />
-                    <span style={{ fontSize: '11px', color: '#fff', marginTop: '6px', textAlign: 'center' }}>SSH Terminal</span>
-                  </div>
-
-                  {/* Simulated File Explorer Window */}
                   {explorerOpen && (
                     <div 
                       className="animate-scale-in"
                       style={{ 
-                        position: 'absolute', 
-                        top: '10px', 
-                        left: '100px', 
-                        width: '560px', 
-                        height: '320px', 
-                        background: 'rgba(15, 23, 42, 0.9)', 
-                        backdropFilter: 'blur(16px)',
-                        border: '1px solid rgba(255,255,255,0.15)',
-                        borderRadius: '12px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        overflow: 'hidden',
-                        boxShadow: '0 12px 36px rgba(0,0,0,0.5)',
-                        zIndex: 10
+                        position: 'absolute', top: '10px', left: '100px', width: '380px', height: '240px', 
+                        background: 'rgba(15, 23, 42, 0.95)', border: '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '10px', display: 'flex', flexDirection: 'column', overflow: 'hidden', zIndex: 10
                       }}
                     >
-                      {/* Window titlebar */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.04)', borderBottom: '1px solid rgba(255,255,255,0.1)', padding: '8px 12px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#f8fafc', fontWeight: 700 }}>
-                          <Folder size={14} className="text-warning" />
-                          <span>GSV Datasets mount — TrueNAS SMB shares</span>
-                        </div>
-                        <button 
-                          className="btn btn-ghost btn-icon btn-sm p-0 m-0" 
-                          onClick={() => setExplorerOpen(false)}
-                          style={{ color: '#94a3b8', width: '20px', height: '20px' }}
-                        >
-                          <X size={12} />
-                        </button>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.04)', padding: '6px 10px' }}>
+                        <span style={{ fontSize: '11px', color: '#fff', fontWeight: 700 }}>Host Datasets Mount</span>
+                        <X size={12} className="cursor-pointer" onClick={() => setExplorerOpen(false)} />
                       </div>
-
-                      {/* Explorer Workspace */}
-                      <div className="d-flex flex-grow-1" style={{ overflow: 'hidden' }}>
-                        
-                        {/* Sidebar */}
-                        <div style={{ width: '150px', background: 'rgba(0,0,0,0.2)', borderRight: '1px solid rgba(255,255,255,0.06)', padding: '10px', fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                          <div style={{ color: '#94a3b8', fontWeight: 700, fontSize: '10px' }}>MOUNT PATHS</div>
-                          <div style={{ color: '#60a5fa', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(96,165,250,0.1)', padding: '4px 8px', borderRadius: '4px' }}>
-                            <HardDrive size={12} /> tank/gsv-office
+                      <div className="p-2 flex-grow-1" style={{ overflowY: 'auto', fontSize: '11px' }}>
+                        {REMOTE_FILES.map((file, i) => (
+                          <div 
+                            key={i} 
+                            onClick={() => setSelectedFileIndex(i)}
+                            style={{ 
+                              padding: '6px', cursor: 'pointer', borderRadius: '4px',
+                              background: selectedFileIndex === i ? 'rgba(59,130,246,0.2)' : 'transparent',
+                              color: selectedFileIndex === i ? '#fff' : '#cbd5e1'
+                            }}
+                          >
+                            📁 {file.name} ({file.size})
                           </div>
-                          <div style={{ color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 8px' }}>
-                            <Folder size={12} /> uploads/users
-                          </div>
-                        </div>
-
-                        {/* Files grid view */}
-                        <div className="p-3 flex-grow-1 d-flex flex-column gap-2" style={{ overflowY: 'auto' }}>
-                          <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '4px' }}>FILES</div>
-                          
-                          {REMOTE_FILES.map((file, index) => (
-                            <div 
-                              key={file.name}
-                              onClick={() => selectFile(index)}
-                              style={{ 
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                justifyContent: 'space-between',
-                                background: selectedFileIndex === index ? 'rgba(59,130,246,0.2)' : 'transparent',
-                                border: selectedFileIndex === index ? '1px solid rgba(59,130,246,0.4)' : '1px solid transparent',
-                                padding: '6px 10px',
-                                borderRadius: '6px',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              <div className="d-flex align-items-center gap-2">
-                                <FileCode2 size={16} style={{ color: selectedFileIndex === index ? '#60a5fa' : '#94a3b8' }} />
-                                <span style={{ fontSize: '12px', color: selectedFileIndex === index ? '#ffffff' : '#cbd5e1' }}>{file.name}</span>
-                              </div>
-                              <span style={{ fontSize: '10px', color: '#64748b' }}>{file.size}</span>
-                            </div>
-                          ))}
-                        </div>
+                        ))}
                       </div>
-
-                      {/* Explorer Footer Action bar */}
-                      <div style={{ background: 'rgba(0,0,0,0.3)', borderTop: '1px solid rgba(255,255,255,0.08)', padding: '8px 12px', display: 'flex', justifySelf: 'flex-end', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ fontSize: '11px', color: '#94a3b8' }}>
-                          Selected: <strong style={{ color: '#fff' }}>{REMOTE_FILES[selectedFileIndex]?.name}</strong>
-                        </div>
-                        
-                        <button 
-                          className="btn btn-primary btn-sm px-3" 
-                          onClick={() => copyRemoteFileToClipboard(REMOTE_FILES[selectedFileIndex])}
-                          style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', padding: '4px 10px' }}
-                        >
-                          <Copy size={12} /> Copy File content
+                      <div style={{ padding: '6px', background: 'rgba(0,0,0,0.2)', display: 'flex', justifyContent: 'space-between' }}>
+                        <button className="btn btn-xs btn-primary" onClick={() => simulateFileTransfer(REMOTE_FILES[selectedFileIndex])}>
+                          Sync to Clipboard
                         </button>
                       </div>
                     </div>
                   )}
                 </div>
 
-                {/* Console Log Panel inside simulated Desktop */}
-                <div style={{ height: '110px', background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', padding: '10px 14px', fontFamily: 'Courier New, monospace', fontSize: '11px', color: '#10b981', overflowY: 'auto' }}>
-                  <div style={{ color: '#fbbf24', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', marginBottom: '6px' }}>
-                    💻 CONNECTED LOGS (Peer Tunnel Console)
+                <div style={{ height: '80px', background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '8px', fontFamily: 'monospace', fontSize: '10px', color: '#10b981', overflowY: 'auto' }}>
+                  {terminalLogs.map((lg, i) => <div key={i}>{lg}</div>)}
+                </div>
+              </div>
+            )}
+
+            {/* Disconnected View */}
+            {!isHosting && !isConnected && (
+              <div className="text-center p-4" style={{ color: 'var(--text-secondary)' }}>
+                <Monitor size={64} style={{ opacity: 0.15, marginBottom: '12px' }} />
+                <h6 style={{ fontWeight: 700, color: 'var(--text-primary)' }}>No Active Session</h6>
+                <p style={{ fontSize: '12px' }}>Choose an online teammate or search using their phone number to sync</p>
+              </div>
+            )}
+
+            {/* Handshake request popup */}
+            {showIncomingRequest && incomingRequestData && (
+              <div className="position-absolute inset-0 d-flex align-items-center justify-content-center" style={{ background: 'rgba(0, 0, 0, 0.75)', zIndex: 100 }}>
+                <div className="card p-3 animate-scale-in" style={{ width: '340px', background: '#1e293b', border: '1.5px solid var(--brand-primary)', color: '#f8fafc' }}>
+                  <div className="d-flex align-items-center gap-2 mb-2 text-warning">
+                    <ShieldAlert size={24} />
+                    <strong style={{ fontSize: '13px' }}>Incoming UltraViewer Link</strong>
                   </div>
-                  {terminalLogs.length === 0 ? (
-                    <div>Waiting for terminal synchronization metrics...</div>
-                  ) : (
-                    terminalLogs.map((lg, i) => <div key={i}>{lg}</div>)
-                  )}
-                </div>
-
-              </div>
-            )}
-
-            {/* 3. Disconnected Idle View */}
-            {!isStreaming && !isConnected && (
-              <div style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>
-                <Monitor size={80} style={{ marginBottom: '16px', opacity: 0.2 }} />
-                <h5 style={{ color: 'var(--text-primary)', fontWeight: 700 }}>No Active Session</h5>
-                <p style={{ fontSize: '13px' }}>Start hosting or enter a target ID to connect to a remote peer</p>
-                <div style={{ fontSize: '11px', marginTop: '12px', color: 'var(--text-muted)' }}>
-                  Secure connection via WebRTC STUN relay configuration.
-                </div>
-              </div>
-            )}
-
-            {/* Handshake Permission Dialog Modal */}
-            {showHandshake && (
-              <div className="position-absolute inset-0 d-flex align-items-center justify-content-center" style={{ background: 'rgba(0, 0, 0, 0.75)', zIndex: 100, padding: '20px' }}>
-                <div className="card p-4 animate-scale-in" style={{ maxWidth: '420px', background: '#1e293b', border: '1.5px solid var(--brand-primary)', color: '#f8fafc', boxShadow: '0 20px 50px rgba(0,0,0,0.6)' }}>
+                  <p style={{ fontSize: '11px', color: '#cbd5e1', marginBottom: '8px' }}>
+                    User <strong>{incomingRequestData.callerName}</strong> ({incomingRequestData.callerPhone}) requests access to your desktop.
+                  </p>
                   
-                  {handshakeType === 'incoming' ? (
-                    <>
-                      <div className="d-flex align-items-center gap-2 mb-3 text-warning">
-                        <ShieldAlert size={28} />
-                        <h5 className="m-0" style={{ fontWeight: 700, color: '#fbbf24' }}>Remote Handshake Request</h5>
-                      </div>
-                      <p style={{ fontSize: '13px', color: '#cbd5e1', lineHeight: 1.5 }}>
-                        Client ID <strong style={{ color: '#60a5fa' }}>{handshakePartnerId}</strong> is requesting remote pointer control authorization to connect to your desktop.
-                      </p>
-                      <div style={{ background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '6px', fontSize: '11px', color: '#94a3b8', marginBottom: '20px' }}>
-                        🛡️ This allows the remote user to sync keyboard and mouse coordinates directly. You can hit Escape to revoke control anytime.
-                      </div>
-                      <div className="d-flex gap-2">
-                        <button className="btn btn-primary w-100" onClick={approveHandshake} style={{ fontWeight: 600 }}>
-                          Accept Control
-                        </button>
-                        <button className="btn btn-outline-light w-100" onClick={rejectHandshake}>
-                          Reject Request
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="d-flex align-items-center gap-2 mb-3 text-primary">
-                        <ShieldCheck size={28} style={{ color: 'var(--brand-primary)' }} />
-                        <h5 className="m-0" style={{ fontWeight: 700, color: 'var(--brand-primary)' }}>Accept Outgoing Connection?</h5>
-                      </div>
-                      <p style={{ fontSize: '13px', color: '#cbd5e1', lineHeight: 1.5 }}>
-                        Confirm you wish to finalize connection handshake and assume screen control parameters of Remote Host <strong style={{ color: '#60a5fa' }}>{handshakePartnerId}</strong>.
-                      </p>
-                      <div style={{ background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '6px', fontSize: '11px', color: '#94a3b8', marginBottom: '20px' }}>
-                        📡 Tunnel coordinates sync ready. Establish connection pipeline?
-                      </div>
-                      <div className="d-flex gap-2">
-                        <button className="btn btn-primary w-100" onClick={approveHandshake}>
-                          Establish Connection
-                        </button>
-                        <button className="btn btn-outline-light w-100" onClick={rejectHandshake}>
-                          Cancel
-                        </button>
-                      </div>
-                    </>
-                  )}
+                  {/* Permissions checkboxes */}
+                  <div className="mb-2 p-2 rounded" style={{ background: 'rgba(0,0,0,0.2)', fontSize: '11px' }}>
+                    <div style={{ fontWeight: 700, marginBottom: '4px' }}>Permissions Scope:</div>
+                    <label className="d-flex align-items-center gap-2 mb-1 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={grantedPermissions.fullControl} 
+                        onChange={e => setGrantedPermissions(p => ({ ...p, fullControl: e.target.checked }))} 
+                      />
+                      <span>Full Remote Control</span>
+                    </label>
+                    <label className="d-flex align-items-center gap-2 mb-1 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={grantedPermissions.fileTransfer} 
+                        onChange={e => setGrantedPermissions(p => ({ ...p, fileTransfer: e.target.checked }))} 
+                      />
+                      <span>Allow File Clipboard Sharing</span>
+                    </label>
+                  </div>
+
+                  {/* Session limit dropdown */}
+                  <div className="mb-3" style={{ fontSize: '11px' }}>
+                    <label style={{ display: 'block', marginBottom: '2px' }}>Session Duration:</label>
+                    <select 
+                      value={sessionDuration} 
+                      onChange={e => setSessionDuration(e.target.value)}
+                      className="bg-dark text-white border-0 w-100 p-1 rounded"
+                    >
+                      <option value="1h">1 Hour limit</option>
+                      <option value="3h">3 Hours limit</option>
+                      <option value="unlimited">Until closed</option>
+                    </select>
+                  </div>
+
+                  <div className="d-flex gap-2">
+                    <button className="btn btn-primary btn-sm w-100" onClick={acceptRequest}>Accept</button>
+                    <button className="btn btn-outline-light btn-sm w-100" onClick={rejectRequest}>Reject</button>
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* Viewport Floating Action Bar */}
-            {(isStreaming || isConnected) && (
-              <div className="position-absolute bottom-0 start-50 translate-middle-x mb-4 card p-2 d-flex flex-row gap-2 bg-dark bg-opacity-90 align-items-center" style={{ border: '1.5px solid var(--brand-primary)', borderRadius: '12px', zIndex: 8 }}>
-                <button className="btn btn-ghost btn-sm btn-icon" style={{ color: '#fff' }} title="Toggle Control Pointer"><MousePointer2 size={16} /></button>
-                <button className="btn btn-ghost btn-sm btn-icon" style={{ color: '#fff' }} title="Toggle Virtual Keyboard"><Keyboard size={16} /></button>
-                <div style={{ borderRight: '1px solid rgba(255,255,255,0.2)', height: '20px', margin: '0 8px' }}></div>
-                
-                {/* Emergency Stop pulsing red button */}
+            {/* Bottom floating meeting controller */}
+            {(isConnected || isHosting) && (
+              <div className="position-absolute bottom-0 start-50 translate-middle-x mb-3 card p-2 d-flex flex-row gap-2 bg-dark bg-opacity-95 align-items-center" style={{ border: '1.5px solid var(--brand-primary)', borderRadius: '10px', zIndex: 30 }}>
+                {/* Voice Call meeting trigger */}
                 <button 
-                  className="btn btn-danger btn-sm px-3 py-1 btn-emergency animate-pulse" 
-                  style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#ef4444', border: 'none', fontWeight: 700 }}
-                  onClick={() => triggerEmergencyStop("Emergency stop manual activation")}
+                  onClick={toggleVoiceCall}
+                  className={`btn btn-sm btn-icon ${isVoiceChatEnabled ? 'btn-success' : 'btn-ghost'}`}
+                  style={{ color: '#fff' }}
+                  title="Voice Call Meeting"
                 >
-                  <X size={14} fill="white" /> Emergency Stop (ESC)
+                  {isVoiceChatEnabled ? <Mic size={16} /> : <MicOff size={16} />}
+                </button>
+                <button className="btn btn-ghost btn-sm btn-icon" style={{ color: '#fff' }}><MousePointer2 size={15} /></button>
+                
+                <div style={{ borderRight: '1px solid rgba(255,255,255,0.2)', height: '16px', margin: '0 4px' }}></div>
+                
+                <button className="btn btn-danger btn-sm px-2 py-1" style={{ fontSize: '11px', fontWeight: 700 }} onClick={() => terminateSession(false)}>
+                  Disconnect (ESC)
                 </button>
               </div>
             )}
           </div>
         </div>
 
-        {/* Sidebar Connection Control panels */}
+        {/* Right Side: Quick Action widget */}
         <div className="col-lg-3 d-flex flex-column gap-3">
-          
-          {/* Peer connection Widget */}
-          <div className="card p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-            <h6 style={{ color: 'var(--brand-primary)', fontWeight: 700, margin: '0 0 16px 0', fontSize: '14px' }}>Connect to Peer</h6>
-            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>Enter Remote ID</div>
+          {/* Quick Connect Widget */}
+          <div className="card p-3" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+            <h6 style={{ color: 'var(--brand-primary)', fontWeight: 700, margin: '0 0 12px 0', fontSize: '13px' }}>Quick Dial</h6>
+            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Enter Peer Phone ID</div>
             <input 
               type="text" 
-              className="form-control mb-3" 
-              placeholder="000-000-000" 
-              value={targetId}
-              onChange={(e) => setTargetId(e.target.value)}
-              disabled={isConnecting || isConnected || isStreaming}
-              style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', fontWeight: 600, fontFamily: 'monospace', letterSpacing: '1px' }}
+              className="form-control form-control-sm mb-3" 
+              placeholder="Enter phone number..." 
+              value={targetPhone}
+              onChange={(e) => {
+                setTargetPhone(e.target.value);
+                setSelectedTeammate(null);
+              }}
+              disabled={isConnecting || isConnected || isHosting}
+              style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', fontWeight: 600, fontFamily: 'monospace' }}
             />
             
             {isConnected ? (
-              <button 
-                className="btn btn-outline-danger w-100" 
-                onClick={disconnectRemote}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-              >
-                <Square size={14} /> Disconnect
-              </button>
+              <button className="btn btn-outline-danger btn-sm w-100" onClick={() => terminateSession(false)}>Disconnect</button>
             ) : (
               <button 
-                className="btn btn-primary w-100" 
-                disabled={!targetId || isConnecting || isStreaming}
-                onClick={connectToRemote}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                className="btn btn-primary btn-sm w-100" 
+                disabled={(!targetPhone && !selectedTeammate) || isConnecting || isHosting}
+                onClick={initiateConnection}
               >
-                {isConnecting ? 'Connecting...' : <><Play size={14} /> Connect</>}
+                {isConnecting ? 'Dialling...' : 'Request Access'}
               </button>
             )}
           </div>
 
-          {/* Hosting Widget */}
-          <div className="card p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-            <h6 style={{ color: 'var(--brand-primary)', fontWeight: 700, margin: '0 0 8px 0', fontSize: '14px' }}>Host Screen</h6>
-            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: 1.4 }}>
-              Allow other authorized identities to view or control your desktop securely.
-            </p>
-            <button 
-              className={`btn w-100 ${isStreaming ? 'btn-danger' : 'btn-outline-primary'}`}
-              onClick={isStreaming ? stopStreaming : startStreaming}
-              disabled={isConnected || isConnecting}
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-            >
-              {isStreaming ? <><Square size={14} /> Stop Hosting</> : <><Share2 size={14} /> Start Hosting</>}
-            </button>
-          </div>
+          {/* Selected user details */}
+          {selectedTeammate && (
+            <div className="card p-3" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+              <h6 style={{ color: 'var(--brand-primary)', fontWeight: 700, margin: '0 0 8px 0', fontSize: '13px' }}>Target Info</h6>
+              <div style={{ fontSize: '12px', color: '#fff', fontWeight: 600 }}>{selectedTeammate.fullName}</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Dept: {selectedTeammate.department?.name || 'Local Staff'}</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Phone: {selectedTeammate.phone || 'No phone'}</div>
+              
+              <button 
+                className="btn btn-success btn-sm w-100 mt-3"
+                disabled={isConnecting || isHosting || isConnected}
+                onClick={initiateConnection}
+              >
+                Dial Handshake
+              </button>
+            </div>
+          )}
 
-          {/* Remote Clipboard widget */}
-          <div className="card p-4 d-flex flex-column gap-2" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-            <h6 style={{ color: 'var(--brand-primary)', fontWeight: 700, margin: '0 0 8px 0', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <ClipboardCopy size={16} /> Remote Clipboard
+          {/* Local Clipboard clipboard sync widget */}
+          <div className="card p-3 d-flex flex-column gap-2" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+            <h6 style={{ color: 'var(--brand-primary)', fontWeight: 700, margin: '0 0 4px 0', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <ClipboardCopy size={14} /> Remote Clipboard
             </h6>
-            
             {remoteClipboard ? (
-              <div className="animate-scale-in" style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' }}>
-                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '10px', fontSize: '12px' }}>
+              <div className="animate-scale-in" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '8px', fontSize: '11px' }}>
                   <div style={{ fontWeight: 700, color: 'var(--brand-primary)' }}>{remoteClipboard.name}</div>
-                  <div style={{ color: 'var(--text-secondary)', fontSize: '11px', marginTop: '2px' }}>Size: {remoteClipboard.size}</div>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '10px' }}>Size: {remoteClipboard.size}</div>
                 </div>
-
-                <div className="d-flex gap-2">
-                  <button 
-                    className="btn btn-primary btn-sm w-100" 
-                    onClick={pasteFileToLocal}
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '12px' }}
-                  >
-                    <Download size={14} /> Paste to Local
-                  </button>
-                  <button 
-                    className="btn btn-ghost btn-sm" 
-                    onClick={() => { setRemoteClipboard(null); addLog("Clipboard buffer cleared."); }}
-                    style={{ fontSize: '11px', color: 'var(--text-secondary)' }}
-                  >
-                    Clear
-                  </button>
-                </div>
+                <button 
+                  className="btn btn-primary btn-sm w-100" 
+                  onClick={() => {
+                    const blob = new Blob([remoteClipboard.content], { type: 'text/plain;charset=utf-8' });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = `sync_${remoteClipboard.name}`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                    toast.success('Pasted clipboard content locally!');
+                  }}
+                >
+                  Save file to local disk
+                </button>
               </div>
             ) : (
-              <div style={{ border: '1px dashed var(--border-color)', borderRadius: '8px', padding: '14px 10px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '12px', marginTop: '6px' }}>
-                Clipboard is empty. Connect to remote peer and copy a file to sync.
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', border: '1px dashed var(--border-color)', padding: '12px', borderRadius: '6px', textAlign: 'center' }}>
+                Clipboard buffer empty
               </div>
             )}
-          </div>
-
-          <div className="mt-1 px-2 d-flex flex-column gap-2">
-            <div className="d-flex align-items-center gap-2" style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-              <ShieldAlert size={14} style={{ color: 'var(--brand-warning)' }} />
-              <span>Encrypted via DTLS/SRTP tunnel</span>
-            </div>
-            <div className="d-flex align-items-center gap-2" style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-              <Cpu size={14} style={{ color: 'var(--brand-primary)' }} />
-              <span>Hardware Acceleration: ON</span>
-            </div>
           </div>
         </div>
+
       </div>
 
-      {/* STUN/TURN WebRTC Configuration Settings Modal */}
+      {/* STUN modal */}
       {showConfigModal && (
         <div className="modal-backdrop" onClick={() => setShowConfigModal(false)}>
-          <div className="modal animate-scale-in" style={{ maxWidth: '460px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }} onClick={e => e.stopPropagation()}>
+          <div className="modal animate-scale-in" style={{ maxWidth: '440px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }} onClick={e => e.stopPropagation()}>
             <div className="modal-header" style={{ borderBottom: '1px solid var(--border-color)' }}>
-              <h4 className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--brand-primary)' }}>
-                <Settings size={18} /> WebRTC Remote Settings
-              </h4>
+              <h5 className="modal-title">WebRTC Tunnel Configuration</h5>
               <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setShowConfigModal(false)}>✕</button>
             </div>
-            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '12px' }}>
               <div className="form-group">
-                <label className="form-label">Streaming Resolution</label>
+                <label className="form-label">Streaming Quality Constraint</label>
                 <select 
                   className="form-control" 
                   value={config.resolution} 
                   onChange={e => setConfig(prev => ({ ...prev, resolution: e.target.value }))}
                   style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
                 >
-                  <option value="720p">720p HD (Low bandwidth)</option>
-                  <option value="1080p">1080p FHD (High fidelity)</option>
-                  <option value="4k">4K UHD (Requires local fiber)</option>
+                  <option value="720p">720p HD (Low latency)</option>
+                  <option value="1080p">1080p FHD (Fidelity)</option>
+                  <option value="4k">4K Ultra HD (Lossless)</option>
                 </select>
               </div>
-
               <div className="form-group">
-                <label className="form-label">Streaming Framerate</label>
+                <label className="form-label">Framerate Cap</label>
                 <select 
                   className="form-control" 
                   value={config.fps} 
                   onChange={e => setConfig(prev => ({ ...prev, fps: e.target.value }))}
                   style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
                 >
-                  <option value="30">30 FPS (Standard)</option>
-                  <option value="60">60 FPS (Ultra Smooth)</option>
+                  <option value="30">30 FPS</option>
+                  <option value="60">60 FPS</option>
                 </select>
               </div>
-
               <div className="form-group">
-                <label className="form-label">Audio Stream Loopback</label>
-                <div className="d-flex align-items-center gap-2">
-                  <input 
-                    type="checkbox" 
-                    checked={config.audio} 
-                    onChange={e => setConfig(prev => ({ ...prev, audio: e.target.checked }))}
-                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                  />
-                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Transmit computer audio during control session</span>
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">STUN / TURN Server Pool</label>
+                <label className="form-label">STUN Host Server</label>
                 <input 
                   type="text" 
                   className="form-control" 
                   value={config.stunServer} 
                   onChange={e => setConfig(prev => ({ ...prev, stunServer: e.target.value }))}
-                  style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', fontFamily: 'monospace', fontSize: '12px' }}
+                  style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', fontFamily: 'monospace' }}
                 />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Bandwidth Cap</label>
-                <select 
-                  className="form-control" 
-                  value={config.bandwidthLimit} 
-                  onChange={e => setConfig(prev => ({ ...prev, bandwidthLimit: e.target.value }))}
-                  style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
-                >
-                  <option value="1mbps">1 Mbps (Strict economy)</option>
-                  <option value="5mbps">5 Mbps (Broadband)</option>
-                  <option value="unlimited">Unlimited (Zero Compression)</option>
-                </select>
               </div>
             </div>
             <div className="modal-footer" style={{ borderTop: '1px solid var(--border-color)' }}>
               <button className="btn btn-secondary btn-sm" onClick={() => setShowConfigModal(false)}>Cancel</button>
-              <button 
-                className="btn btn-primary btn-sm" 
-                onClick={() => {
-                  setShowConfigModal(false);
-                  toast.success("WebRTC configuration updated successfully! 🛠️");
-                }}
-              >
-                Save Settings
-              </button>
+              <button className="btn btn-primary btn-sm" onClick={() => { setShowConfigModal(false); toast.success('Constraints updated.'); }}>Save</button>
             </div>
           </div>
         </div>
       )}
-
-      {/* Styled CSS animation for components */}
-      <style>{`
-        @keyframes blink {
-          50% { opacity: 0; }
-        }
-        .blink-cursor {
-          animation: blink 1s step-start infinite;
-        }
-        @keyframes pulse {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.8; transform: scale(1.03); }
-        }
-        .btn-emergency {
-          box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
-        }
-        .btn-emergency:hover {
-          box-shadow: 0 0 20px rgba(239, 68, 68, 0.7);
-        }
-        .pulse-dot {
-          animation: blink 1.2s step-start infinite;
-        }
-      `}</style>
-
     </div>
   );
 }
-

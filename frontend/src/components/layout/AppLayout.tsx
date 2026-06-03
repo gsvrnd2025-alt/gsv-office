@@ -6,6 +6,7 @@ import { Topbar } from '../ui/Topbar';
 import { useThemeStore } from '../../store/theme.store';
 import { chatApi } from '../../api';
 import { SoundManager } from '../../utils/sound';
+import FloatingStickyNotes from './FloatingStickyNotes';
 import styles from './AppLayout.module.css';
 
 export function AppLayout() {
@@ -89,6 +90,9 @@ export function AppLayout() {
           <Outlet context={{ sidebarCollapsed, setSidebarCollapsed }} />
         </main>
       </div>
+
+      {/* Floating Sticky Notes rendered globally */}
+      <FloatingStickyNotes />
     </div>
   );
 }

@@ -7,6 +7,7 @@ interface User {
   email: string;
   fullName: string;
   avatarUrl?: string;
+  phone?: string;
   role?: { id: string; name: string; color: string };
   department?: { id: string; name: string };
   status: string;

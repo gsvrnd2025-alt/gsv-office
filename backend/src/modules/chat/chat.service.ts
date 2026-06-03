@@ -31,6 +31,29 @@ export class ChatService implements OnModuleInit {
     } catch (err) {
       console.error('Failed to run chat db migration:', err);
     }
+
+    try {
+      // Ensure the Public Chat conversation exists
+      const existing = await this.dataSource.query(`
+        SELECT id FROM conversations WHERE type = 'broadcast' AND name = 'Public Chat' LIMIT 1
+      `);
+      if (existing.length === 0) {
+        const [publicConv] = await this.dataSource.query(`
+          INSERT INTO conversations (type, name, description, metadata)
+          VALUES ('broadcast', 'Public Chat', 'Mandatory public chat for all workspace users', '{"isPublic": true}')
+          RETURNING id
+        `);
+        // Add all existing users
+        await this.dataSource.query(`
+          INSERT INTO conversation_members (conversation_id, user_id)
+          SELECT $1, id FROM users
+          ON CONFLICT (conversation_id, user_id) DO NOTHING
+        `, [publicConv.id]);
+        console.log('[ChatService] Created Public Chat and added all existing users.');
+      }
+    } catch (err) {
+      console.error('Error ensuring Public Chat exists:', err);
+    }
   }
 
   async mergeDuplicateConversations() {
@@ -107,6 +130,22 @@ export class ChatService implements OnModuleInit {
   }
 
   async getConversations(userId: string, page = 1, limit = 20) {
+    // Ensure user is in the public chat room
+    try {
+      const publicChat = await this.dataSource.query(`
+        SELECT id FROM conversations WHERE type = 'broadcast' AND name = 'Public Chat' LIMIT 1
+      `);
+      if (publicChat.length > 0) {
+        await this.dataSource.query(`
+          INSERT INTO conversation_members (conversation_id, user_id)
+          VALUES ($1, $2)
+          ON CONFLICT (conversation_id, user_id) DO NOTHING
+        `, [publicChat[0].id, userId]);
+      }
+    } catch (e) {
+      console.error('Error auto-joining user to public chat:', e);
+    }
+
     return this.dataSource.query(`
       SELECT c.*, cm.last_read_at, cm.is_muted, cm.is_archived,
              COUNT(m.id) FILTER (WHERE m.created_at > COALESCE(cm.last_read_at, '1970-01-01') AND m.sender_id != $1 AND m.deleted_at IS NULL) AS unread_count,
