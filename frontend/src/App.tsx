@@ -3,6 +3,7 @@ import { Suspense, lazy, useEffect } from 'react';
 import { AppLayout } from './components/layout/AppLayout';
 import { AuthLayout } from './components/layout/AuthLayout';
 import { useAuthStore } from './store/auth.store';
+import { authApi } from './api';
 import { LoadingScreen } from './components/ui/LoadingScreen';
 import { SoundManager } from './utils/sound';
 
@@ -97,16 +98,35 @@ function GuestRoute({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const { isAuthenticated, setUser, logout } = useAuthStore();
+
   useEffect(() => {
     const autoLogin = localStorage.getItem('gsv-autologin') === 'true';
     const sessionActive = sessionStorage.getItem('gsv-session-active') === 'true';
     
     if (!autoLogin && !sessionActive) {
-      useAuthStore.getState().logout();
+      logout();
     } else {
       sessionStorage.setItem('gsv-session-active', 'true');
     }
-  }, []);
+  }, [logout]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      authApi.me()
+        .then(res => {
+          if (res.data && res.data.success) {
+            setUser(res.data.data);
+          }
+        })
+        .catch(err => {
+          console.error('Failed to sync profile permissions:', err);
+          if (err.response?.status === 401) {
+            logout();
+          }
+        });
+    }
+  }, [isAuthenticated, setUser, logout]);
 
   useEffect(() => {
     const handleGlobalClick = (e: MouseEvent) => {

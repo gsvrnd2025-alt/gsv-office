@@ -66,6 +66,13 @@ export class AuthService {
       userAgent,
     });
 
+    // Fetch and attach permissions for complete user context on the client
+    const { rolePermissions, userPermissions } = await this.getPermissionsForUser(user);
+    if (user.role) {
+      (user.role as any).permissions = rolePermissions;
+    }
+    (user as any).userPermissions = userPermissions;
+
     return {
       accessToken,
       refreshToken,
@@ -298,6 +305,44 @@ export class AuthService {
 
     await this.refreshTokenRepo.save(refreshToken);
     return token;
+  }
+
+  private async getPermissionsForUser(user: User) {
+    let rolePermissions = [];
+    if (user.roleId || user.role?.id) {
+      const roleId = user.roleId || user.role.id;
+      const rolePerms = await this.usersRepo.query(
+        `SELECT rp.granted, p.module, p.action
+         FROM role_permissions rp
+         JOIN permissions p ON p.id = rp.permission_id
+         WHERE rp.role_id = $1`,
+        [roleId]
+      );
+      rolePermissions = rolePerms.map((rp: any) => ({
+        granted: rp.granted,
+        permission: {
+          module: rp.module,
+          action: rp.action
+        }
+      }));
+    }
+
+    const userPerms = await this.usersRepo.query(
+      `SELECT up.granted, p.module, p.action
+       FROM user_permissions up
+       JOIN permissions p ON p.id = up.permission_id
+       WHERE up.user_id = $1`,
+      [user.id]
+    );
+    const userPermissions = userPerms.map((up: any) => ({
+      granted: up.granted,
+      permission: {
+        module: up.module,
+        action: up.action
+      }
+    }));
+
+    return { rolePermissions, userPermissions };
   }
 
   private hashToken(token: string): string {
