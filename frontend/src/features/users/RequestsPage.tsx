@@ -1,12 +1,17 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Check, X, Shield, Clock, CheckSquare, Square, RefreshCw
+  Check, X, Shield, Clock, CheckSquare, Square, RefreshCw, KeyRound
 } from 'lucide-react';
-import api, { usersApi, rolesApi, permissionsApi } from '../../api';
+import api, { usersApi, rolesApi, permissionsApi, authApi } from '../../api';
 import toast from 'react-hot-toast';
+import { useAuthStore } from '../../store/auth.store';
 
 export default function RequestsPage() {
+  const { user } = useAuthStore();
+  const isSuperAdmin = user?.role?.name === 'Super Admin';
+  const [viewType, setViewType] = useState<'signup' | 'forgot'>('signup');
+
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState<'pending' | 'active' | 'blocked'>('pending');
   const [approveUser, setApproveUser] = useState<any>(null);
@@ -22,9 +27,38 @@ export default function RequestsPage() {
   const { data: usersData, isLoading: loadingUsers } = useQuery({
     queryKey: ['users-requests', activeTab],
     queryFn: () => usersApi.getAll({ status: activeTab }).then((r: any) => r.data?.data || r.data || []),
+    enabled: viewType === 'signup',
   });
 
   const usersList = usersData?.data ? usersData.data : (Array.isArray(usersData) ? usersData : []);
+
+  // Forgot password queries
+  const { data: forgotRequestsData, isLoading: loadingForgot } = useQuery({
+    queryKey: ['forgot-password-requests'],
+    queryFn: () => authApi.getForgotPasswordRequests().then((r: any) => r.data?.data || r.data || []),
+    enabled: isSuperAdmin && viewType === 'forgot',
+  });
+
+  const forgotList = Array.isArray(forgotRequestsData) ? forgotRequestsData : [];
+
+  // Forgot password mutations
+  const approveForgotMutation = useMutation({
+    mutationFn: (userId: string) => authApi.approveForgotPassword(userId),
+    onSuccess: () => {
+      toast.success('Password reset request approved! User can now reset.');
+      qc.invalidateQueries({ queryKey: ['forgot-password-requests'] });
+    },
+    onError: () => toast.error('Approval failed'),
+  });
+
+  const rejectForgotMutation = useMutation({
+    mutationFn: (userId: string) => authApi.rejectForgotPassword(userId),
+    onSuccess: () => {
+      toast.success('Password reset request rejected.');
+      qc.invalidateQueries({ queryKey: ['forgot-password-requests'] });
+    },
+    onError: () => toast.error('Rejection failed'),
+  });
 
   const { data: pendingUsersData } = useQuery({
     queryKey: ['users-requests', 'pending'],
@@ -70,8 +104,29 @@ export default function RequestsPage() {
         </div>
       </div>
 
-      {/* Main card */}
-      <div className="card" style={{ backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.08)' }}>
+      {isSuperAdmin && (
+        <div style={{ display: 'flex', gap: '12px', marginBottom: '8px' }}>
+          <button
+            type="button"
+            className={`btn ${viewType === 'signup' ? 'btn-primary' : 'btn-outline-secondary'}`}
+            onClick={() => setViewType('signup')}
+            style={{ fontWeight: 700 }}
+          >
+            👥 Signup Requests
+          </button>
+          <button
+            type="button"
+            className={`btn ${viewType === 'forgot' ? 'btn-primary' : 'btn-outline-secondary'}`}
+            onClick={() => setViewType('forgot')}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}
+          >
+            <KeyRound size={16} /> Password Resets
+          </button>
+        </div>
+      )}
+
+      {viewType === 'signup' && (
+        <div className="card" style={{ backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.08)' }}>
         <div className="card-header" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', padding: '16px 20px', background: 'rgba(255,255,255,0.02)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ fontSize: '15px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
             👥 Account Registration & Signup Logs
@@ -227,6 +282,98 @@ export default function RequestsPage() {
           </table>
         </div>
       </div>
+      )}
+
+      {/* Password Reset Requests Tab */}
+      {viewType === 'forgot' && (
+        <div className="card" style={{ backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <div className="card-header" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', padding: '16px 20px', background: 'rgba(255,255,255,0.02)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', margin: 0, color: 'var(--text-primary)' }}>
+              🔑 Pending Password Reset Approvals
+            </h3>
+          </div>
+          <div className="table-container" style={{ minHeight: '300px' }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Login ID / Emp ID</th>
+                  <th>Email Address</th>
+                  <th>Requested At</th>
+                  <th style={{ width: '220px', textAlign: 'right' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loadingForgot ? (
+                  Array.from({ length: 3 }).map((_, i) => (
+                    <tr key={i}>
+                      {Array.from({ length: 5 }).map((_, j) => (
+                        <td key={j}><div className="skeleton" style={{ height: '16px' }} /></td>
+                      ))}
+                    </tr>
+                  ))
+                ) : forgotList.length === 0 ? (
+                  <tr>
+                    <td colSpan={5}>
+                      <div style={{ padding: '80px 0', textAlign: 'center', color: 'var(--text-tertiary)' }}>
+                        <div style={{ fontSize: '40px', marginBottom: '12px' }}>🎉</div>
+                        <h4 style={{ color: 'var(--text-primary)', marginBottom: '4px' }}>All clear!</h4>
+                        <p style={{ fontSize: '13px' }}>No password reset requests pending admin approval</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  forgotList.map((u: any) => (
+                    <tr key={u.id}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <div className="avatar" style={{ background: 'var(--gradient-brand)' }}>
+                            {initials(u.fullName)}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: '13px' }}>{u.fullName}</div>
+                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{u.phone || 'No phone'}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td style={{ fontSize: '13px' }}>
+                        <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{u.loginId}</span>
+                        <span style={{ color: 'var(--text-tertiary)', fontSize: '11px', display: 'block' }}>{u.employeeId || 'No Emp ID'}</span>
+                      </td>
+                      <td style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{u.email}</td>
+                      <td style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                        <Clock size={12} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />
+                        {u.metadata?.passwordResetRequestedAt ? new Date(u.metadata.passwordResetRequestedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Pending'}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-ghost"
+                            style={{ color: 'var(--brand-danger)', padding: '6px' }}
+                            title="Reject Request"
+                            onClick={() => { if (confirm(`Reject reset request for ${u.fullName}?`)) rejectForgotMutation.mutate(u.id); }}
+                          >
+                            <X size={14} style={{ marginRight: '4px' }} /> Reject
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-primary"
+                            style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px' }}
+                            onClick={() => { if (confirm(`Approve reset request for ${u.fullName}?`)) approveForgotMutation.mutate(u.id); }}
+                          >
+                            <Check size={14} /> Approve
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Approve signup modal overlay */}
       {approveUser && (

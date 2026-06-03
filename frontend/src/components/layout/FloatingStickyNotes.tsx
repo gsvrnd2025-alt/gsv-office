@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   FileText, Plus, Trash2, Search, Download, 
-  Tag, Palette, X, StickyNote, Minimize2, Maximize2, Move
+  Tag, Palette, X, StickyNote, Minimize2, Maximize2, Move, Bold
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { copyTextToClipboard } from '../../utils/clipboard';
 import { useThemeStore } from '../../store/theme.store';
 
 interface Note {
@@ -25,6 +24,19 @@ const NOTE_COLORS = [
   { name: 'Slate', bg: '#334155', text: '#f8fafc', border: '#64748b' }
 ];
 
+const getTagColor = (tag: string) => {
+  switch (tag) {
+    case 'All': return { bg: '#3b82f6', text: '#ffffff', border: '#2563eb' };
+    case 'General': return { bg: '#eab308', text: '#000000', border: '#ca8a04' };
+    case 'Work': return { bg: '#10b981', text: '#ffffff', border: '#059669' };
+    case 'Personal': return { bg: '#ec4899', text: '#ffffff', border: '#db2777' };
+    case 'Meeting': return { bg: '#8b5cf6', text: '#ffffff', border: '#7c3aed' };
+    case 'Reminder': return { bg: '#f97316', text: '#ffffff', border: '#ea580c' };
+    case 'Code': return { bg: '#6366f1', text: '#ffffff', border: '#4f46e5' };
+    default: return { bg: '#64748b', text: '#ffffff', border: '#475569' };
+  }
+};
+
 interface DraggableNoteCardProps {
   note: Note;
   onUpdate: (id: string, updates: Partial<Note>) => void;
@@ -37,10 +49,10 @@ interface DraggableNoteCardProps {
 function DraggableNoteCard({ note, onUpdate, onClose, onDelete, onDownload, categories }: DraggableNoteCardProps) {
   const { theme } = useThemeStore();
   const [position, setPosition] = useState({
-    x: 150 + Math.random() * 250,
-    y: 100 + Math.random() * 250
+    x: 100 + Math.random() * 200,
+    y: 100 + Math.random() * 200
   });
-  const [size, setSize] = useState({ width: 340, height: 380 });
+  const [size, setSize] = useState({ width: 380, height: 420 });
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [showSaveMenu, setShowSaveMenu] = useState(false);
@@ -50,6 +62,7 @@ function DraggableNoteCard({ note, onUpdate, onClose, onDelete, onDownload, cate
   const resizeStartRef = useRef({ x: 0, y: 0 });
   const sizeStartRef = useRef({ width: 0, height: 0 });
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   const colorObj = NOTE_COLORS.find(c => c.bg === note.color) || NOTE_COLORS[0];
   
@@ -65,6 +78,13 @@ function DraggableNoteCard({ note, onUpdate, onClose, onDelete, onDownload, cate
     }
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [showSaveMenu]);
+
+  // Sync editor content on note load/ID change
+  useEffect(() => {
+    if (contentRef.current) {
+      contentRef.current.innerHTML = note.content || '';
+    }
+  }, [note.id]);
 
   // Drag handlers
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -96,8 +116,8 @@ function DraggableNoteCard({ note, onUpdate, onClose, onDelete, onDownload, cate
         const dx = e.clientX - resizeStartRef.current.x;
         const dy = e.clientY - resizeStartRef.current.y;
         setSize({
-          width: Math.max(280, Math.min(800, sizeStartRef.current.width + dx)),
-          height: Math.max(280, Math.min(800, sizeStartRef.current.height + dy))
+          width: Math.max(300, Math.min(900, sizeStartRef.current.width + dx)),
+          height: Math.max(300, Math.min(900, sizeStartRef.current.height + dy))
         });
       }
     };
@@ -117,6 +137,19 @@ function DraggableNoteCard({ note, onUpdate, onClose, onDelete, onDownload, cate
     };
   }, [isDragging, isResizing, size, position]);
 
+  const handleContentInput = () => {
+    if (contentRef.current) {
+      onUpdate(note.id, { content: contentRef.current.innerHTML });
+    }
+  };
+
+  const handleBoldToggle = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    document.execCommand('bold', false);
+    handleContentInput();
+  };
+
   return (
     <div
       onMouseDown={handleMouseDown}
@@ -127,10 +160,10 @@ function DraggableNoteCard({ note, onUpdate, onClose, onDelete, onDownload, cate
         width: `${size.width}px`,
         height: `${size.height}px`,
         background: colorObj.bg,
-        border: `2px solid ${colorObj.border}`,
-        borderRadius: '12px',
-        boxShadow: '0 15px 35px rgba(0,0,0,0.3)',
-        zIndex: 10000,
+        border: `3px solid ${colorObj.border}`,
+        borderRadius: '16px',
+        boxShadow: '0 20px 40px rgba(0,0,0,0.4)',
+        zIndex: 10005,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -138,43 +171,38 @@ function DraggableNoteCard({ note, onUpdate, onClose, onDelete, onDownload, cate
         transition: isDragging || isResizing ? 'none' : 'width 0.15s, height 0.15s'
       }}
     >
-      {/* Editor Header */}
+      {/* Editor Drag Header */}
       <div
         className="card-drag-handle d-flex justify-content-between align-items-center px-3"
         style={{
-          height: '42px',
-          background: 'rgba(0,0,0,0.06)',
+          height: '46px',
+          background: 'rgba(0,0,0,0.07)',
           cursor: 'move',
-          borderBottom: '1px solid rgba(0,0,0,0.06)',
+          borderBottom: '1.5px solid rgba(0,0,0,0.07)',
           userSelect: 'none'
         }}
       >
-        <span style={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.5px' }}>
-          📌 NOTE EDITOR
+        <span style={{ fontSize: '12px', fontWeight: 800, letterSpacing: '0.5px' }}>
+          📝 GSV NOTE OVERLAY
         </span>
         <div className="d-flex align-items-center gap-2" onClick={e => e.stopPropagation()}>
-          {/* Mac-style controls: Red to delete note, Yellow to minimize/dock it back to the drawer */}
-          <button
-            onClick={onDelete}
-            style={{
-              width: '12px', height: '12px', borderRadius: '50%', border: 'none',
-              background: '#ff5f56', cursor: 'pointer'
-            }}
-            title="Delete Note"
-          />
           <button
             onClick={onClose}
             style={{
-              width: '12px', height: '12px', borderRadius: '50%', border: 'none',
-              background: '#ffbd2e', cursor: 'pointer'
+              width: '22px', height: '22px', borderRadius: '50%', border: 'none',
+              background: 'rgba(0,0,0,0.15)', color: colorObj.text, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '12px', fontWeight: 'bold'
             }}
-            title="Minimize to Drawer"
-          />
+            title="Close Note"
+          >
+            ×
+          </button>
         </div>
       </div>
 
       {/* Editor inputs */}
-      <div className="p-3 d-flex flex-column gap-2 flex-grow-1" style={{ minHeight: 0 }}>
+      <div className="p-3 d-flex flex-column gap-3 flex-grow-1" style={{ minHeight: 0 }}>
         <input
           type="text"
           value={note.title}
@@ -183,29 +211,29 @@ function DraggableNoteCard({ note, onUpdate, onClose, onDelete, onDownload, cate
           style={{
             background: 'transparent',
             border: 'none',
-            borderBottom: '1.5px solid rgba(0,0,0,0.1)',
+            borderBottom: '2px solid rgba(0,0,0,0.1)',
             outline: 'none',
-            fontWeight: 700,
-            fontSize: '15px',
+            fontWeight: 800,
+            fontSize: '17px',
             color: 'inherit',
-            paddingBottom: '4px'
+            paddingBottom: '6px'
           }}
         />
 
         <div className="d-flex align-items-center justify-content-between">
-          <div className="d-flex align-items-center gap-1">
-            <Tag size={12} />
+          <div className="d-flex align-items-center gap-2">
+            <Tag size={14} />
             <select
               value={note.tag}
               onChange={e => onUpdate(note.id, { tag: e.target.value })}
               style={{
-                background: 'rgba(255,255,255,0.4)',
-                border: '1px solid rgba(0,0,0,0.1)',
-                borderRadius: '4px',
-                fontSize: '11px',
-                padding: '2px 4px',
+                background: 'rgba(255,255,255,0.6)',
+                border: '1.5px solid rgba(0,0,0,0.15)',
+                borderRadius: '6px',
+                fontSize: '12px',
+                padding: '3px 6px',
                 color: '#000',
-                fontWeight: 600
+                fontWeight: 700
               }}
             >
               {categories.map(cat => (
@@ -213,22 +241,45 @@ function DraggableNoteCard({ note, onUpdate, onClose, onDelete, onDownload, cate
               ))}
             </select>
           </div>
-          <span style={{ fontSize: '9px', opacity: 0.7 }}>{note.updatedAt}</span>
+          <span style={{ fontSize: '11px', fontWeight: 600, opacity: 0.8 }}>{note.updatedAt}</span>
         </div>
 
-        <textarea
-          value={note.content}
-          onChange={e => onUpdate(note.id, { content: e.target.value })}
-          placeholder="Start writing note..."
+        {/* Formatting Toolbar */}
+        <div className="d-flex align-items-center gap-2 p-1 rounded" style={{ background: 'rgba(0,0,0,0.04)', border: '1px solid rgba(0,0,0,0.06)' }}>
+          <button
+            onClick={handleBoldToggle}
+            className="d-flex align-items-center justify-content-center"
+            style={{
+              width: '28px', height: '28px',
+              background: 'rgba(255,255,255,0.5)',
+              border: '1px solid rgba(0,0,0,0.15)',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              color: 'inherit'
+            }}
+            title="Bold Selection (Ctrl+B)"
+          >
+            <Bold size={14} />
+          </button>
+        </div>
+
+        {/* Contenteditable broad notepad area */}
+        <div
+          ref={contentRef}
+          contentEditable
+          onInput={handleContentInput}
+          data-placeholder="Start typing broad notes here..."
           style={{
             flex: 1,
             background: 'transparent',
             border: 'none',
             outline: 'none',
-            resize: 'none',
-            fontSize: '13px',
-            lineHeight: 1.5,
-            color: 'inherit'
+            overflowY: 'auto',
+            fontSize: '15px',
+            lineHeight: 1.6,
+            color: 'inherit',
+            padding: '8px 0',
+            resize: 'none'
           }}
         />
       </div>
@@ -236,19 +287,19 @@ function DraggableNoteCard({ note, onUpdate, onClose, onDelete, onDownload, cate
       {/* Bottom controls */}
       <div 
         className="px-3 py-2 d-flex justify-content-between align-items-center"
-        style={{ background: 'rgba(0,0,0,0.03)', borderTop: '1px solid rgba(0,0,0,0.06)' }}
+        style={{ background: 'rgba(0,0,0,0.04)', borderTop: '1px solid rgba(0,0,0,0.07)' }}
         onClick={e => e.stopPropagation()}
       >
         {/* Colors selector */}
-        <div className="d-flex gap-1">
+        <div className="d-flex gap-2">
           {NOTE_COLORS.map(c => (
             <div
               key={c.name}
               onClick={() => onUpdate(note.id, { color: c.bg })}
               style={{
-                width: '14px', height: '14px', borderRadius: '50%', background: c.bg,
-                cursor: 'pointer', border: note.color === c.bg ? '2.5px solid #000' : '1px solid rgba(0,0,0,0.25)',
-                boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                width: '18px', height: '18px', borderRadius: '50%', background: c.bg,
+                cursor: 'pointer', border: note.color === c.bg ? '3px solid #000' : '1.5px solid rgba(0,0,0,0.25)',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.15)'
               }}
               title={c.name}
             />
@@ -262,29 +313,29 @@ function DraggableNoteCard({ note, onUpdate, onClose, onDelete, onDownload, cate
               onClick={() => setShowSaveMenu(!showSaveMenu)}
               className="btn btn-xs d-flex align-items-center gap-1"
               style={{
-                fontSize: '11px',
+                fontSize: '12px',
                 background: 'rgba(0,0,0,0.08)',
-                border: '1px solid rgba(0,0,0,0.15)',
+                border: '1.5px solid rgba(0,0,0,0.2)',
                 color: 'inherit',
-                fontWeight: 600,
-                padding: '3px 8px',
-                borderRadius: '4px'
+                fontWeight: 700,
+                padding: '4px 10px',
+                borderRadius: '6px'
               }}
             >
-              <Download size={11} /> Save As
+              <Download size={12} /> Save As
             </button>
             {showSaveMenu && (
               <div
                 style={{
-                  position: 'absolute', bottom: '28px', right: 0,
-                  background: '#1e293b', border: '1px solid rgba(255,255,255,0.15)',
-                  borderRadius: '6px', width: '120px', display: 'flex', flexDirection: 'column',
-                  fontSize: '11px', overflow: 'hidden', boxShadow: '0 5px 15px rgba(0,0,0,0.3)',
-                  zIndex: 1000
+                  position: 'absolute', bottom: '32px', right: 0,
+                  background: '#1e293b', border: '1.5px solid rgba(255,255,255,0.2)',
+                  borderRadius: '8px', width: '130px', display: 'flex', flexDirection: 'column',
+                  fontSize: '12px', overflow: 'hidden', boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                  zIndex: 1010
                 }}
               >
-                <div className="px-3 py-2 cursor-pointer text-white hover-note-item" onClick={() => onDownload('txt', note)} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>📄 TXT</div>
-                <div className="px-3 py-2 cursor-pointer text-white hover-note-item" onClick={() => onDownload('jpg', note)} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>🖼️ JPG</div>
+                <div className="px-3 py-2 cursor-pointer text-white hover-note-item" onClick={() => onDownload('txt', note)} style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>📄 TXT</div>
+                <div className="px-3 py-2 cursor-pointer text-white hover-note-item" onClick={() => onDownload('jpg', note)} style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>🖼️ JPG</div>
                 <div className="px-3 py-2 cursor-pointer text-white hover-note-item" onClick={() => onDownload('pdf', note)}>🖨️ PDF</div>
               </div>
             )}
@@ -296,7 +347,7 @@ function DraggableNoteCard({ note, onUpdate, onClose, onDelete, onDownload, cate
             style={{ background: 'transparent' }}
             title="Delete permanently"
           >
-            <Trash2 size={14} />
+            <Trash2 size={16} />
           </button>
         </div>
       </div>
@@ -305,8 +356,8 @@ function DraggableNoteCard({ note, onUpdate, onClose, onDelete, onDownload, cate
       <div
         onMouseDown={handleResizeStart}
         style={{
-          position: 'absolute', bottom: 0, right: 0, width: '12px', height: '12px',
-          cursor: 'se-resize', background: 'linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.2) 50%)'
+          position: 'absolute', bottom: 0, right: 0, width: '14px', height: '14px',
+          cursor: 'se-resize', background: 'linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.25) 50%)'
         }}
       />
     </div>
@@ -316,10 +367,17 @@ function DraggableNoteCard({ note, onUpdate, onClose, onDelete, onDownload, cate
 export default function FloatingStickyNotes() {
   const { theme } = useThemeStore();
   const [isManagerOpen, setIsManagerOpen] = useState(false);
+  const [managerWidth, setManagerWidth] = useState<'380px' | '640px'>('380px');
   const [notes, setNotes] = useState<Note[]>([]);
   const [openNoteIds, setOpenNoteIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTagFilter, setSelectedTagFilter] = useState('All');
+
+  // New note creation dialog state
+  const [showNewDialog, setShowNewDialog] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newCategory, setNewCategory] = useState('General');
+  const [newColor, setNewColor] = useState('#fef08a');
 
   // Categories list State
   const [categories, setCategories] = useState<string[]>(() => {
@@ -337,8 +395,6 @@ export default function FloatingStickyNotes() {
   const fabPosStartRef = useRef({ x: 0, y: 0 });
   const dragDistanceRef = useRef(0);
 
-
-
   // Load notes
   const loadNotes = () => {
     const saved = localStorage.getItem('gsv_sticky_notes');
@@ -350,7 +406,7 @@ export default function FloatingStickyNotes() {
       const defaultNote: Note = {
         id: 'default-1',
         title: 'Welcome to GSV Notes 📝',
-        content: 'This is a floating sticky note. Click existing notes to open them in floating panels.\n\n- Reposition the FAB button\n- Open multiple notes side-by-side\n- Customize category tags',
+        content: '<div>This is a floating sticky note. Double-click existing notes to open them in floating panels.</div><div><br></div><div>- Reposition the FAB button</div><div>- Open multiple notes side-by-side</div><div>- Customize category tags</div>',
         color: '#fef08a',
         tag: 'General',
         updatedAt: new Date().toLocaleString()
@@ -373,6 +429,7 @@ export default function FloatingStickyNotes() {
 
   const saveNotes = (updatedNotes: Note[]) => {
     setNotes(updatedNotes);
+    localStorage.setItem('gsv-sticky-notes-raw', JSON.stringify(updatedNotes)); // raw backup
     localStorage.setItem('gsv_sticky_notes', JSON.stringify(updatedNotes));
     window.dispatchEvent(new Event('gsv-notes-update'));
   };
@@ -416,21 +473,26 @@ export default function FloatingStickyNotes() {
     }
   };
 
-
-
-  // Create note
-  const createNewNote = () => {
+  // Create note on submit
+  const handleCreateNoteSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTitle.trim()) {
+      toast.error('Please enter a note title');
+      return;
+    }
     const newNote: Note = {
       id: `note-${Date.now()}`,
-      title: 'New Note',
-      content: '',
-      color: '#fef08a',
-      tag: 'General',
+      title: newTitle.trim(),
+      content: '<div>Start writing note content...</div>',
+      color: newColor,
+      tag: newCategory,
       updatedAt: new Date().toLocaleString()
     };
     const updated = [newNote, ...notes];
     saveNotes(updated);
     setOpenNoteIds(prev => [...prev, newNote.id]);
+    setShowNewDialog(false);
+    setNewTitle('');
     toast.success('Spawned new sticky card! 📝');
   };
 
@@ -474,20 +536,22 @@ export default function FloatingStickyNotes() {
     }
   };
 
-  // Click note in list
-  const toggleNoteEditor = (id: string) => {
-    if (openNoteIds.includes(id)) {
-      setOpenNoteIds(prev => prev.filter(nid => nid !== id));
-    } else {
+  // Double click note in list to spawn overlay
+  const handleDoubleClickNote = (id: string) => {
+    if (!openNoteIds.includes(id)) {
       setOpenNoteIds(prev => [...prev, id]);
+      toast.success('Opened overlay note card.');
     }
   };
 
   // Download logic
   const handleDownload = (format: 'txt' | 'jpg' | 'pdf', note: Note) => {
     const { title, content, tag, color, updatedAt } = note;
+    // Strip HTML for TXT representation
+    const textContent = content.replace(/<\/div>/g, '\n').replace(/<[^>]*>/g, '');
+
     if (format === 'txt') {
-      const blob = new Blob([`GSV Notes\nTitle: ${title}\nTag: ${tag}\nUpdated: ${updatedAt}\n\n${content}`], { type: 'text/plain;charset=utf-8' });
+      const blob = new Blob([`GSV Notes\nTitle: ${title}\nTag: ${tag}\nUpdated: ${updatedAt}\n\n${textContent}`], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -512,7 +576,7 @@ export default function FloatingStickyNotes() {
         ctx.fillText(title, 30, 115);
         ctx.font = '14px sans-serif';
         ctx.fillStyle = color === '#334155' ? '#f8fafc' : '#334155';
-        const lines = content.split('\n');
+        const lines = textContent.split('\n');
         let y = 150;
         for (const line of lines) {
           ctx.fillText(line, 30, y);
@@ -536,7 +600,7 @@ export default function FloatingStickyNotes() {
                 <h2>${title}</h2>
                 <span style="font-size:11px;opacity:0.8;">Saved: ${updatedAt}</span>
               </div>
-              <pre style="white-space:pre-wrap;font-size:15px;line-height:1.5;">${content}</pre>
+              <div style="font-size:15px;line-height:1.5;">${content}</div>
               <script>window.onload = function(){ window.print(); setTimeout(window.close, 500); }</script>
             </body>
           </html>
@@ -587,52 +651,38 @@ export default function FloatingStickyNotes() {
           position: 'fixed',
           right: 0,
           top: 0,
-          width: '380px',
+          width: managerWidth,
           height: '100vh',
           background: 'var(--bg-card)',
-          borderLeft: '2px solid var(--border-color)',
-          boxShadow: isManagerOpen ? '-10px 0 35px rgba(0,0,0,0.3)' : 'none',
+          borderLeft: '3px solid var(--border-color)',
+          boxShadow: isManagerOpen ? '-10px 0 35px rgba(0,0,0,0.45)' : 'none',
           color: 'var(--text-primary)',
           overflow: 'hidden',
           zIndex: 9990,
-          transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+          transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), width 0.2s ease',
           transform: isManagerOpen ? 'translateX(0)' : 'translateX(100%)'
         }}
       >
-          {/* Header Bar */}
+          {/* Realaligned Header Bar: Title, Search, and Min/Max/Close inline */}
           <div
             className="d-flex justify-content-between align-items-center px-3 border-bottom"
             style={{
-              height: '56px',
+              height: '60px',
               borderColor: 'var(--border-color)',
               background: 'var(--bg-secondary)',
-              userSelect: 'none'
+              userSelect: 'none',
+              gap: '12px'
             }}
           >
-            <div className="d-flex align-items-center gap-2">
-              <FileText size={18} className="text-warning" />
-              <strong style={{ fontSize: '14px', letterSpacing: '0.5px' }}>GSV Notes Drawer</strong>
+            {/* Title */}
+            <div className="d-flex align-items-center gap-2" style={{ whiteSpace: 'nowrap' }}>
+              <FileText size={18} className="text-warning animate-pulse" />
+              <strong style={{ fontSize: '13px', letterSpacing: '0.5px' }}>G S V Workspace Notes</strong>
             </div>
 
-            <div className="d-flex align-items-center gap-2" onClick={e => e.stopPropagation()}>
-              <button
-                onClick={() => setIsManagerOpen(false)}
-                style={{
-                  width: '24px', height: '24px', borderRadius: '50%', border: 'none',
-                  background: 'rgba(255,255,255,0.1)', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 'bold'
-                }}
-                title="Close Drawer"
-              >
-                ×
-              </button>
-            </div>
-          </div>
-
-          {/* Search bar */}
-          <div className="p-3 border-bottom" style={{ borderColor: 'var(--border-color)', background: 'var(--bg-secondary)' }}>
-            <div className="position-relative">
-              <Search size={14} className="position-absolute text-muted" style={{ left: '10px', top: '10px' }} />
+            {/* Search Input inline */}
+            <div className="position-relative flex-grow-1" style={{ maxWidth: '280px' }}>
+              <Search size={12} className="position-absolute text-muted" style={{ left: '8px', top: '8px' }} />
               <input
                 type="text"
                 placeholder="Search notes..."
@@ -640,50 +690,98 @@ export default function FloatingStickyNotes() {
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 style={{
-                  paddingLeft: '32px',
-                  fontSize: '12px',
+                  paddingLeft: '26px',
+                  paddingRight: '6px',
+                  height: '28px',
+                  fontSize: '11px',
                   background: 'var(--bg-primary)',
                   borderColor: 'var(--border-color)',
-                  color: 'var(--text-primary)'
+                  color: 'var(--text-primary)',
+                  borderRadius: '6px'
                 }}
               />
             </div>
+
+            {/* Header controls (Min, Max, Close) */}
+            <div className="d-flex align-items-center gap-1" onClick={e => e.stopPropagation()}>
+              <button
+                onClick={() => setIsManagerOpen(false)}
+                style={{
+                  padding: '2px 8px', borderRadius: '4px', border: 'none',
+                  background: 'rgba(255,255,255,0.08)', color: 'var(--text-primary)', cursor: 'pointer',
+                  fontSize: '11px', fontWeight: 'bold'
+                }}
+                title="Minimize Drawer"
+              >
+                Min
+              </button>
+              <button
+                onClick={() => setManagerWidth(prev => prev === '380px' ? '640px' : '380px')}
+                style={{
+                  padding: '2px 8px', borderRadius: '4px', border: 'none',
+                  background: 'rgba(255,255,255,0.08)', color: 'var(--text-primary)', cursor: 'pointer',
+                  fontSize: '11px', fontWeight: 'bold'
+                }}
+                title="Toggle Maximize"
+              >
+                {managerWidth === '380px' ? 'Max' : 'Restore'}
+              </button>
+              <button
+                onClick={() => setIsManagerOpen(false)}
+                style={{
+                  padding: '2px 8px', borderRadius: '4px', border: 'none',
+                  background: '#ef4444', color: '#ffffff', cursor: 'pointer',
+                  fontSize: '11px', fontWeight: 'bold'
+                }}
+                title="Close Drawer"
+              >
+                Close
+              </button>
+            </div>
           </div>
 
-          {/* Tag scrollbar menu */}
-          <div className="px-3 py-2 d-flex gap-2 align-items-center border-bottom overflow-x-auto" style={{ borderColor: 'var(--border-color)', scrollbarWidth: 'none' }}>
+          {/* Tag Category scrollbar menu with bold tag-specific colors */}
+          <div className="px-3 py-2 d-flex gap-2 align-items-center border-bottom overflow-x-auto" style={{ borderColor: 'var(--border-color)', scrollbarWidth: 'none', background: 'var(--bg-secondary)' }}>
             <span
               onClick={() => setSelectedTagFilter('All')}
               className="badge cursor-pointer"
               style={{
                 fontSize: '11px',
-                padding: '6px 10px',
+                padding: '6px 12px',
                 borderRadius: '6px',
-                background: selectedTagFilter === 'All' ? 'var(--brand-primary)' : 'var(--bg-secondary)',
+                fontWeight: 700,
+                border: '1.5px solid #2563eb',
+                background: selectedTagFilter === 'All' ? '#3b82f6' : 'var(--bg-secondary)',
                 color: selectedTagFilter === 'All' ? '#fff' : 'var(--text-secondary)'
               }}
             >
               All
             </span>
-            {categories.map(tg => (
-              <span
-                key={tg}
-                onClick={() => setSelectedTagFilter(tg)}
-                className="badge cursor-pointer"
-                style={{
-                  fontSize: '11px',
-                  padding: '6px 10px',
-                  borderRadius: '6px',
-                  background: selectedTagFilter === tg ? 'var(--brand-primary)' : 'var(--bg-secondary)',
-                  color: selectedTagFilter === tg ? '#fff' : 'var(--text-secondary)'
-                }}
-              >
-                {tg}
-              </span>
-            ))}
+            {categories.map(tg => {
+              const colors = getTagColor(tg);
+              const isActive = selectedTagFilter === tg;
+              return (
+                <span
+                  key={tg}
+                  onClick={() => setSelectedTagFilter(tg)}
+                  className="badge cursor-pointer"
+                  style={{
+                    fontSize: '11px',
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    fontWeight: 800,
+                    border: `1.5px solid ${colors.border}`,
+                    background: isActive ? colors.bg : 'var(--bg-secondary)',
+                    color: isActive ? colors.text : 'var(--text-secondary)'
+                  }}
+                >
+                  {tg}
+                </span>
+              );
+            })}
             <button 
               className="btn btn-ghost p-1 d-flex align-items-center justify-content-center text-primary"
-              style={{ background: 'var(--bg-secondary)', border: 'none', borderRadius: '50%', width: '22px', height: '22px' }}
+              style={{ background: 'var(--bg-primary)', border: '1.5px solid var(--border-color)', borderRadius: '50%', width: '22px', height: '22px', fontWeight: 800 }}
               onClick={handleAddNewCategory}
               title="Add Custom Category Tag"
             >
@@ -691,68 +789,135 @@ export default function FloatingStickyNotes() {
             </button>
           </div>
 
-          {/* Notes History list */}
-          <div className="flex-grow-1 p-3 d-flex flex-column gap-2" style={{ overflowY: 'auto' }}>
+          {/* New note configuration popover inside the drawer */}
+          {showNewDialog && (
+            <div className="p-3 border-bottom" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }}>
+              <form onSubmit={handleCreateNoteSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <strong style={{ fontSize: '12px', color: 'var(--text-primary)' }}>🏷️ Note Properties</strong>
+                <input 
+                  type="text"
+                  placeholder="Enter Title..."
+                  value={newTitle}
+                  onChange={e => setNewTitle(e.target.value)}
+                  className="form-control"
+                  style={{ fontSize: '12px', padding: '6px', background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1.5px solid var(--border-color)' }}
+                  required
+                />
+                <div className="d-flex justify-content-between align-items-center gap-2">
+                  <select 
+                    value={newCategory}
+                    onChange={e => setNewCategory(e.target.value)}
+                    className="form-control w-50"
+                    style={{ fontSize: '11px', padding: '4px', background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1.5px solid var(--border-color)' }}
+                  >
+                    {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  
+                  {/* Color dots picker */}
+                  <div className="d-flex gap-1">
+                    {NOTE_COLORS.map(c => (
+                      <div 
+                        key={c.name}
+                        onClick={() => setNewColor(c.bg)}
+                        style={{
+                          width: '14px', height: '14px', borderRadius: '50%', background: c.bg,
+                          cursor: 'pointer', border: newColor === c.bg ? '2.5px solid #000' : '1px solid rgba(0,0,0,0.2)'
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <div className="d-flex gap-2 justify-content-end mt-1">
+                  <button type="button" className="btn btn-xs btn-ghost" onClick={() => setShowNewDialog(false)}>Cancel</button>
+                  <button type="submit" className="btn btn-xs btn-primary">Create Note</button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* Action Row - "New Note" trigger */}
+          <div className="px-3 py-2 border-bottom d-flex justify-content-between align-items-center" style={{ borderColor: 'var(--border-color)', background: 'var(--bg-secondary)' }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+              Double-click card to open as floating overlay
+            </span>
+            <button
+              onClick={() => setShowNewDialog(!showNewDialog)}
+              className="btn btn-primary btn-xs d-flex align-items-center gap-1"
+              style={{ fontSize: '11px', fontWeight: 700, padding: '4px 10px', borderRadius: '6px' }}
+            >
+              <Plus size={12} /> New Note
+            </button>
+          </div>
+
+          {/* Notes Card list representation (Clean rectangular blocks) */}
+          <div className="flex-grow-1 p-3 d-flex flex-column gap-3" style={{ overflowY: 'auto', background: 'var(--bg-primary)' }}>
             {filteredNotes.length === 0 ? (
               <div className="text-center text-muted" style={{ fontSize: '12px', marginTop: '30px' }}>No notes found</div>
             ) : (
               filteredNotes.map(n => {
                 const colorObj = NOTE_COLORS.find(c => c.bg === n.color) || NOTE_COLORS[0];
                 const isOpenCard = openNoteIds.includes(n.id);
+                // Strip HTML for list snippet
+                const textSnippet = n.content.replace(/<\/div>/g, ' ').replace(/<[^>]*>/g, '');
+                
                 return (
                   <div
                     key={n.id}
-                    onClick={() => toggleNoteEditor(n.id)}
-                    className="p-3 border rounded cursor-pointer d-flex justify-content-between align-items-center transition-all hover-manager-card"
+                    onDoubleClick={() => handleDoubleClickNote(n.id)}
+                    className="p-3 border transition-all hover-manager-card"
                     style={{
-                      background: 'var(--bg-secondary)',
+                      background: 'var(--bg-card)',
                       borderColor: isOpenCard ? 'var(--brand-primary)' : 'var(--border-color)',
-                      borderLeft: `5px solid ${colorObj.bg}`
+                      borderWidth: '2px',
+                      borderRadius: '12px',
+                      borderLeft: `6px solid ${colorObj.bg}`,
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 6px rgba(0,0,0,0.06)'
                     }}
+                    title="Double-click to open overlay card"
                   >
-                    <div style={{ minWidth: 0, flex: 1, paddingRight: '8px' }}>
-                      <div className="d-flex align-items-center gap-2 mb-1">
-                        <strong style={{ fontSize: '13px', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div className="d-flex justify-content-between align-items-center gap-2 mb-2">
+                        <strong style={{ fontSize: '14px', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {n.title || 'Untitled'}
                         </strong>
-                        <span className="badge" style={{ background: colorObj.bg, color: colorObj.text, fontSize: '9px', fontWeight: 700, padding: '2px 4px' }}>
+                        <span className="badge" style={{ background: colorObj.bg, color: colorObj.text, fontSize: '9px', fontWeight: 800, padding: '2px 6px', borderRadius: '4px' }}>
                           {n.tag}
                         </span>
                       </div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {n.content || '(Empty content)'}
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.4, marginBottom: '8px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                        {textSnippet || '(No content yet)'}
                       </div>
-                      <span style={{ fontSize: '9px', color: 'var(--text-tertiary)' }}>{n.updatedAt}</span>
-                    </div>
-
-                    <div className="d-flex align-items-center gap-2" onClick={e => e.stopPropagation()}>
-                      <button
-                        className="btn btn-ghost p-1 text-danger border-0"
-                        onClick={(e) => deleteNote(n.id, e)}
-                        title="Delete note"
-                      >
-                        <Trash2 size={13} />
-                      </button>
+                      
+                      <div className="d-flex justify-content-between align-items-center mt-2 border-top pt-2" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+                        <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{n.updatedAt}</span>
+                        <div className="d-flex gap-2">
+                          <button
+                            type="button"
+                            className="btn btn-ghost p-0 text-primary border-0"
+                            onClick={() => handleDoubleClickNote(n.id)}
+                            style={{ fontSize: '10px', fontWeight: 700 }}
+                          >
+                            Open Card
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-ghost p-0 text-danger border-0"
+                            onClick={(e) => deleteNote(n.id, e)}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );
               })
             )}
           </div>
-
-          {/* Footer "New Note" Button */}
-          <div className="p-3 border-top" style={{ borderColor: 'var(--border-color)', background: 'var(--bg-secondary)' }}>
-            <button
-              onClick={createNewNote}
-              className="btn btn-primary w-100 d-flex align-items-center justify-content-center gap-2"
-              style={{ fontSize: '13px', fontWeight: 600, padding: '8px' }}
-            >
-              <Plus size={16} /> New Sticky Card
-            </button>
-          </div>
         </div>
 
-      {/* Render Independent Draggable Note Cards */}
+      {/* Render Independent Draggable Note Cards (Overlaying everything) */}
       {openNoteIds.map(noteId => {
         const note = notes.find(n => n.id === noteId);
         if (!note) return null;
@@ -762,7 +927,7 @@ export default function FloatingStickyNotes() {
             note={note}
             categories={categories}
             onUpdate={updateNote}
-            onClose={() => toggleNoteEditor(note.id)}
+            onClose={() => setOpenNoteIds(prev => prev.filter(nid => nid !== note.id))}
             onDelete={(e) => deleteNote(note.id, e)}
             onDownload={handleDownload}
           />
@@ -780,7 +945,8 @@ export default function FloatingStickyNotes() {
         }
         .hover-manager-card:hover {
           background: var(--bg-hover) !important;
-          transform: translateY(-1px);
+          transform: translateY(-2px);
+          box-shadow: 0 8px 16px rgba(0,0,0,0.15) !important;
         }
       `}</style>
 

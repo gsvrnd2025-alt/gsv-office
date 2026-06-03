@@ -48,6 +48,11 @@ export const authApi = {
   logout: () => api.post('/auth/logout'),
   me: () => api.get('/auth/me'),
   changePassword: (data: any) => api.post('/auth/change-password', data),
+  forgotPasswordRequest: (data: { identifier: string }) => api.post('/auth/forgot-password/request', data),
+  forgotPasswordReset: (data: { identifier: string; newPassword: string }) => api.post('/auth/forgot-password/reset', data),
+  getForgotPasswordRequests: () => api.get('/auth/forgot-password/requests'),
+  approveForgotPassword: (id: string) => api.post(`/auth/forgot-password/approve/${id}`),
+  rejectForgotPassword: (id: string) => api.post(`/auth/forgot-password/reject/${id}`),
 };
 
 export const usersApi = {

@@ -42,6 +42,17 @@ function GuestRoute({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   useEffect(() => {
+    const autoLogin = localStorage.getItem('gsv-autologin') === 'true';
+    const sessionActive = sessionStorage.getItem('gsv-session-active') === 'true';
+    
+    if (!autoLogin && !sessionActive) {
+      useAuthStore.getState().logout();
+    } else {
+      sessionStorage.setItem('gsv-session-active', 'true');
+    }
+  }, []);
+
+  useEffect(() => {
     const handleGlobalClick = (e: MouseEvent) => {
       let target = e.target as HTMLElement | null;
       if (!target) return;

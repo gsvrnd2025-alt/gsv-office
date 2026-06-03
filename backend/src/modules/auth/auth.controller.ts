@@ -1,6 +1,6 @@
 import {
   Controller, Post, Body, UseGuards, Request, Get, Res,
-  HttpCode, HttpStatus, Ip, Headers,
+  HttpCode, HttpStatus, Ip, Headers, Param, ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Response } from 'express';
@@ -109,5 +109,78 @@ export class AuthController {
   ) {
     await this.authService.changePassword(userId, dto.oldPassword, dto.newPassword);
     return { success: true, message: 'Password changed successfully' };
+  }
+
+  @Public()
+  @Post('forgot-password/request')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Submit forgot password request to admin' })
+  async forgotPasswordRequest(@Body() body: { identifier: string }) {
+    await this.authService.forgotPasswordRequest(body.identifier);
+    return { success: true, message: 'Password reset request submitted successfully to administrators.' };
+  }
+
+  @Public()
+  @Post('forgot-password/reset')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Reset password and log in once approved' })
+  async forgotPasswordReset(
+    @Body() body: { identifier: string; newPassword: string },
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const user = await this.authService.resetForgotPassword(body.identifier, body.newPassword);
+    const result = await this.authService.login(user, ip, userAgent);
+    res.cookie('refreshToken', result.refreshToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+    return {
+      success: true,
+      message: 'Password reset and logged in successfully.',
+      data: {
+        accessToken: result.accessToken,
+        user: result.user,
+      },
+    };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('forgot-password/requests')
+  @ApiOperation({ summary: 'Get all pending forgot password requests' })
+  @ApiBearerAuth('JWT')
+  async getForgotPasswordRequests(@Request() req) {
+    if (req.user?.role?.name !== 'Super Admin') {
+      throw new ForbiddenException('Only Super Admins can access forgot password requests');
+    }
+    const requests = await this.authService.getForgotPasswordRequests();
+    return { success: true, data: requests };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('forgot-password/approve/:id')
+  @ApiOperation({ summary: 'Approve forgot password request' })
+  @ApiBearerAuth('JWT')
+  async approveForgotPassword(@Request() req, @Param('id') id: string) {
+    if (req.user?.role?.name !== 'Super Admin') {
+      throw new ForbiddenException('Only Super Admins can approve forgot password requests');
+    }
+    await this.authService.approveForgotPassword(id);
+    return { success: true, message: 'Password reset request approved.' };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('forgot-password/reject/:id')
+  @ApiOperation({ summary: 'Reject/cancel forgot password request' })
+  @ApiBearerAuth('JWT')
+  async rejectForgotPassword(@Request() req, @Param('id') id: string) {
+    if (req.user?.role?.name !== 'Super Admin') {
+      throw new ForbiddenException('Only Super Admins can reject forgot password requests');
+    }
+    await this.authService.rejectForgotPassword(id);
+    return { success: true, message: 'Password reset request rejected.' };
   }
 }

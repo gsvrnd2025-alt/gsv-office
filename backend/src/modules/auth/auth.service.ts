@@ -1,5 +1,5 @@
 import {
-  Injectable, UnauthorizedException, BadRequestException, Logger,
+  Injectable, UnauthorizedException, BadRequestException, NotFoundException, Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -148,6 +148,119 @@ export class AuthService {
       passwordHash: hash,
       forcePasswordChange: false,
     });
+  }
+
+  async forgotPasswordRequest(identifier: string): Promise<void> {
+    const user = await this.usersRepo.findOne({
+      where: [
+        { email: identifier },
+        { phone: identifier },
+        { employeeId: identifier },
+        { loginId: identifier },
+      ],
+    });
+    if (!user) {
+      throw new NotFoundException('No employee found with this ID, email, or mobile number.');
+    }
+
+    const metadata = user.metadata || {};
+    metadata.passwordResetStatus = 'pending';
+    metadata.passwordResetRequestedAt = new Date().toISOString();
+    await this.usersRepo.update(user.id, { metadata });
+
+    await this.auditService.log({
+      userId: user.id,
+      action: 'update',
+      resourceType: 'user',
+      resourceId: user.id,
+      description: `User requested password reset: ${user.loginId}`,
+    });
+  }
+
+  async getForgotPasswordRequests(): Promise<User[]> {
+    return this.usersRepo.createQueryBuilder('user')
+      .leftJoinAndSelect('user.role', 'role')
+      .leftJoinAndSelect('user.department', 'department')
+      .where("user.metadata->>'passwordResetStatus' = :status", { status: 'pending' })
+      .getMany();
+  }
+
+  async approveForgotPassword(userId: string): Promise<void> {
+    const user = await this.usersRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const metadata = user.metadata || {};
+    metadata.passwordResetStatus = 'approved';
+    metadata.passwordResetApprovedAt = new Date().toISOString();
+    await this.usersRepo.update(userId, { metadata });
+
+    await this.auditService.log({
+      userId,
+      action: 'update',
+      resourceType: 'user',
+      resourceId: userId,
+      description: 'Password reset request approved by admin',
+    });
+  }
+
+  async rejectForgotPassword(userId: string): Promise<void> {
+    const user = await this.usersRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const metadata = user.metadata || {};
+    delete metadata.passwordResetStatus;
+    delete metadata.passwordResetRequestedAt;
+    delete metadata.passwordResetApprovedAt;
+    await this.usersRepo.update(userId, { metadata });
+
+    await this.auditService.log({
+      userId,
+      action: 'update',
+      resourceType: 'user',
+      resourceId: userId,
+      description: 'Password reset request rejected by admin',
+    });
+  }
+
+  async resetForgotPassword(identifier: string, newPassword: string): Promise<User> {
+    const user = await this.usersRepo.findOne({
+      where: [
+        { email: identifier },
+        { phone: identifier },
+        { employeeId: identifier },
+        { loginId: identifier },
+      ],
+      relations: ['role', 'department'],
+    });
+    if (!user) {
+      throw new NotFoundException('No employee found with this ID, email, or mobile number.');
+    }
+
+    const metadata = user.metadata || {};
+    if (metadata.passwordResetStatus !== 'approved') {
+      throw new BadRequestException('Password reset request has not been approved by the administrator yet.');
+    }
+
+    const hash = await bcrypt.hash(newPassword, this.configService.get<number>('BCRYPT_ROUNDS', 12));
+    delete metadata.passwordResetStatus;
+    delete metadata.passwordResetRequestedAt;
+    delete metadata.passwordResetApprovedAt;
+    
+    await this.usersRepo.update(user.id, {
+      passwordHash: hash,
+      metadata,
+      forcePasswordChange: false,
+    });
+
+    await this.auditService.log({
+      userId: user.id,
+      action: 'update',
+      resourceType: 'user',
+      resourceId: user.id,
+      description: 'User reset password successfully via admin approval',
+    });
+
+    return user;
   }
 
   private async generateAccessToken(user: User): Promise<string> {

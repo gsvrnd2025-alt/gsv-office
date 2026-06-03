@@ -33,14 +33,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       user.isOnline = true;
       user.lastSeen = new Date();
 
-      // 2. Automatically sweep other users who haven't had any activity in the last 15 seconds
-      const fifteenSecondsAgo = new Date(Date.now() - 15 * 1000);
+      // 2. Automatically sweep other users who haven't had any activity in the last 5 minutes
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
       await this.usersRepo.createQueryBuilder()
         .update(User)
         .set({ isOnline: false })
         .where('is_online = :isOnline AND last_seen < :timeout AND id != :currentUserId', {
           isOnline: true,
-          timeout: fifteenSecondsAgo,
+          timeout: fiveMinutesAgo,
           currentUserId: user.id,
         })
         .execute();

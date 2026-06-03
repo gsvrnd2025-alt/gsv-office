@@ -8,12 +8,27 @@ import { chatApi } from '../../api';
 import { SoundManager } from '../../utils/sound';
 import FloatingStickyNotes from './FloatingStickyNotes';
 import styles from './AppLayout.module.css';
+import { useAuthStore } from '../../store/auth.store';
+import { io } from 'socket.io-client';
 
 export function AppLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const { theme } = useThemeStore();
   const location = useLocation();
+  const { accessToken } = useAuthStore();
+
+  // Connect globally to presence namespace
+  useEffect(() => {
+    if (!accessToken) return;
+    const socket = io('/presence', {
+      auth: { token: accessToken },
+      transports: ['websocket', 'polling']
+    });
+    return () => {
+      socket.disconnect();
+    };
+  }, [accessToken]);
 
   const isChatPage = location.pathname.startsWith('/chat');
 
@@ -26,40 +41,32 @@ export function AppLayout() {
 
   const prevUnreadCountSumRef = useRef(0);
   const unreadSum = conversations.reduce((acc: number, c: any) => acc + (Number(c.unread_count) || 0), 0);
+  const flashIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Tab Title Notification Flashing
   useEffect(() => {
-    if (unreadSum > prevUnreadCountSumRef.current) {
-      if (!isChatPage) {
-        // If they are on another route of the workspace app, play notifications globally and update title
+    if (flashIntervalRef.current) clearInterval(flashIntervalRef.current);
+
+    if (unreadSum > 0) {
+      if (unreadSum > prevUnreadCountSumRef.current) {
         SoundManager.playNotification();
-        document.title = `(${unreadSum}) New Secure Signal`;
-      } else if (document.visibilityState !== 'visible') {
-        // If they are on Chat page but the tab itself is backgrounded, let local listener play sound, just update tab title
-        document.title = `(${unreadSum}) New Secure Signal`;
       }
-    } else if (unreadSum === 0) {
-      document.title = 'GSV Office — Enterprise Workspace';
+      let toggle = false;
+      flashIntervalRef.current = setInterval(() => {
+        toggle = !toggle;
+        document.title = toggle 
+          ? `🔔 (${unreadSum}) New Signal!` 
+          : `💬 GSV E-Office Workspace`;
+      }, 1000);
+    } else {
+      document.title = 'GSV E-Office Workspace';
     }
+
     prevUnreadCountSumRef.current = unreadSum;
-  }, [unreadSum, isChatPage]);
-
-  // Reset tab title immediately when unread sum becomes 0 or when entering Chat Page
-  useEffect(() => {
-    if (isChatPage && unreadSum === 0) {
-      document.title = 'GSV Office — Enterprise Workspace';
-    }
-  }, [isChatPage, unreadSum]);
-
-  // Reset title when tab returns to focus
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && isChatPage) {
-        document.title = 'GSV Office — Enterprise Workspace';
-      }
+    return () => {
+      if (flashIntervalRef.current) clearInterval(flashIntervalRef.current);
     };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [isChatPage]);
+  }, [unreadSum]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
