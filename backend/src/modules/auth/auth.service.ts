@@ -143,7 +143,8 @@ export class AuthService {
     const isMatch = await bcrypt.compare(oldPassword, user.passwordHash);
     if (!isMatch) throw new BadRequestException('Current password is incorrect');
 
-    const hash = await bcrypt.hash(newPassword, this.configService.get<number>('BCRYPT_ROUNDS', 12));
+    const rounds = Number(this.configService.get('BCRYPT_ROUNDS', 12)) || 12;
+    const hash = await bcrypt.hash(newPassword, rounds);
     await this.usersRepo.update(userId, {
       passwordHash: hash,
       forcePasswordChange: false,
@@ -246,7 +247,8 @@ export class AuthService {
       throw new BadRequestException('Password reset request has not been approved by the administrator yet.');
     }
 
-    const hash = await bcrypt.hash(newPassword, this.configService.get<number>('BCRYPT_ROUNDS', 12));
+    const rounds = Number(this.configService.get('BCRYPT_ROUNDS', 12)) || 12;
+    const hash = await bcrypt.hash(newPassword, rounds);
     delete metadata.passwordResetStatus;
     delete metadata.passwordResetRequestedAt;
     delete metadata.passwordResetApprovedAt;
