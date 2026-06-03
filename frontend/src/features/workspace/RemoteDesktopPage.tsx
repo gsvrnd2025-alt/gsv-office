@@ -5,7 +5,7 @@ import {
   Volume2, Sliders, RefreshCw, X, Radio, Eye, FileCode2,
   Download, Copy, ClipboardCopy, ShieldCheck, AlertCircle, 
   AlertTriangle, Folder, HardDrive, Terminal, Users, Phone,
-  Mic, MicOff, Shield, CheckSquare, Clock
+  Mic, MicOff, Shield, CheckSquare, Clock, ChevronDown, ChevronUp
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../../store/auth.store';
@@ -59,6 +59,7 @@ export default function RemoteDesktopPage() {
   // Connection states
   const [targetPhone, setTargetPhone] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
+  const [dialingStatus, setDialingStatus] = useState<'idle' | 'calling' | 'accepted' | 'rejected' | 'timeout'>('idle');
   const [isConnected, setIsConnected] = useState(false); // Connected as CLIENT (controlling remote)
   const [isHosting, setIsHosting] = useState(false); // Currently streaming local screen
   const [isHostControlled, setIsHostControlled] = useState(false); // Host is currently controlled by remote client
@@ -68,6 +69,10 @@ export default function RemoteDesktopPage() {
   // Voice Chat
   const [isVoiceChatEnabled, setIsVoiceChatEnabled] = useState(false);
   const [localAudioStream, setLocalAudioStream] = useState<MediaStream | null>(null);
+
+  // Layout View constraints
+  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
+  const [videoFit, setVideoFit] = useState<'contain' | 'cover' | 'fill'>('contain');
 
   // Settings
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -102,6 +107,7 @@ export default function RemoteDesktopPage() {
   const localStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
+  const dialingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [selectedFileIndex, setSelectedFileIndex] = useState<number>(0);
@@ -136,11 +142,14 @@ export default function RemoteDesktopPage() {
     });
 
     s.on('remote:response', async (data: any) => {
+      if (dialingTimeoutRef.current) clearTimeout(dialingTimeoutRef.current);
       if (data.status === 'rejected') {
         setIsConnecting(false);
+        setDialingStatus('rejected');
         toast.error('Remote access request was rejected by host.');
         addLog(`Host rejected remote access request.`);
       } else {
+        setDialingStatus('accepted');
         addLog('Host accepted request. Setting up WebRTC session...');
         // Establish WebRTC connection
         setActivePartnerId(data.hostId);
@@ -193,6 +202,7 @@ export default function RemoteDesktopPage() {
 
     return () => {
       s.disconnect();
+      if (dialingTimeoutRef.current) clearTimeout(dialingTimeoutRef.current);
     };
   }, [accessToken]);
 
@@ -293,6 +303,7 @@ export default function RemoteDesktopPage() {
             videoRef.current.srcObject = event.streams[0];
             setIsConnected(true);
             setIsConnecting(false);
+            setDialingStatus('accepted');
             addLog('WebRTC Screen mirror feed attached.');
           }
         };
@@ -306,6 +317,7 @@ export default function RemoteDesktopPage() {
       console.error(e);
       addLog('Failed to negotiate WebRTC tunnel.');
       setIsConnecting(false);
+      setDialingStatus('idle');
     }
   };
 
@@ -346,6 +358,7 @@ export default function RemoteDesktopPage() {
     }
 
     setIsConnecting(true);
+    setDialingStatus('calling');
     addLog(`Requesting connection handshake with ${target.fullName}...`);
     
     socket?.emit('remote:request', {
@@ -354,6 +367,28 @@ export default function RemoteDesktopPage() {
       callerPhone: user?.phone || user?.loginId,
       callerDept: user?.department?.name || 'Workspace'
     });
+
+    // Start 30 seconds connection request timeout timer
+    if (dialingTimeoutRef.current) clearTimeout(dialingTimeoutRef.current);
+    dialingTimeoutRef.current = setTimeout(() => {
+      setDialingStatus('timeout');
+      setIsConnecting(false);
+      addLog('Dialing handshake request timed out.');
+      toast.error('Dial handshake request timed out.', { icon: '⏰' });
+    }, 30000);
+  };
+
+  // Cancel Dialing Handshake
+  const cancelConnectionRequest = () => {
+    if (dialingTimeoutRef.current) clearTimeout(dialingTimeoutRef.current);
+    const target = selectedTeammate || teammates.find(t => t.phone === targetPhone);
+    if (socket && target) {
+      socket.emit('remote:terminate', { targetUserId: target.id });
+    }
+    setIsConnecting(false);
+    setDialingStatus('idle');
+    addLog('Handshake calling request cancelled.');
+    toast.success('Dial handshake request cancelled.');
   };
 
   // Host Action: Accept Request
@@ -468,6 +503,7 @@ export default function RemoteDesktopPage() {
     }
 
     setIsConnecting(false);
+    setDialingStatus('idle');
     setIsConnected(false);
     setIsHosting(false);
     setIsHostControlled(false);
@@ -518,26 +554,40 @@ export default function RemoteDesktopPage() {
   return (
     <div className="page-enter" style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '16px', color: 'var(--text-primary)' }}>
       
-      {/* Header */}
-      <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
-        <div>
-          <h1 style={{ fontSize: '24px', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-            🖥️ GSV UltraViewer Remote Desk
-          </h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
-            P2P WebRTC secure remote syncing & voice coordination via user phone numbers
-          </p>
-        </div>
-        <div className="d-flex gap-2 align-items-center">
-          <div className="card d-flex flex-row align-items-center gap-2 px-3 py-1" style={{ fontSize: '12px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
-            <Phone size={14} style={{ color: 'var(--brand-success)' }} />
-            <span style={{ color: 'var(--text-secondary)' }}>My P2P ID:</span>
-            <span style={{ color: 'var(--brand-primary)', fontWeight: 700 }}>{user?.phone || user?.loginId}</span>
+      {/* Collapsible Connection Header */}
+      <div className="card p-3" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '10px' }}>
+        <div className="d-flex justify-content-between align-items-center cursor-pointer" onClick={() => setIsHeaderCollapsed(!isHeaderCollapsed)}>
+          <div className="d-flex align-items-center gap-2">
+            <Monitor className="text-primary" size={22} />
+            <h1 style={{ fontSize: '18px', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
+              🖥️ GSV Remote Desk Ultra Viewer
+            </h1>
           </div>
-          <button className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => setShowConfigModal(true)}>
-            <Settings size={14} /> Configure
-          </button>
+          <div className="d-flex align-items-center gap-3">
+            {!isHeaderCollapsed && (
+              <div className="d-flex align-items-center gap-2 px-3 py-1 rounded bg-dark border" style={{ fontSize: '12px', borderColor: 'rgba(255,255,255,0.1)' }}>
+                <span className="text-muted">My P2P ID:</span>
+                <span className="text-success" style={{ fontWeight: 800, fontSize: '13px' }}>{user?.phone || user?.loginId}</span>
+              </div>
+            )}
+            <button className="btn btn-ghost btn-sm p-0 m-0 text-white" style={{ fontSize: '12px' }}>
+              {isHeaderCollapsed ? <span className="d-flex align-items-center gap-1"><ChevronDown size={14} /> Expand Controls</span> : <span className="d-flex align-items-center gap-1"><ChevronUp size={14} /> Collapse Controls</span>}
+            </button>
+          </div>
         </div>
+        
+        {!isHeaderCollapsed && (
+          <div className="mt-3 pt-3 border-top d-flex justify-content-between align-items-center flex-wrap gap-3" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
+              Establish real-time P2P secure mirroring, desktop controls, and interactive voice calls using peer phone numbers.
+            </p>
+            <div className="d-flex gap-2">
+              <button className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => setShowConfigModal(true)}>
+                <Settings size={14} /> Configure STUN
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="row flex-grow-1" style={{ minHeight: '520px' }}>
@@ -633,10 +683,10 @@ export default function RemoteDesktopPage() {
               outline: 'none'
             }}
           >
-            {/* Hosting Feed */}
+            {/* Hosting Screen Capture Feed */}
             {isHosting && (
               <div className="w-100 h-100 position-relative">
-                <video ref={videoRef} autoPlay playsInline muted className="w-100 h-100" style={{ objectFit: 'contain' }} />
+                <video ref={videoRef} autoPlay playsInline muted className="w-100 h-100" style={{ objectFit: videoFit }} />
                 
                 <div className="position-absolute inset-0 d-flex flex-column align-items-center justify-content-center" style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(3px)', zIndex: 5, padding: '20px' }}>
                   <div className="card p-4 text-center animate-scale-in" style={{ maxWidth: '420px', border: '2px solid #ef4444', background: '#111827', color: '#f9fafb' }}>
@@ -666,7 +716,7 @@ export default function RemoteDesktopPage() {
               </div>
             )}
 
-            {/* Controlling Client Feed */}
+            {/* Controlling Client Mirror Feed */}
             {isConnected && (
               <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', position: 'relative', background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)', padding: '16px' }}>
                 
@@ -690,36 +740,45 @@ export default function RemoteDesktopPage() {
                     <Eye size={14} />
                     <span style={{ fontSize: '12px', fontWeight: 700 }}>P2P Mirror Session: {selectedTeammate?.fullName || 'Teammate'}</span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '11px', color: '#94a3b8' }}>
-                    <span>Latency: 12ms</span>
-                    <span>FPS: {config.fps} ({config.resolution})</span>
+                  
+                  {/* Screen scaling controls */}
+                  <div className="d-flex align-items-center gap-3">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '11px', color: '#94a3b8' }}>Screen Fit:</span>
+                      <select 
+                        value={videoFit}
+                        onChange={e => setVideoFit(e.target.value as any)}
+                        className="bg-dark text-white border-0"
+                        style={{ fontSize: '11px', padding: '2px 4px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.2)' }}
+                      >
+                        <option value="contain">Contain (16:9)</option>
+                        <option value="cover">Maximize Fit (Cover)</option>
+                        <option value="fill">Stretch Fill</option>
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#94a3b8' }}>
+                      <span>Latency: 12ms</span>
+                      <span>FPS: {config.fps}</span>
+                    </div>
                   </div>
                 </div>
 
-                {/* Simulated workspace desktop screen */}
-                <div style={{ flex: 1, marginTop: '16px', position: 'relative', display: 'flex', gap: '20px', alignContent: 'flex-start', flexWrap: 'wrap' }}>
-                  <div 
-                    onClick={() => setExplorerOpen(true)}
-                    style={{ 
-                      display: 'flex', 
-                      flexDirection: 'column', 
-                      alignItems: 'center', 
-                      width: '80px', 
-                      cursor: 'pointer',
-                      padding: '8px', 
-                      borderRadius: '8px', 
-                      background: explorerOpen ? 'rgba(255,255,255,0.08)' : 'transparent'
-                    }}
-                  >
-                    <HardDrive size={32} color="#60a5fa" />
-                    <span style={{ fontSize: '11px', color: '#fff', marginTop: '6px', textAlign: 'center', fontWeight: 600 }}>C: Drive</span>
-                  </div>
-
+                {/* Video container with applied fit controls */}
+                <div style={{ flex: 1, marginTop: '16px', position: 'relative', overflow: 'hidden' }}>
+                  <video 
+                    ref={videoRef} 
+                    autoPlay 
+                    playsInline 
+                    className="w-100 h-100" 
+                    style={{ objectFit: videoFit, background: '#000' }} 
+                  />
+                  
                   {explorerOpen && (
                     <div 
                       className="animate-scale-in"
                       style={{ 
-                        position: 'absolute', top: '10px', left: '100px', width: '380px', height: '240px', 
+                        position: 'absolute', top: '10px', left: '10px', width: '380px', height: '240px', 
                         background: 'rgba(15, 23, 42, 0.95)', border: '1px solid rgba(255,255,255,0.15)',
                         borderRadius: '10px', display: 'flex', flexDirection: 'column', overflow: 'hidden', zIndex: 10
                       }}
@@ -758,8 +817,8 @@ export default function RemoteDesktopPage() {
               </div>
             )}
 
-            {/* Disconnected View */}
-            {!isHosting && !isConnected && (
+            {/* Disconnected default View */}
+            {!isHosting && !isConnected && dialingStatus === 'idle' && (
               <div className="text-center p-4" style={{ color: 'var(--text-secondary)' }}>
                 <Monitor size={64} style={{ opacity: 0.15, marginBottom: '12px' }} />
                 <h6 style={{ fontWeight: 700, color: 'var(--text-primary)' }}>No Active Session</h6>
@@ -767,7 +826,53 @@ export default function RemoteDesktopPage() {
               </div>
             )}
 
-            {/* Handshake request popup */}
+            {/* Dialing Connection status modals (calling/timeout/rejected overlays) */}
+            {isConnecting && dialingStatus === 'calling' && (
+              <div className="position-absolute inset-0 d-flex align-items-center justify-content-center" style={{ background: 'rgba(0,0,0,0.85)', zIndex: 100 }}>
+                <div className="card p-4 text-center animate-scale-in" style={{ width: '330px', border: '1.5px solid var(--brand-primary)', background: '#1e293b', color: '#fff' }}>
+                  <RefreshCw size={40} className="text-warning mx-auto mb-3 spin" />
+                  <h5 style={{ fontWeight: 700 }}>Connecting Handshake</h5>
+                  <p style={{ fontSize: '12px', color: '#cbd5e1', marginBottom: '16px' }}>
+                    Calling host user. Waiting for authorization response...
+                  </p>
+                  <button className="btn btn-danger btn-sm w-100" onClick={cancelConnectionRequest}>
+                    Cancel Request
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {dialingStatus === 'timeout' && (
+              <div className="position-absolute inset-0 d-flex align-items-center justify-content-center" style={{ background: 'rgba(0,0,0,0.85)', zIndex: 100 }}>
+                <div className="card p-4 text-center animate-scale-in" style={{ width: '330px', border: '1.5px solid #ef4444', background: '#1e293b', color: '#fff' }}>
+                  <AlertCircle size={40} className="text-danger mx-auto mb-3" />
+                  <h5 style={{ fontWeight: 700, color: '#ef4444' }}>Handshake Timeout</h5>
+                  <p style={{ fontSize: '12px', color: '#cbd5e1', marginBottom: '16px' }}>
+                    No response was received from the host within 30 seconds.
+                  </p>
+                  <button className="btn btn-sm btn-secondary w-100" onClick={() => setDialingStatus('idle')}>
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {dialingStatus === 'rejected' && (
+              <div className="position-absolute inset-0 d-flex align-items-center justify-content-center" style={{ background: 'rgba(0,0,0,0.85)', zIndex: 100 }}>
+                <div className="card p-4 text-center animate-scale-in" style={{ width: '330px', border: '1.5px solid #ef4444', background: '#1e293b', color: '#fff' }}>
+                  <X size={40} className="text-danger mx-auto mb-3" />
+                  <h5 style={{ fontWeight: 700, color: '#ef4444' }}>Request Rejected</h5>
+                  <p style={{ fontSize: '12px', color: '#cbd5e1', marginBottom: '16px' }}>
+                    The host has rejected your remote access invitation.
+                  </p>
+                  <button className="btn btn-sm btn-secondary w-100" onClick={() => setDialingStatus('idle')}>
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Handshake authorization request pop-up on host side */}
             {showIncomingRequest && incomingRequestData && (
               <div className="position-absolute inset-0 d-flex align-items-center justify-content-center" style={{ background: 'rgba(0, 0, 0, 0.75)', zIndex: 100 }}>
                 <div className="card p-3 animate-scale-in" style={{ width: '340px', background: '#1e293b', border: '1.5px solid var(--brand-primary)', color: '#f8fafc' }}>

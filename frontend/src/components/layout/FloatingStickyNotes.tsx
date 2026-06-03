@@ -15,12 +15,12 @@ interface Note {
 }
 
 const NOTE_COLORS = [
-  { name: 'Yellow', bg: '#fef08a', text: '#854d0e', border: '#facc15' },
-  { name: 'Blue', bg: '#bfdbfe', text: '#1e40af', border: '#60a5fa' },
-  { name: 'Green', bg: '#bbf7d0', text: '#166534', border: '#4ade80' },
-  { name: 'Pink', bg: '#fbcfe8', text: '#9d174d', border: '#f472b6' },
-  { name: 'Purple', bg: '#e9d5ff', text: '#6b21a8', border: '#c084fc' },
-  { name: 'Dark Mode', bg: '#1e293b', text: '#f1f5f9', border: '#475569' }
+  { name: 'Yellow', bg: '#fef08a', text: '#854d0e', border: '#eab308' },
+  { name: 'Blue', bg: '#bfdbfe', text: '#1e40af', border: '#3b82f6' },
+  { name: 'Green', bg: '#bbf7d0', text: '#166534', border: '#22c55e' },
+  { name: 'Pink', bg: '#fbcfe8', text: '#9d174d', border: '#ec4899' },
+  { name: 'Purple', bg: '#e9d5ff', text: '#6b21a8', border: '#a855f7' },
+  { name: 'Slate', bg: '#334155', text: '#f8fafc', border: '#64748b' }
 ];
 
 const PREDEFINED_TAGS = ['General', 'Work', 'Personal', 'Meeting', 'Reminder', 'Code'];
@@ -32,22 +32,32 @@ export default function FloatingStickyNotes() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTagFilter, setSelectedTagFilter] = useState('All');
   const [isMinimized, setIsMinimized] = useState(false);
+  const [showSaveDropdown, setShowSaveDropdown] = useState(false);
 
-  // Load notes on mount
-  useEffect(() => {
+  // Drag and Resize State
+  const [position, setPosition] = useState({ x: window.innerWidth - 680, y: 120 });
+  const [size, setSize] = useState({ width: 620, height: 440 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const positionStartRef = useRef({ x: 0, y: 0 });
+  const resizeStartRef = useRef({ x: 0, y: 0 });
+  const sizeStartRef = useRef({ width: 0, height: 0 });
+  const saveDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Load notes
+  const loadNotes = () => {
     const saved = localStorage.getItem('gsv_sticky_notes');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         setNotes(parsed);
-        if (parsed.length > 0) {
+        if (parsed.length > 0 && !activeNoteId) {
           setActiveNoteId(parsed[0].id);
         }
-      } catch (e) {
-        console.error(e);
-      }
+      } catch (e) {}
     } else {
-      // Default note
       const defaultNote: Note = {
         id: 'default-1',
         title: 'Welcome to GSV Notes 📝',
@@ -58,13 +68,44 @@ export default function FloatingStickyNotes() {
       };
       setNotes([defaultNote]);
       setActiveNoteId(defaultNote.id);
+      localStorage.setItem('gsv_sticky_notes', JSON.stringify([defaultNote]));
     }
+  };
+
+  useEffect(() => {
+    loadNotes();
+    
+    // Sync storage updates from EOfficePage or other tabs
+    const handleSync = () => {
+      loadNotes();
+    };
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('gsv-notes-update', handleSync);
+    return () => {
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('gsv-notes-update', handleSync);
+    };
   }, []);
 
-  // Save notes to localStorage
+  // Click outside listener for Save Dropdown
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (saveDropdownRef.current && !saveDropdownRef.current.contains(e.target as Node)) {
+        setShowSaveDropdown(false);
+      }
+    };
+    if (showSaveDropdown) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+    };
+  }, [showSaveDropdown]);
+
   const saveNotes = (updatedNotes: Note[]) => {
     setNotes(updatedNotes);
     localStorage.setItem('gsv_sticky_notes', JSON.stringify(updatedNotes));
+    window.dispatchEvent(new Event('gsv-notes-update'));
   };
 
   const createNewNote = () => {
@@ -109,8 +150,6 @@ export default function FloatingStickyNotes() {
   };
 
   const activeNote = notes.find(n => n.id === activeNoteId);
-
-  // Filter notes
   const filteredNotes = notes.filter(n => {
     const matchesSearch = 
       n.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -119,14 +158,61 @@ export default function FloatingStickyNotes() {
     return matchesSearch && matchesTag;
   });
 
-  // Handle Export/Download logic
-  const handleDownload = (format: 'txt' | 'jpg' | 'pdf') => {
-    if (!activeNote) {
-      toast.error('No active note to download!');
-      return;
-    }
+  // Drag Handlers
+  const handleDragStart = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('.drag-handle') === null) return;
+    setIsDragging(true);
+    dragStartRef.current = { x: e.clientX, y: e.clientY };
+    positionStartRef.current = { ...position };
+  };
 
+  // Resize Handlers
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizing(true);
+    resizeStartRef.current = { x: e.clientX, y: e.clientY };
+    sizeStartRef.current = { ...size };
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDragging) {
+        const dx = e.clientX - dragStartRef.current.x;
+        const dy = e.clientY - dragStartRef.current.y;
+        setPosition({
+          x: Math.max(0, Math.min(window.innerWidth - size.width, positionStartRef.current.x + dx)),
+          y: Math.max(0, Math.min(window.innerHeight - size.height, positionStartRef.current.y + dy))
+        });
+      } else if (isResizing) {
+        const dx = e.clientX - resizeStartRef.current.x;
+        const dy = e.clientY - resizeStartRef.current.y;
+        setSize({
+          width: Math.max(450, Math.min(1000, sizeStartRef.current.width + dx)),
+          height: Math.max(380, Math.min(800, sizeStartRef.current.height + dy))
+        });
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      setIsResizing(false);
+    };
+
+    if (isDragging || isResizing) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, isResizing, size, position]);
+
+  const handleDownload = (format: 'txt' | 'jpg' | 'pdf') => {
+    if (!activeNote) return;
     const { title, content, tag, color, updatedAt } = activeNote;
+    setShowSaveDropdown(false);
 
     if (format === 'txt') {
       const blob = new Blob([`GSV Office Sticky Note\nTitle: ${title}\nTag: ${tag}\nUpdated: ${updatedAt}\n\n${content}`], { type: 'text/plain;charset=utf-8' });
@@ -138,35 +224,23 @@ export default function FloatingStickyNotes() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-      toast.success('Downloaded as TXT! 📄');
+      toast.success('Downloaded TXT File!');
     } else if (format === 'jpg') {
-      // Draw sticky note onto canvas to save as JPG
       const canvas = document.createElement('canvas');
       canvas.width = 600;
       canvas.height = 450;
       const ctx = canvas.getContext('2d');
       if (ctx) {
         const colorObj = NOTE_COLORS.find(c => c.bg === color) || NOTE_COLORS[0];
-        
-        // Background
         ctx.fillStyle = colorObj.bg;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         
-        // Draw shadow gradient
-        const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
-        grad.addColorStop(0, 'rgba(0,0,0,0)');
-        grad.addColorStop(1, 'rgba(0,0,0,0.05)');
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        // Header line / Tag
         ctx.fillStyle = colorObj.text;
-        ctx.font = 'bold 18px Outfit, sans-serif';
+        ctx.font = 'bold 18px sans-serif';
         ctx.fillText(`GSV Notes - [${tag}]`, 30, 45);
-        ctx.font = '12px Courier, monospace';
+        ctx.font = '12px monospace';
         ctx.fillText(`Updated: ${updatedAt}`, 30, 70);
 
-        // Border separator
         ctx.strokeStyle = colorObj.border;
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -174,39 +248,19 @@ export default function FloatingStickyNotes() {
         ctx.lineTo(570, 85);
         ctx.stroke();
 
-        // Title
-        ctx.fillStyle = colorObj.text;
-        ctx.font = 'bold 22px Outfit, sans-serif';
+        ctx.font = 'bold 22px sans-serif';
         ctx.fillText(title, 30, 125);
 
-        // Body Text wrapping
-        ctx.font = '16px Inter, sans-serif';
-        ctx.fillStyle = colorObj.bg === '#1e293b' ? '#e2e8f0' : '#334155';
+        ctx.font = '16px sans-serif';
+        ctx.fillStyle = color === '#334155' ? '#f8fafc' : '#334155';
         const lines = content.split('\n');
         let y = 165;
-        const lineSpacing = 24;
-        
         for (const line of lines) {
-          // Wrap text logic if line is too long
-          const words = line.split(' ');
-          let currentLine = '';
-          for (const word of words) {
-            const testLine = currentLine + word + ' ';
-            const metrics = ctx.measureText(testLine);
-            if (metrics.width > 540) {
-              ctx.fillText(currentLine, 30, y);
-              currentLine = word + ' ';
-              y += lineSpacing;
-            } else {
-              currentLine = testLine;
-            }
-          }
-          ctx.fillText(currentLine, 30, y);
-          y += lineSpacing;
+          ctx.fillText(line, 30, y);
+          y += 24;
           if (y > canvas.height - 30) break;
         }
 
-        // Output image
         const imgUrl = canvas.toDataURL('image/jpeg');
         const link = document.createElement('a');
         link.href = imgUrl;
@@ -214,10 +268,9 @@ export default function FloatingStickyNotes() {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        toast.success('Downloaded as JPG! 🖼️');
+        toast.success('Downloaded JPG Image!');
       }
     } else if (format === 'pdf') {
-      // Create a mock PDF or print-ready window layout
       const printWindow = window.open('', '_blank');
       if (printWindow) {
         printWindow.document.write(`
@@ -225,25 +278,21 @@ export default function FloatingStickyNotes() {
             <head>
               <title>${title}</title>
               <style>
-                body { font-family: 'Inter', sans-serif; padding: 40px; color: #334155; line-height: 1.6; }
-                .card { border: 2px solid ${color}; padding: 30px; border-radius: 12px; background: #fafafa; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-                .header { border-bottom: 2px solid ${color}; padding-bottom: 12px; margin-bottom: 20px; }
-                .tag { background: ${color}; color: #334155; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 14px; }
-                h1 { margin-top: 15px; color: #0f172a; font-size: 28px; }
-                pre { white-space: pre-wrap; font-family: 'Inter', sans-serif; font-size: 16px; margin-top: 20px; }
-                .footer { font-size: 12px; color: #94a3b8; margin-top: 30px; border-top: 1px solid #e2e8f0; padding-top: 10px; }
+                body { font-family: sans-serif; padding: 40px; }
+                .card { border: 2px solid ${color}; padding: 30px; border-radius: 8px; background: #fff; }
+                .header { border-bottom: 2px solid ${color}; padding-bottom: 10px; margin-bottom: 20px; }
+                h1 { margin: 0; color: #1e293b; }
+                pre { white-space: pre-wrap; font-size: 16px; }
               </style>
             </head>
             <body>
               <div class="card">
                 <div class="header">
-                  <span class="tag">${tag}</span>
+                  <span>Tag: <strong>${tag}</strong></span>
                   <h1>${title}</h1>
+                  <span style="font-size:11px;color:#64748b">Saved: ${updatedAt}</span>
                 </div>
                 <pre>${content}</pre>
-                <div class="footer">
-                  GSV Office enterprise workspace. PDF generated on ${updatedAt}.
-                </div>
               </div>
               <script>
                 window.onload = function() {
@@ -255,101 +304,115 @@ export default function FloatingStickyNotes() {
           </html>
         `);
         printWindow.document.close();
-        toast.success('Opened PDF print dialog! 🖨️');
       }
     }
   };
 
   return (
-    <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 9999, fontFamily: 'Outfit, sans-serif' }}>
+    <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 9999 }}>
       
-      {/* Floating Action Button */}
+      {/* Floating Action Button (Colorful Neon Glow Icon) */}
       {!isOpen && (
         <button 
           onClick={() => setIsOpen(true)}
-          className="d-flex align-items-center justify-content-center bg-primary border-0 rounded-circle text-white cursor-pointer"
+          className="d-flex align-items-center justify-content-center border-0 rounded-circle text-white cursor-pointer gsv-glow-btn"
           style={{ 
-            width: '56px', 
-            height: '56px', 
-            boxShadow: '0 4px 20px rgba(99, 102, 241, 0.45)',
+            width: '60px', 
+            height: '60px', 
+            background: 'linear-gradient(135deg, #ff007f 0%, #ff7b00 50%, #facc15 100%)',
+            boxShadow: '0 0 20px rgba(255, 0, 127, 0.6), 0 4px 10px rgba(0, 0, 0, 0.3)',
             transition: 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
             transform: 'scale(1)',
           }}
-          onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
-          onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+          onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.15) rotate(5deg)'}
+          onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1) rotate(0deg)'}
           title="Floating Sticky Notes"
         >
-          <StickyNote size={26} />
+          <StickyNote size={28} style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }} />
         </button>
       )}
 
-      {/* Expandable sticky notes notebook container */}
+      {/* Expandable sticky notes container */}
       {isOpen && (
         <div 
+          onMouseDown={handleDragStart}
           className="d-flex flex-column"
           style={{ 
-            width: isMinimized ? '280px' : '650px', 
-            height: isMinimized ? '48px' : '480px',
-            background: 'rgba(30, 41, 59, 0.92)',
-            backdropFilter: 'blur(16px)',
-            border: '1.5px solid rgba(255,255,255,0.08)',
-            borderRadius: '16px',
-            boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
+            position: 'fixed',
+            left: `${position.x}px`,
+            top: `${position.y}px`,
+            width: isMinimized ? '300px' : `${size.width}px`, 
+            height: isMinimized ? '52px' : `${size.height}px`,
+            background: 'rgba(15, 23, 42, 0.98)',
+            backdropFilter: 'blur(25px)',
+            border: '1.5px solid rgba(255,255,255,0.2)',
+            borderRadius: '14px',
+            boxShadow: '0 25px 60px rgba(0,0,0,0.75)',
             overflow: 'hidden',
-            transition: 'all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1)'
+            transition: isDragging || isResizing ? 'none' : 'width 0.2s, height 0.2s'
           }}
         >
-          {/* Notebook Header */}
+          {/* Header Bar (Mac style high contrast controls) */}
           <div 
-            className="d-flex justify-content-between align-items-center px-3 border-bottom"
+            className="drag-handle d-flex justify-content-between align-items-center px-3 border-bottom"
             style={{ 
-              height: '48px', 
-              borderColor: 'rgba(255,255,255,0.08)', 
-              background: 'rgba(0,0,0,0.2)',
-              cursor: 'pointer'
+              height: '52px', 
+              borderColor: 'rgba(255,255,255,0.15)', 
+              background: 'rgba(8, 12, 22, 0.6)',
+              cursor: 'move',
+              userSelect: 'none'
             }}
-            onClick={() => isMinimized && setIsMinimized(false)}
           >
-            <div className="d-flex align-items-center gap-2 text-white">
-              <FileText size={18} className="text-primary" />
-              <strong style={{ fontSize: '14px', letterSpacing: '0.5px' }}>GSV Workspace Notes</strong>
+            <div className="d-flex align-items-center gap-2 text-white drag-handle">
+              <FileText size={20} className="text-warning" />
+              <strong style={{ fontSize: '14px', letterSpacing: '0.5px', color: '#f8fafc', textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}>GSV Workspace Notes</strong>
             </div>
 
-            <div className="d-flex align-items-center gap-2">
+            <div className="d-flex align-items-center gap-2" onClick={e => e.stopPropagation()}>
+              {/* High Contrast Colorful Buttons */}
               <button 
-                className="btn btn-ghost btn-icon btn-sm p-0 text-secondary" 
-                style={{ width: '24px', height: '24px' }}
-                onClick={(e) => { e.stopPropagation(); setIsMinimized(!isMinimized); }}
+                onClick={() => setIsMinimized(!isMinimized)}
+                style={{ 
+                  width: '16px', height: '16px', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.4)', 
+                  background: '#eab308', cursor: 'pointer', display: 'flex', alignItems: 'center', 
+                  justifyContent: 'center', padding: 0, color: '#000', fontSize: '9px', fontWeight: 'bold'
+                }}
+                title={isMinimized ? "Maximize" : "Minimize"}
               >
-                {isMinimized ? <Maximize2 size={13} /> : <Minimize2 size={13} />}
+                –
               </button>
               <button 
-                className="btn btn-ghost btn-icon btn-sm p-0 text-danger" 
-                style={{ width: '24px', height: '24px' }}
-                onClick={(e) => { e.stopPropagation(); setIsOpen(false); }}
+                onClick={() => setIsOpen(false)}
+                style={{ 
+                  width: '16px', height: '16px', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.4)', 
+                  background: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', 
+                  justifyContent: 'center', padding: 0, color: '#fff', fontSize: '9px', fontWeight: 'bold'
+                }}
+                title="Close and Dock to Button"
               >
-                <X size={14} />
+                ×
               </button>
             </div>
           </div>
 
-          {/* Notebook Body (Main Editor & List) */}
+          {/* Body Content */}
           {!isMinimized && (
-            <div className="d-flex flex-grow-1" style={{ overflow: 'hidden' }}>
+            <div className="d-flex flex-grow-1" style={{ overflow: 'hidden', position: 'relative' }}>
               
               {/* Left Column: Sidebar / Notes List */}
               <div 
                 className="d-flex flex-column"
                 style={{ 
-                  width: '230px', 
-                  borderRight: '1px solid rgba(255,255,255,0.08)',
-                  background: 'rgba(0,0,0,0.1)'
+                  width: '210px', 
+                  borderRight: '1.5px solid rgba(255,255,255,0.12)',
+                  background: 'rgba(8, 12, 22, 0.4)',
+                  flexShrink: 0
                 }}
               >
-                {/* Search Bar */}
-                <div className="p-2 border-bottom" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+                {/* Search */}
+                <div className="p-2 border-bottom" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
                   <div className="position-relative">
-                    <Search size={12} className="position-absolute text-muted" style={{ left: '8px', top: '10px' }} />
+                    <Search size={14} className="position-absolute text-muted" style={{ left: '8px', top: '9px' }} />
                     <input 
                       type="text"
                       placeholder="Search notes..."
@@ -357,25 +420,24 @@ export default function FloatingStickyNotes() {
                       value={searchQuery}
                       onChange={e => setSearchQuery(e.target.value)}
                       style={{ 
-                        paddingLeft: '26px', 
-                        fontSize: '11px',
-                        background: 'rgba(0,0,0,0.2)',
-                        border: '1px solid rgba(255,255,255,0.06)'
+                        paddingLeft: '28px', 
+                        fontSize: '12px',
+                        background: 'rgba(0,0,0,0.5)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '6px'
                       }}
                     />
                   </div>
                 </div>
 
-                {/* Filter tags option */}
-                <div className="px-2 py-1 d-flex gap-1 overflow-x-auto border-bottom" style={{ borderColor: 'rgba(255,255,255,0.08)', fontSize: '10px' }}>
+                {/* Filter tags (Slightly larger, scrollable, nice padding) */}
+                <div className="px-2 py-2 d-flex gap-2 overflow-x-auto border-bottom align-items-center" style={{ borderColor: 'rgba(255,255,255,0.1)', fontSize: '13px', scrollbarWidth: 'none' }}>
                   <span 
                     onClick={() => setSelectedTagFilter('All')}
                     style={{ 
-                      padding: '2px 6px', 
-                      borderRadius: '4px', 
-                      cursor: 'pointer',
-                      background: selectedTagFilter === 'All' ? 'var(--brand-primary)' : 'rgba(255,255,255,0.05)',
-                      color: '#fff'
+                      padding: '4px 10px', borderRadius: '6px', cursor: 'pointer',
+                      background: selectedTagFilter === 'All' ? 'var(--brand-primary)' : 'rgba(255,255,255,0.08)',
+                      color: '#fff', whiteSpace: 'nowrap', fontWeight: 600
                     }}
                   >
                     All
@@ -385,12 +447,9 @@ export default function FloatingStickyNotes() {
                       key={tg}
                       onClick={() => setSelectedTagFilter(tg)}
                       style={{ 
-                        padding: '2px 6px', 
-                        borderRadius: '4px', 
-                        cursor: 'pointer',
-                        background: selectedTagFilter === tg ? 'var(--brand-primary)' : 'rgba(255,255,255,0.05)',
-                        color: '#fff',
-                        whiteSpace: 'nowrap'
+                        padding: '4px 10px', borderRadius: '6px', cursor: 'pointer',
+                        background: selectedTagFilter === tg ? 'var(--brand-primary)' : 'rgba(255,255,255,0.08)',
+                        color: '#fff', whiteSpace: 'nowrap', fontWeight: 600
                       }}
                     >
                       {tg}
@@ -398,12 +457,10 @@ export default function FloatingStickyNotes() {
                   ))}
                 </div>
 
-                {/* Note list entries */}
+                {/* Notes List */}
                 <div className="flex-grow-1 p-2 d-flex flex-column gap-2" style={{ overflowY: 'auto' }}>
                   {filteredNotes.length === 0 ? (
-                    <div className="text-center text-muted" style={{ fontSize: '11px', marginTop: '20px' }}>
-                      No notes found.
-                    </div>
+                    <div className="text-center text-muted" style={{ fontSize: '12px', marginTop: '20px' }}>No notes</div>
                   ) : (
                     filteredNotes.map(n => {
                       const colorObj = NOTE_COLORS.find(c => c.bg === n.color) || NOTE_COLORS[0];
@@ -413,83 +470,65 @@ export default function FloatingStickyNotes() {
                           onClick={() => setActiveNoteId(n.id)}
                           className="p-2 border rounded cursor-pointer position-relative d-flex flex-column gap-1"
                           style={{ 
-                            background: activeNoteId === n.id ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.02)',
-                            borderColor: activeNoteId === n.id ? 'var(--brand-primary)' : 'rgba(255,255,255,0.06)',
-                            transition: 'all 0.2s'
+                            background: activeNoteId === n.id ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.03)',
+                            borderColor: activeNoteId === n.id ? 'var(--brand-primary)' : 'rgba(255,255,255,0.08)'
                           }}
                         >
                           <div className="d-flex justify-content-between align-items-center">
-                            <span 
-                              className="badge" 
-                              style={{ 
-                                background: colorObj.bg, 
-                                color: colorObj.text,
-                                fontSize: '9px',
-                                padding: '2px 5px',
-                                border: `1px solid ${colorObj.border}`
-                              }}
-                            >
+                            <span className="badge" style={{ background: colorObj.bg, color: colorObj.text, fontSize: '10px', border: `1px solid ${colorObj.border}` }}>
                               {n.tag}
                             </span>
                             <button 
-                              className="btn btn-ghost btn-icon btn-sm text-danger p-0 border-0 m-0"
-                              style={{ width: '16px', height: '16px' }}
+                              className="btn btn-ghost btn-icon btn-sm text-danger p-0 border-0 m-0 d-flex align-items-center justify-content-center"
+                              style={{ width: '18px', height: '18px' }}
                               onClick={(e) => deleteNote(n.id, e)}
                             >
-                              <Trash2 size={10} />
+                              <Trash2 size={12} />
                             </button>
                           </div>
                           <strong style={{ fontSize: '12px', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {n.title || 'Untitled Note'}
                           </strong>
-                          <span style={{ fontSize: '9px', color: '#94a3b8' }}>
-                            {n.updatedAt}
-                          </span>
+                          <span style={{ fontSize: '10px', color: '#94a3b8' }}>{n.updatedAt}</span>
                         </div>
                       );
                     })
                   )}
                 </div>
 
-                {/* Create note block */}
-                <div className="p-2 border-top" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
-                  <button 
-                    onClick={createNewNote}
-                    className="btn btn-primary btn-sm w-100 d-flex align-items-center justify-content-center gap-1"
-                    style={{ fontSize: '11px' }}
-                  >
-                    <Plus size={12} /> New Note
+                {/* New button */}
+                <div className="p-2 border-top" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
+                  <button onClick={createNewNote} className="btn btn-primary btn-sm w-100 d-flex align-items-center justify-content-center gap-1" style={{ fontSize: '12px', padding: '6px' }}>
+                    <Plus size={14} /> New Note
                   </button>
                 </div>
-
               </div>
 
-              {/* Right Column: Editor Workspace */}
-              <div className="flex-grow-1 d-flex flex-column" style={{ background: 'rgba(0,0,0,0.1)' }}>
+              {/* Right Column: Editor */}
+              <div className="flex-grow-1 d-flex flex-column" style={{ minWidth: 0 }}>
                 {activeNote ? (
-                  <div className="d-flex flex-column flex-grow-1 p-3 gap-3 overflow-y-auto">
+                  <div className="d-flex flex-column flex-grow-1 p-3 gap-2" style={{ overflow: 'hidden' }}>
                     
-                    {/* Title input & Properties Row */}
-                    <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    {/* Toolbar header options (All high contrast white icons & selectors) */}
+                    <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 pb-2 border-bottom" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
                       <input 
                         type="text"
                         className="form-control bg-transparent border-0 text-white p-0"
-                        style={{ fontSize: '18px', fontWeight: 700, boxShadow: 'none' }}
+                        style={{ fontSize: '16px', fontWeight: 700, boxShadow: 'none', width: '180px' }}
                         value={activeNote.title}
                         onChange={e => updateNote('title', e.target.value)}
-                        placeholder="Note title..."
+                        placeholder="Title..."
                       />
                       
-                      {/* Control buttons: Color & Tag & Save */}
                       <div className="d-flex align-items-center gap-2">
-                        {/* Tag select dropdown */}
+                        {/* Tag */}
                         <div className="d-flex align-items-center gap-1">
-                          <Tag size={12} className="text-primary" />
+                           <Tag size={13} className="text-warning" />
                           <select 
                             value={activeNote.tag}
                             onChange={e => updateNote('tag', e.target.value)}
                             className="bg-dark text-white border-0"
-                            style={{ fontSize: '11px', padding: '3px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.1)' }}
+                            style={{ fontSize: '12px', padding: '3px 6px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.2)' }}
                           >
                             {PREDEFINED_TAGS.map(tg => (
                               <option key={tg} value={tg}>{tg}</option>
@@ -497,134 +536,111 @@ export default function FloatingStickyNotes() {
                           </select>
                         </div>
 
-                        {/* Color Selector */}
-                        <div className="dropdown position-relative">
+                        {/* Colors horizontal strip */}
+                        <div className="d-flex align-items-center gap-1 px-2 py-1 rounded" style={{ background: 'rgba(0,0,0,0.4)' }}>
+                          {NOTE_COLORS.map(c => (
+                            <div 
+                              key={c.name}
+                              onClick={() => updateNote('color', c.bg)}
+                              style={{ 
+                                width: '16px', height: '16px', background: c.bg, borderRadius: '50%',
+                                cursor: 'pointer', border: activeNote.color === c.bg ? '2px solid #fff' : '1px solid rgba(255,255,255,0.4)',
+                                transition: 'transform 0.15s'
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.25)'}
+                              onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                              title={c.name}
+                            />
+                          ))}
+                        </div>
+
+                        {/* Save Actions dropdown */}
+                        <div className="position-relative" ref={saveDropdownRef}>
                           <button 
-                            className="btn btn-ghost btn-sm p-1 text-white border-0" 
-                            title="Note Color"
-                            style={{ display: 'flex', alignItems: 'center', gap: '3px' }}
+                            className="btn btn-outline-light btn-sm d-flex align-items-center gap-1" 
+                            style={{ fontSize: '12px', padding: '4px 10px' }}
+                            onClick={() => setShowSaveDropdown(!showSaveDropdown)}
                           >
-                            <Palette size={13} />
+                            <Download size={13} /> Save As
                           </button>
                           
-                          {/* Color strip overlay */}
-                          <div 
-                            className="position-absolute d-flex gap-1 p-1 bg-dark rounded border"
-                            style={{ 
-                              bottom: '30px', 
-                              right: '0', 
-                              borderColor: 'rgba(255,255,255,0.1)', 
-                              zIndex: 10
-                            }}
-                          >
-                            {NOTE_COLORS.map(c => (
-                              <div 
-                                key={c.name}
-                                onClick={() => updateNote('color', c.bg)}
-                                style={{ 
-                                  width: '16px', 
-                                  height: '16px', 
-                                  background: c.bg, 
-                                  borderRadius: '50%',
-                                  cursor: 'pointer',
-                                  border: activeNote.color === c.bg ? '2px solid #fff' : '1px solid rgba(255,255,255,0.2)'
-                                }}
-                                title={c.name}
-                              />
-                            ))}
-                          </div>
+                          {showSaveDropdown && (
+                            <div className="dropdown-menu-list show" style={{
+                              position: 'absolute', bottom: '32px', right: 0, background: '#1e293b', border: '1.5px solid rgba(255,255,255,0.2)',
+                              borderRadius: '8px', width: '130px', zIndex: 999, fontSize: '12px', overflow: 'hidden', display: 'flex', flexDirection: 'column',
+                              boxShadow: '0 10px 20px rgba(0,0,0,0.5)'
+                            }}>
+                              <div className="px-3 py-2 cursor-pointer text-white hover-bg" onClick={() => handleDownload('txt')} style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', fontWeight: 600 }}>📄 Text File (.txt)</div>
+                              <div className="px-3 py-2 cursor-pointer text-white hover-bg" onClick={() => handleDownload('jpg')} style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', fontWeight: 600 }}>🖼️ Image File (.jpg)</div>
+                              <div className="px-3 py-2 cursor-pointer text-white hover-bg" onClick={() => handleDownload('pdf')} style={{ fontWeight: 600 }}>🖨️ PDF Document</div>
+                            </div>
+                          )}
                         </div>
-
-                        {/* Save formats dropdown */}
-                        <div className="dropdown position-relative d-inline-block">
-                          <button 
-                            className="btn btn-outline-primary btn-sm px-2 py-1"
-                            style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                          >
-                            <Download size={11} /> Save As
-                          </button>
-                          <div 
-                            className="position-absolute bg-dark border rounded text-start"
-                            style={{ 
-                              bottom: '30px', 
-                              right: '0', 
-                              width: '120px', 
-                              borderColor: 'rgba(255,255,255,0.1)',
-                              zIndex: 10,
-                              fontSize: '11px',
-                              overflow: 'hidden'
-                            }}
-                          >
-                            <div 
-                              className="px-3 py-2 cursor-pointer text-white hover-bg" 
-                              onClick={() => handleDownload('txt')}
-                              style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
-                            >
-                              📄 Text File (.txt)
-                            </div>
-                            <div 
-                              className="px-3 py-2 cursor-pointer text-white hover-bg" 
-                              onClick={() => handleDownload('jpg')}
-                              style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
-                            >
-                              🖼️ Image File (.jpg)
-                            </div>
-                            <div 
-                              className="px-3 py-2 cursor-pointer text-white hover-bg" 
-                              onClick={() => handleDownload('pdf')}
-                            >
-                              🖨️ PDF Document
-                            </div>
-                          </div>
-                        </div>
-
                       </div>
                     </div>
 
-                    {/* Note editor textarea */}
+                    {/* Textarea - flex fill inside container, no overflows */}
                     <div 
-                      className="flex-grow-1 p-2 rounded border"
+                      className="flex-grow-1 p-3 rounded"
                       style={{ 
                         background: activeNote.color, 
-                        color: activeNote.color === '#1e293b' ? '#f1f5f9' : '#1e293b',
-                        borderColor: 'transparent',
-                        transition: 'all 0.3s'
+                        color: activeNote.color === '#334155' ? '#f8fafc' : '#1e293b',
+                        border: '1.5px solid rgba(0,0,0,0.12)',
+                        display: 'flex',
+                        boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.06)'
                       }}
                     >
                       <textarea 
                         className="w-100 h-100 bg-transparent border-0"
                         style={{ 
-                          resize: 'none', 
-                          outline: 'none', 
-                          fontSize: '14px', 
-                          lineHeight: 1.6,
-                          color: 'inherit',
-                          fontFamily: 'Inter, sans-serif'
+                          resize: 'none', outline: 'none', fontSize: '14px', lineHeight: 1.5,
+                          color: 'inherit', fontFamily: 'inherit'
                         }}
                         value={activeNote.content}
                         onChange={e => updateNote('content', e.target.value)}
-                        placeholder="Write your note contents here..."
+                        placeholder="Write note here..."
                       />
                     </div>
-
                   </div>
                 ) : (
                   <div className="m-auto text-center text-muted" style={{ fontSize: '13px' }}>
-                    <StickyNote size={48} className="mx-auto mb-3 opacity-20" />
-                    Select a note or create a new one to begin.
+                    <StickyNote size={40} className="mx-auto mb-2 opacity-30 text-warning" />
+                    Select or create a sticky note.
                   </div>
                 )}
               </div>
 
             </div>
           )}
+
+          {/* Bottom Right Resize Handle (Lucide/styled icon) */}
+          {!isMinimized && (
+            <div 
+              onMouseDown={handleResizeStart}
+              style={{
+                position: 'absolute', bottom: 0, right: 0, width: '16px', height: '16px',
+                cursor: 'se-resize', background: 'linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.4) 50%)',
+                borderBottomRightRadius: '14px', zIndex: 100
+              }}
+            />
+          )}
         </div>
       )}
 
-      {/* Styled hover state for save drop options */}
+      {/* Styled css properties */}
       <style>{`
+        .gsv-glow-btn:hover {
+          box-shadow: 0 0 30px rgba(255, 0, 127, 0.8), 0 6px 15px rgba(0, 0, 0, 0.4) !important;
+        }
         .hover-bg:hover {
-          background: rgba(99, 102, 241, 0.2) !important;
+          background: rgba(255, 255, 255, 0.12) !important;
+          color: #facc15 !important;
+        }
+        .dropdown-menu-list {
+          display: none;
+        }
+        .dropdown-menu-list.show {
+          display: flex;
         }
       `}</style>
 
