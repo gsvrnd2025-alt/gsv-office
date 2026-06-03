@@ -1343,7 +1343,20 @@ export default function RemoteDesktopPage() {
   };
 
   const setupDataChannel = (dc: RTCDataChannel) => {
-    dc.onopen = () => addLog('Control data channel linked.');
+    dc.onopen = () => {
+      addLog('Control data channel linked.');
+      setIsConnected(true);
+      setIsConnecting(false);
+      setDialingStatus('accepted');
+    };
+    dc.onclose = () => {
+      addLog('Control data channel closed.');
+      setIsConnected(false);
+    };
+    dc.onerror = (err) => {
+      addLog(`Control data channel error: ${err}`);
+      setIsConnected(false);
+    };
     dc.onmessage = (event) => {
       try {
         const payload = JSON.parse(event.data);
@@ -1787,7 +1800,7 @@ export default function RemoteDesktopPage() {
             )}
 
             {/* Controlling Client Mirror Feed */}
-            {isConnected && (
+            {isConnected && !isHosting && (
               <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', position: 'relative', background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)', padding: '16px' }}>
                 
                 {/* Overlay Lock for Interlock system */}
