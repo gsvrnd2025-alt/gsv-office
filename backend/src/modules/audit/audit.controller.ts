@@ -13,7 +13,7 @@ export class AuditController {
   constructor(private auditService: AuditService) {}
 
   @Get()
-  @RequirePermissions(['server', 'view_logs'])
+  @RequirePermissions(['server', 'view_logs'], ['users', 'read'])
   async findAll(@Query() query: any) {
     return this.auditService.findAll(query);
   }

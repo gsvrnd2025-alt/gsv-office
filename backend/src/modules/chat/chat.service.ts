@@ -129,4 +129,12 @@ export class ChatService {
     );
     return msg;
   }
+
+  async addMember(conversationId: string, userId: string) {
+    await this.dataSource.query(
+      `INSERT INTO conversation_members (conversation_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING`,
+      [conversationId, userId]
+    );
+    return { success: true };
+  }
 }

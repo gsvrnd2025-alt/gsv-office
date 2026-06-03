@@ -17,4 +17,9 @@ export class PermissionsController {
   @Post('users/:id') @RequirePermissions(['users', 'manage_permissions']) setUserPerm(@Param('id', ParseUUIDPipe) id: string, @Body() dto: { permissionId: string; granted: boolean }) {
     return this.svc.setUserPermission(id, dto.permissionId, dto.granted);
   }
+  @Post()
+  @RequirePermissions(['roles', 'create'])
+  create(@Body() dto: { module: string; action: string; description: string }) {
+    return this.svc.create(dto);
+  }
 }

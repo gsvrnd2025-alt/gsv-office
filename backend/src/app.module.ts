@@ -26,6 +26,7 @@ import { PluginsModule } from './modules/plugins/plugins.module';
 import { ServerModule } from './modules/server/server.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { WebrtcModule } from './modules/webrtc/webrtc.module';
+import { StorageModule } from './modules/storage/storage.module';
 import { HealthController } from './health.controller';
 
 // Config
@@ -115,6 +116,7 @@ import mailConfig from './config/mail.config';
     ServerModule,
     AuditModule,
     WebrtcModule,
+    StorageModule,
   ],
   controllers: [HealthController],
   providers: [

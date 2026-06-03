@@ -4,6 +4,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, FindOptionsWhere } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+import * as fs from 'fs';
+import * as path from 'path';
 import { User } from './user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/create-user.dto';
@@ -101,6 +103,8 @@ export class UsersService implements OnApplicationBootstrap {
     } as any) as any as User;
 
     const saved = await this.usersRepo.save(user);
+    await this.createPrivateUserFolder(saved);
+
     await this.auditService.log({
       userId: createdBy,
       action: 'create',
@@ -319,6 +323,7 @@ export class UsersService implements OnApplicationBootstrap {
               u.passwordHash || ''
             ]
           );
+          await this.createPrivateUserFolder({ id: u.id, loginId: u.loginId });
         }
       }
 
@@ -355,5 +360,30 @@ export class UsersService implements OnApplicationBootstrap {
   sanitize(user: User): Partial<User> {
     const { passwordHash, twoFactorSecret, ...safe } = user as any;
     return safe;
+  }
+
+  private async createPrivateUserFolder(user: { id: string; loginId: string }) {
+    try {
+      const uploadPath = process.env.UPLOAD_PATH || '/app/uploads';
+      const userDir = path.join(uploadPath, 'users', user.loginId);
+      if (!fs.existsSync(userDir)) {
+        fs.mkdirSync(userDir, { recursive: true });
+      }
+
+      // Check if folder already exists in folders table
+      const [existing] = await this.usersRepo.query(
+        `SELECT id FROM folders WHERE owner_id = $1 AND name = $2 LIMIT 1`,
+        [user.id, `${user.loginId}-private`]
+      );
+
+      if (!existing) {
+        await this.usersRepo.query(
+          `INSERT INTO folders (name, owner_id, path, metadata) VALUES ($1, $2, $3, $4)`,
+          [`${user.loginId}-private`, user.id, `/users/${user.loginId}`, JSON.stringify({ is_user_private: true })]
+        );
+      }
+    } catch (err) {
+      console.error(`[UsersService] Failed to create private folder for user ${user.loginId}:`, err);
+    }
   }
 }

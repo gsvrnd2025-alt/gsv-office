@@ -33,7 +33,9 @@ export class AuditService {
     const { page = 1, limit = 50, userId, resourceType, action } = query;
     const qb = this.auditRepo.createQueryBuilder('log').orderBy('log.created_at', 'DESC');
 
-    if (userId) qb.andWhere('log.user_id = :userId', { userId });
+    if (userId) {
+      qb.andWhere('(log.user_id = :userId OR (log.resource_type = \'user\' AND log.resource_id = :userId::uuid))', { userId });
+    }
     if (resourceType) qb.andWhere('log.resource_type = :resourceType', { resourceType });
     if (action) qb.andWhere('log.action = :action', { action });
 

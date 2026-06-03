@@ -52,4 +52,10 @@ export class ChatController {
   deleteMessage(@Param('messageId', ParseUUIDPipe) messageId: string, @CurrentUser('id') userId: string) {
     return this.svc.deleteMessage(messageId, userId);
   }
+
+  @Post('conversations/:id/members')
+  @RequirePermissions(['chat', 'send'])
+  addMember(@Param('id', ParseUUIDPipe) id: string, @Body('userId') userId: string) {
+    return this.svc.addMember(id, userId);
+  }
 }

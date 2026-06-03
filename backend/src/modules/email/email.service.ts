@@ -43,6 +43,16 @@ export class EmailService {
     await this.ds.query(`UPDATE emails SET is_read = true WHERE id = $1 AND user_id = $2`, [emailId, userId]);
   }
 
+  async updateReadStatus(emailId: string, userId: string, isRead: boolean) {
+    await this.ds.query(`UPDATE emails SET is_read = $1 WHERE id = $2 AND user_id = $3`, [isRead, emailId, userId]);
+    return { success: true, isRead };
+  }
+
+  async toggleStar(emailId: string, userId: string, isStarred: boolean) {
+    await this.ds.query(`UPDATE emails SET is_starred = $1 WHERE id = $2 AND user_id = $3`, [isStarred, emailId, userId]);
+    return { success: true, isStarred };
+  }
+
   async deleteEmail(emailId: string, userId: string) {
     await this.ds.query(`UPDATE emails SET deleted_at = NOW() WHERE id = $1 AND user_id = $2`, [emailId, userId]);
   }

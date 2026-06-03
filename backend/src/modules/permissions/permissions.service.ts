@@ -31,4 +31,11 @@ export class PermissionsService {
       [userId, permissionId, granted]
     );
   }
+  async create(dto: { module: string; action: string; description: string }) {
+    await this.ds.query(
+      `INSERT INTO permissions (module, action, description) VALUES ($1, $2, $3)`,
+      [dto.module, dto.action, dto.description]
+    );
+    return { success: true };
+  }
 }
