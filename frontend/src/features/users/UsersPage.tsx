@@ -105,8 +105,8 @@ export default function UsersPage() {
     onSettled: () => { setSyncing(false); }
   });
 
-  const users = data?.data || [];
-  const meta = data?.meta || {};
+  const users = data?.data ? data.data : (Array.isArray(data) ? data : []);
+  const meta = Array.isArray(data) ? { total: data.length, page: 1, limit: 15, totalPages: 1 } : (data?.meta || {});
 
   const initials = (name: string) => name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U';
 
