@@ -89,6 +89,7 @@ export default function ChatPage() {
   
   // Custom states
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
   const [showEmoji, setShowEmoji] = useState(false);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [groupForm, setGroupForm] = useState({ name: '', description: '', members: [] as string[] });
@@ -387,9 +388,10 @@ export default function ChatPage() {
             mimeType
           }).then(r => r.data?.data || r.data);
         } else {
-          // Multiple standard file uploads loop (up to 10 files)
+          // Multiple standard file uploads loop (up to 30 files)
           let lastRes = null;
           for (let i = 0; i < payload.files.length; i++) {
+            setUploadProgress({ current: i + 1, total: payload.files.length });
             const staged = payload.files[i];
             const fd = new FormData();
             fd.append('file', staged.blob);
@@ -426,6 +428,7 @@ export default function ChatPage() {
               mimeType
             }).then(r => r.data?.data || r.data);
           }
+          setUploadProgress(null);
           return lastRes;
         }
       } else {
@@ -439,6 +442,7 @@ export default function ChatPage() {
     onSuccess: (data, variables) => {
       setMessage('');
       setStagedFiles([]);
+      setUploadProgress(null);
       if (variables.tempId) {
         setSendingMessages(prev => prev.filter(m => m.id !== variables.tempId));
       }
@@ -446,6 +450,7 @@ export default function ChatPage() {
       qc.invalidateQueries({ queryKey: ['conversations'] });
     },
     onError: (err, variables) => {
+      setUploadProgress(null);
       if (variables.tempId) {
         setSendingMessages(prev => prev.filter(m => m.id !== variables.tempId));
       }
@@ -667,12 +672,12 @@ export default function ChatPage() {
         setStagedFiles(prev => [...prev, stagedFolder]);
         toast.success(`Folder "${folderName}" (${files.length} files) staged successfully! 📁`);
       } else {
-        if (files.length > 10) {
-          toast.error("You can select a maximum of 10 files at a time. Slicing to the first 10 files.");
-          files = files.slice(0, 10);
+        if (files.length > 30) {
+          toast.error("You can select a maximum of 30 files at a time. Slicing to the first 30 files.");
+          files = files.slice(0, 30);
         }
-        if (stagedFiles.length + files.length > 10) {
-          toast.error("You can stage a maximum of 10 files total.");
+        if (stagedFiles.length + files.length > 30) {
+          toast.error("You can stage a maximum of 30 files total.");
           return;
         }
         const staged = files.map(file => {
@@ -706,12 +711,12 @@ export default function ChatPage() {
     }
     if (files.length > 0) {
       let filesToStage = files;
-      if (filesToStage.length > 10) {
-        toast.error("You can paste a maximum of 10 files at a time. Slicing to the first 10 files.");
-        filesToStage = filesToStage.slice(0, 10);
+      if (filesToStage.length > 30) {
+        toast.error("You can paste a maximum of 30 files at a time. Slicing to the first 30 files.");
+        filesToStage = filesToStage.slice(0, 30);
       }
-      if (stagedFiles.length + filesToStage.length > 10) {
-        toast.error("You can stage a maximum of 10 files total.");
+      if (stagedFiles.length + filesToStage.length > 30) {
+        toast.error("You can stage a maximum of 30 files total.");
         return;
       }
       const staged = filesToStage.map(file => {
@@ -1969,10 +1974,14 @@ export default function ChatPage() {
                 <div style={{ width: '18px', height: '18px', border: '2px solid var(--border-color)', borderTopColor: 'var(--brand-primary)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                   <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--brand-primary)' }}>
-                    Uploading {stagedFiles.length > 1 ? `${stagedFiles.length} Attachments` : 'Attachment'}
+                    {uploadProgress 
+                      ? `Uploading ${uploadProgress.current} of ${uploadProgress.total}`
+                      : `Uploading ${stagedFiles.length > 1 ? `${stagedFiles.length} Attachments` : 'Attachment'}`}
                   </span>
                   <span style={{ fontSize: '12px', fontWeight: 500, opacity: 0.9, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {stagedFiles.length > 1 ? `${stagedFiles.length} files staged` : stagedFiles[0]?.name}
+                    {uploadProgress
+                      ? stagedFiles[uploadProgress.current - 1]?.name
+                      : (stagedFiles.length > 1 ? `${stagedFiles.length} files staged` : stagedFiles[0]?.name)}
                   </span>
                 </div>
               </div>
