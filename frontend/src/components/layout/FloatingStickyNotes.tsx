@@ -3,10 +3,11 @@ import {
   FileText, Plus, Trash2, Search, Download, 
   Tag, X, StickyNote, Minimize2, Maximize2, Bold, Italic, Underline,
   List, ListOrdered, Code, Star, Pin, PinOff, Bell, Archive, 
-  Lock, Unlock, Files, Printer, RotateCcw, RotateCw, Copy, Check, Eye
+  Lock, Unlock, Files, Printer, RotateCcw, RotateCw, Copy, Check, Eye, ChevronLeft
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useThemeStore } from '../../store/theme.store';
+import { useAuthStore } from '../../store/auth.store';
 import Editor from '@monaco-editor/react';
 
 interface Note {
@@ -23,6 +24,7 @@ interface Note {
   isLocked?: boolean;
   isArchived?: boolean;
   reminderTime?: string;
+  fontSize?: string;
 }
 
 const NOTE_COLORS = [
@@ -80,366 +82,16 @@ const detectLanguage = (filename: string) => {
   }
 };
 
-// Independent Draggable Floating Overlays (MS Sticky Notes Style)
-interface DraggableNoteCardProps {
-  note: Note;
-  onUpdate: (id: string, updates: Partial<Note>) => void;
-  onClose: () => void;
-  onDelete: (e: React.MouseEvent) => void;
-  onDownload: (format: 'txt' | 'json' | 'md' | 'html', note: Note) => void;
-  categories: string[];
-}
-
-function DraggableNoteCard({ note, onUpdate, onClose, onDelete, onDownload, categories }: DraggableNoteCardProps) {
-  const [position, setPosition] = useState({
-    x: 120 + Math.random() * 200,
-    y: 120 + Math.random() * 200
-  });
-  const [size, setSize] = useState({ width: 380, height: 420 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [isResizing, setIsResizing] = useState(false);
-  const [showSaveMenu, setShowSaveMenu] = useState(false);
-
-  const dragStartRef = useRef({ x: 0, y: 0 });
-  const positionStartRef = useRef({ x: 0, y: 0 });
-  const resizeStartRef = useRef({ x: 0, y: 0 });
-  const sizeStartRef = useRef({ width: 0, height: 0 });
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-
-  const colorObj = NOTE_COLORS.find(c => c.bg === note.color) || NOTE_COLORS[0];
-  const isCodeNote = note.tag === 'Code' || 
-    ['.ino', '.c', '.cpp', '.h', '.py', '.js', '.ts', '.html', '.css', '.php', '.java', '.cs', '.sql', '.sh', '.bat', '.ps1'].some(ext => note.title.toLowerCase().endsWith(ext));
-
-  useEffect(() => {
-    const handleOutsideClick = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setShowSaveMenu(false);
-      }
-    };
-    if (showSaveMenu) {
-      document.addEventListener('mousedown', handleOutsideClick);
-    }
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [showSaveMenu]);
-
-  useEffect(() => {
-    if (contentRef.current && !isCodeNote) {
-      contentRef.current.innerHTML = note.content || '';
-    }
-  }, [note.id, isCodeNote]);
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('.card-drag-handle') === null) return;
-    setIsDragging(true);
-    dragStartRef.current = { x: e.clientX, y: e.clientY };
-    positionStartRef.current = { ...position };
-  };
-
-  const handleResizeStart = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsResizing(true);
-    resizeStartRef.current = { x: e.clientX, y: e.clientY };
-    sizeStartRef.current = { ...size };
-  };
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (isDragging) {
-        const dx = e.clientX - dragStartRef.current.x;
-        const dy = e.clientY - dragStartRef.current.y;
-        setPosition({
-          x: Math.max(0, Math.min(window.innerWidth - size.width, positionStartRef.current.x + dx)),
-          y: Math.max(0, Math.min(window.innerHeight - size.height, positionStartRef.current.y + dy))
-        });
-      } else if (isResizing) {
-        const dx = e.clientX - resizeStartRef.current.x;
-        const dy = e.clientY - resizeStartRef.current.y;
-        setSize({
-          width: Math.max(300, Math.min(900, sizeStartRef.current.width + dx)),
-          height: Math.max(300, Math.min(900, sizeStartRef.current.height + dy))
-        });
-      }
-    };
-
-    const handleMouseUp = () => {
-      setIsDragging(false);
-      setIsResizing(false);
-    };
-
-    if (isDragging || isResizing) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-    }
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging, isResizing, size, position]);
-
-  const handleContentInput = () => {
-    if (contentRef.current) {
-      onUpdate(note.id, { content: contentRef.current.innerHTML });
-    }
-  };
-
-  const handleBoldToggle = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    document.execCommand('bold', false);
-    handleContentInput();
-  };
-
-  return (
-    <div
-      onMouseDown={handleMouseDown}
-      style={{
-        position: 'fixed',
-        left: `${position.x}px`,
-        top: `${position.y}px`,
-        width: `${size.width}px`,
-        height: `${size.height}px`,
-        background: colorObj.bg,
-        border: `3px solid ${colorObj.border}`,
-        borderRadius: '16px',
-        boxShadow: '0 20px 40px rgba(0,0,0,0.4)',
-        zIndex: 10005,
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-        color: colorObj.text,
-        transition: isDragging || isResizing ? 'none' : 'width 0.15s, height 0.15s'
-      }}
-    >
-      {/* Header */}
-      <div
-        className="card-drag-handle d-flex justify-content-between align-items-center px-3"
-        style={{
-          height: '46px',
-          background: 'rgba(0,0,0,0.07)',
-          cursor: 'move',
-          borderBottom: '1.5px solid rgba(0,0,0,0.07)',
-          userSelect: 'none'
-        }}
-      >
-        <span style={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.5px' }}>
-          📌 GSV NOTE OVERLAY
-        </span>
-        <div className="d-flex align-items-center gap-2" onClick={e => e.stopPropagation()}>
-          <button
-            onClick={onClose}
-            style={{
-              width: '22px', height: '22px', borderRadius: '50%', border: 'none',
-              background: 'rgba(0,0,0,0.15)', color: colorObj.text, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '12px', fontWeight: 'bold'
-            }}
-            title="Close Note"
-          >
-            ×
-          </button>
-        </div>
-      </div>
-
-      {/* Inputs */}
-      <div className="p-3 d-flex flex-column gap-3 flex-grow-1" style={{ minHeight: 0 }}>
-        <input
-          type="text"
-          value={note.title}
-          onChange={e => onUpdate(note.id, { title: e.target.value })}
-          placeholder="Note Title..."
-          style={{
-            background: 'transparent',
-            border: 'none',
-            borderBottom: '2px solid rgba(0,0,0,0.1)',
-            outline: 'none',
-            fontWeight: 800,
-            fontSize: '17px',
-            color: 'inherit',
-            paddingBottom: '6px'
-          }}
-          disabled={note.isLocked}
-        />
-
-        <div className="d-flex align-items-center justify-content-between">
-          <div className="d-flex align-items-center gap-2">
-            <Tag size={14} />
-            <select
-              value={note.tag}
-              onChange={e => onUpdate(note.id, { tag: e.target.value })}
-              style={{
-                background: 'rgba(255,255,255,0.6)',
-                border: '1.5px solid rgba(0,0,0,0.15)',
-                borderRadius: '6px',
-                fontSize: '12px',
-                padding: '3px 6px',
-                color: '#000',
-                fontWeight: 700
-              }}
-              disabled={note.isLocked}
-            >
-              {categories.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
-          </div>
-          <span style={{ fontSize: '11px', fontWeight: 600, opacity: 0.8 }}>{note.updatedAt}</span>
-        </div>
-
-        {/* Toolbar */}
-        {!note.isLocked && !isCodeNote && (
-          <div className="d-flex align-items-center gap-2 p-1 rounded" style={{ background: 'rgba(0,0,0,0.04)', border: '1px solid rgba(0,0,0,0.06)' }}>
-            <button
-              onClick={handleBoldToggle}
-              className="d-flex align-items-center justify-content-center"
-              style={{
-                width: '28px', height: '28px',
-                background: 'rgba(255,255,255,0.5)',
-                border: '1px solid rgba(0,0,0,0.15)',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                color: 'inherit'
-              }}
-              title="Bold"
-            >
-              <Bold size={14} />
-            </button>
-          </div>
-        )}
-
-        {/* Editor Area */}
-        {isCodeNote ? (
-          <div style={{ flex: 1, overflow: 'hidden', borderRadius: '8px', border: '1px solid rgba(0,0,0,0.1)' }}>
-            <Editor
-              height="100%"
-              theme="vs-dark"
-              language={detectLanguage(note.title)}
-              value={note.content.replace(/<\/div>/g, '\n').replace(/<[^>]*>/g, '')}
-              onChange={(val) => {
-                if (!note.isLocked) {
-                  onUpdate(note.id, { content: `<div>${(val || '').replace(/\n/g, '<br>')}</div>` });
-                }
-              }}
-              options={{
-                minimap: { enabled: false },
-                fontSize: 13,
-                readOnly: note.isLocked,
-                scrollbar: { vertical: 'auto', horizontal: 'auto' }
-              }}
-            />
-          </div>
-        ) : (
-          <div
-            ref={contentRef}
-            contentEditable={!note.isLocked}
-            onInput={handleContentInput}
-            data-placeholder="Start typing..."
-            style={{
-              flex: 1,
-              background: 'transparent',
-              border: 'none',
-              outline: 'none',
-              overflowY: 'auto',
-              fontSize: '15px',
-              lineHeight: 1.6,
-              color: 'inherit',
-              padding: '8px 0',
-              resize: 'none'
-            }}
-          />
-        )}
-      </div>
-
-      {/* Footer */}
-      <div 
-        className="px-3 py-2 d-flex justify-content-between align-items-center"
-        style={{ background: 'rgba(0,0,0,0.04)', borderTop: '1px solid rgba(0,0,0,0.07)' }}
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="d-flex gap-2">
-          {!note.isLocked && NOTE_COLORS.map(c => (
-            <div
-              key={c.name}
-              onClick={() => onUpdate(note.id, { color: c.bg })}
-              style={{
-                width: '18px', height: '18px', borderRadius: '50%', background: c.bg,
-                cursor: 'pointer', border: note.color === c.bg ? '3px solid #000' : '1.5px solid rgba(0,0,0,0.25)',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.15)'
-              }}
-              title={c.name}
-            />
-          ))}
-        </div>
-
-        <div className="d-flex align-items-center gap-2">
-          <div className="position-relative" ref={dropdownRef}>
-            <button
-              onClick={() => setShowSaveMenu(!showSaveMenu)}
-              className="btn btn-xs d-flex align-items-center gap-1"
-              style={{
-                fontSize: '12px',
-                background: 'rgba(0,0,0,0.08)',
-                border: '1.5px solid rgba(0,0,0,0.2)',
-                color: 'inherit',
-                fontWeight: 700,
-                padding: '4px 10px',
-                borderRadius: '6px'
-              }}
-            >
-              <Download size={12} /> Save As
-            </button>
-            {showSaveMenu && (
-              <div
-                style={{
-                  position: 'absolute', bottom: '32px', right: 0,
-                  background: '#1e293b', border: '1.5px solid rgba(255,255,255,0.2)',
-                  borderRadius: '8px', width: '130px', display: 'flex', flexDirection: 'column',
-                  fontSize: '12px', overflow: 'hidden', boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
-                  zIndex: 1010
-                }}
-              >
-                <div className="px-3 py-2 cursor-pointer text-white hover-note-item" onClick={() => onDownload('txt', note)} style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>📄 TXT</div>
-                <div className="px-3 py-2 cursor-pointer text-white hover-note-item" onClick={() => onDownload('json', note)} style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>💻 JSON</div>
-                <div className="px-3 py-2 cursor-pointer text-white hover-note-item" onClick={() => onDownload('md', note)} style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>📝 MD</div>
-                <div className="px-3 py-2 cursor-pointer text-white hover-note-item" onClick={() => onDownload('html', note)}>🌐 HTML</div>
-              </div>
-            )}
-          </div>
-
-          <button
-            onClick={onDelete}
-            className="btn btn-xs text-danger border-0 p-1"
-            style={{ background: 'transparent' }}
-            title="Delete Note"
-          >
-            <Trash2 size={16} />
-          </button>
-        </div>
-      </div>
-
-      <div
-        onMouseDown={handleResizeStart}
-        style={{
-          position: 'absolute', bottom: 0, right: 0, width: '14px', height: '14px',
-          cursor: 'se-resize', background: 'linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.25) 50%)'
-        }}
-      />
-    </div>
-  );
-}
-
 export default function FloatingStickyNotes() {
-  const { theme } = useThemeStore();
-  const [isManagerOpen, setIsManagerOpen] = useState(false);
-  const [managerWidth, setManagerWidth] = useState<'380px' | '980px'>('980px');
+  const { user } = useAuthStore();
+  const [isPopupOpen, setIsPopupOpen] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
   
   // Note Lists
   const [notes, setNotes] = useState<Note[]>([]);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
-  const [openNoteIds, setOpenNoteIds] = useState<string[]>([]);
   
-  // Sidebar Nav: 'all' | 'favorites' | 'reminders' | 'trash'
+  // Nav Filter: 'all' | 'favorites' | 'reminders' | 'trash'
   const [selectedNav, setSelectedNav] = useState<'all' | 'favorites' | 'reminders' | 'trash'>('all');
   
   // Filters
@@ -469,6 +121,9 @@ export default function FloatingStickyNotes() {
   const [autoSaveStatus, setAutoSaveStatus] = useState<'saved' | 'saving' | 'idle'>('idle');
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Ellipsis dropdown menu state
+  const [showMenuNoteId, setShowMenuNoteId] = useState<string | null>(null);
+
   // FAB Drag Position
   const [fabPosition, setFabPosition] = useState({
     x: window.innerWidth - 80,
@@ -481,6 +136,7 @@ export default function FloatingStickyNotes() {
 
   const editorContentRef = useRef<HTMLDivElement>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Load notes
   const loadNotes = () => {
@@ -493,7 +149,7 @@ export default function FloatingStickyNotes() {
       const defaultNote: Note = {
         id: 'default-1',
         title: 'Welcome to GSV Notes 📝',
-        content: '<div>Welcome to your new Premium Sticky Notes Workspace.</div><div><br></div><div>🚀 <strong>Features:</strong></div><div>- 3-column keeps layout</div><div>- Monaco Editor support for code</div><div>- Custom tags, Pin, and Favorite logs</div><div>- File imports (.txt, .md, scripts)</div><div>- Auto-save integration</div>',
+        content: '<div>Welcome to your new Premium Sticky Notes Workspace.</div><div><br></div><div>🚀 <strong>Features:</strong></div><div>- Horizontal tab layout</div><div>- Monaco Editor support for code</div><div>- Custom tags, Pin, and Favorite logs</div><div>- File imports (.txt, .md, scripts)</div><div>- Auto-save integration</div>',
         color: '#fef08a',
         tag: 'General',
         tags: ['#WELCOME', '#GUIDE'],
@@ -514,6 +170,19 @@ export default function FloatingStickyNotes() {
       window.removeEventListener('gsv-notes-update', handleSync);
     };
   }, []);
+
+  // Close menus on outside clicks
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowMenuNoteId(null);
+      }
+    };
+    if (showMenuNoteId) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [showMenuNoteId]);
 
   // Check Reminders Tick
   useEffect(() => {
@@ -555,7 +224,7 @@ export default function FloatingStickyNotes() {
   const saveNotes = (updatedNotes: Note[], isUndoAction = false) => {
     if (!isUndoAction) {
       setUndoStack(prev => [...prev, notes]);
-      setRedoStack([]); // clear redo stack on new action
+      setRedoStack([]);
     }
     setNotes(updatedNotes);
     localStorage.setItem('gsv_sticky_notes', JSON.stringify(updatedNotes));
@@ -615,7 +284,7 @@ export default function FloatingStickyNotes() {
 
   const handleFabClick = () => {
     if (dragDistanceRef.current < 5) {
-      setIsManagerOpen(!isManagerOpen);
+      setIsPopupOpen(!isPopupOpen);
     }
   };
 
@@ -640,21 +309,8 @@ export default function FloatingStickyNotes() {
     if (e) e.stopPropagation();
     const updated = notes.filter(n => n.id !== id);
     saveNotes(updated);
-    setOpenNoteIds(prev => prev.filter(nid => nid !== id));
     if (activeNoteId === id) setActiveNoteId(null);
     toast.success('Note deleted permanently.');
-  };
-
-  const archiveNoteToggle = (id: string) => {
-    const updated = notes.map(n => {
-      if (n.id === id) {
-        return { ...n, isArchived: !n.isArchived, updatedAt: new Date().toLocaleString() };
-      }
-      return n;
-    });
-    saveNotes(updated);
-    if (activeNoteId === id) setActiveNoteId(null);
-    toast.success('Note status updated');
   };
 
   const updateNote = (id: string, updates: Partial<Note>) => {
@@ -700,12 +356,6 @@ export default function FloatingStickyNotes() {
   const execFormat = (command: string, arg?: string) => {
     document.execCommand(command, false, arg);
     handleEditorInput();
-  };
-
-  const handleDoubleClickNote = (id: string) => {
-    if (!openNoteIds.includes(id)) {
-      setOpenNoteIds(prev => [...prev, id]);
-    }
   };
 
   // Add Custom tag
@@ -833,7 +483,7 @@ export default function FloatingStickyNotes() {
           <div class="header">
             <h1 class="title">${note.title}</h1>
             <div class="meta">
-              📂 Category: ${note.tag} | 🏷️ Tags: ${(note.tags || []).join(', ') || 'None'} | 📅 Date: ${note.updatedAt}
+              📂 Category: ${note.tag} | 📅 Date: ${note.updatedAt}
             </div>
           </div>
           <div class="content">${note.content.replace(/<\/div>/g, '\n').replace(/<[^>]*>/g, '')}</div>
@@ -875,25 +525,6 @@ export default function FloatingStickyNotes() {
     toast.success('Reminder scheduled successfully! ⏰');
   };
 
-  // Bulk actions on active filtered list
-  const handleBulkArchive = () => {
-    const idsToArchive = filteredNotes.map(n => n.id);
-    const updated = notes.map(n => idsToArchive.includes(n.id) ? { ...n, isArchived: true } : n);
-    saveNotes(updated);
-    setActiveNoteId(null);
-    toast.success(`Archived ${idsToArchive.length} notes`);
-  };
-
-  const handleBulkDelete = () => {
-    if (confirm(`Permanently delete all ${filteredNotes.length} filtered notes?`)) {
-      const idsToDelete = filteredNotes.map(n => n.id);
-      const updated = notes.filter(n => !idsToDelete.includes(n.id));
-      saveNotes(updated);
-      setActiveNoteId(null);
-      toast.success(`Deleted ${idsToDelete.length} notes permanently`);
-    }
-  };
-
   const handleBulkExport = () => {
     const combinedData = JSON.stringify(filteredNotes, null, 2);
     const blob = new Blob([combinedData], { type: 'application/json' });
@@ -904,19 +535,6 @@ export default function FloatingStickyNotes() {
     link.click();
     URL.revokeObjectURL(url);
     toast.success(`Exported ${filteredNotes.length} notes as JSON`);
-  };
-
-  // Duplicate Note
-  const handleDuplicateNote = (note: Note) => {
-    const duplicated: Note = {
-      ...note,
-      id: `note-${Date.now()}`,
-      title: `${note.title} (Copy)`,
-      updatedAt: new Date().toLocaleString(),
-      createdAt: new Date().toLocaleString()
-    };
-    saveNotes([duplicated, ...notes]);
-    toast.success('Duplicated note card');
   };
 
   // Filters logic
@@ -930,14 +548,12 @@ export default function FloatingStickyNotes() {
       tagsText.includes(searchLower) ||
       n.tag.toLowerCase().includes(searchLower);
 
-    // Filter by tag scroll active
     const matchesTag = selectedTagFilter === 'All' || n.tag === selectedTagFilter;
 
-    // Filter by Left Sidebar state
     if (selectedNav === 'trash') {
       return n.isArchived && matchesSearch && matchesTag;
     }
-    if (n.isArchived) return false; // Hide archived everywhere else
+    if (n.isArchived) return false;
 
     if (selectedNav === 'favorites') {
       return n.isFavorite && matchesSearch && matchesTag;
@@ -954,6 +570,558 @@ export default function FloatingStickyNotes() {
     if (!a.isPinned && b.isPinned) return 1;
     return 0;
   });
+
+  // Render Subviews inside popup
+  const renderNoteEditView = () => {
+    if (!activeNote) return null;
+    const colorObj = NOTE_COLORS.find(c => c.bg === activeNote.color) || NOTE_COLORS[0];
+    const isCode = activeNote.tag === 'Code' || 
+      ['.ino', '.c', '.cpp', '.h', '.py', '.js', '.ts', '.html', '.css', '.php', '.java', '.cs', '.sql', '.sh', '.bat', '.ps1'].some(ext => activeNote.title.toLowerCase().endsWith(ext));
+
+    return (
+      <div 
+        style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          background: colorObj.bg,
+          color: colorObj.text,
+          padding: '24px',
+          overflow: 'hidden',
+          transition: 'background 0.3s ease, color 0.3s ease'
+        }}
+      >
+        {/* Note Editor Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px', borderBottom: '2px solid rgba(0,0,0,0.08)', paddingBottom: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+            <button 
+              onClick={() => {
+                setActiveNoteId(null);
+                setShowMenuNoteId(null);
+              }}
+              className="btn d-flex align-items-center gap-2"
+              style={{
+                background: 'rgba(0,0,0,0.06)',
+                border: '1px solid rgba(0,0,0,0.1)',
+                color: 'inherit',
+                fontWeight: 700,
+                fontSize: '13px',
+                borderRadius: '8px',
+                padding: '6px 12px'
+              }}
+            >
+              ← Back
+            </button>
+            <input 
+              type="text"
+              value={activeNote.title}
+              onChange={e => updateNoteWithIndicator(activeNote.id, { title: e.target.value })}
+              placeholder="Note Title..."
+              style={{
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                fontWeight: 800,
+                fontSize: '20px',
+                color: 'inherit',
+                flex: 1
+              }}
+            />
+          </div>
+
+          {/* Three Dot Menu Trigger */}
+          <div style={{ position: 'relative' }} ref={dropdownRef}>
+            <button 
+              onClick={() => setShowMenuNoteId(showMenuNoteId === activeNote.id ? null : activeNote.id)}
+              className="btn"
+              style={{
+                width: '34px', height: '34px',
+                background: 'rgba(0,0,0,0.06)',
+                border: '1px solid rgba(0,0,0,0.1)',
+                color: 'inherit',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                fontSize: '16px'
+              }}
+              title="Menu Options"
+            >
+              •••
+            </button>
+
+            {showMenuNoteId === activeNote.id && (
+              <div 
+                style={{
+                  position: 'absolute',
+                  right: 0,
+                  top: '40px',
+                  background: '#1E293B',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '12px',
+                  width: '200px',
+                  boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
+                  zIndex: 1010,
+                  overflow: 'hidden',
+                  color: '#fff',
+                  fontSize: '12px'
+                }}
+              >
+                {/* Colors section */}
+                <div style={{ padding: '12px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ fontWeight: 700, marginBottom: '6px', color: '#94A3B8' }}>Change Color:</div>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {NOTE_COLORS.map(c => (
+                      <div 
+                        key={c.name}
+                        onClick={() => {
+                          updateNoteWithIndicator(activeNote.id, { color: c.bg });
+                          setShowMenuNoteId(null);
+                        }}
+                        style={{
+                          width: '18px', height: '18px', borderRadius: '50%', background: c.bg,
+                          cursor: 'pointer', border: activeNote.color === c.bg ? '2.5px solid #fff' : '1px solid rgba(255,255,255,0.3)'
+                        }}
+                        title={c.name}
+                      />
+                    ))}
+                  </div>
+                </div>
+                {/* Save As section */}
+                <div style={{ padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div className="px-3 py-1 text-muted" style={{ fontWeight: 700, fontSize: '10px' }}>SAVE AS:</div>
+                  <button className="dropdown-item w-100 text-start border-0 bg-transparent px-3 py-2 text-white hover-note-item" onClick={() => { handleDownload('txt', activeNote); setShowMenuNoteId(null); }}>📄 Text File (.txt)</button>
+                  <button className="dropdown-item w-100 text-start border-0 bg-transparent px-3 py-2 text-white hover-note-item" onClick={() => { handleDownload('json', activeNote); setShowMenuNoteId(null); }}>💻 JSON Document (.json)</button>
+                  <button className="dropdown-item w-100 text-start border-0 bg-transparent px-3 py-2 text-white hover-note-item" onClick={() => { handleDownload('md', activeNote); setShowMenuNoteId(null); }}>📝 Markdown (.md)</button>
+                  <button className="dropdown-item w-100 text-start border-0 bg-transparent px-3 py-2 text-white hover-note-item" onClick={() => { handleDownload('html', activeNote); setShowMenuNoteId(null); }}>🌐 HTML Webpage (.html)</button>
+                </div>
+                {/* Print section */}
+                <button 
+                  className="dropdown-item w-100 text-start border-0 bg-transparent px-3 py-3 text-warning hover-note-item" 
+                  style={{ fontWeight: 700 }}
+                  onClick={() => { handlePrintNote(activeNote); setShowMenuNoteId(null); }}
+                >
+                  🖨️ Print Note
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Rich Formatting Toolbar */}
+        {!isCode && (
+          <div 
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '12px', 
+              background: 'rgba(0,0,0,0.04)', 
+              border: '1px solid rgba(0,0,0,0.08)',
+              padding: '6px 12px',
+              borderRadius: '10px',
+              marginBottom: '16px'
+            }}
+          >
+            {/* Bold */}
+            <button 
+              onClick={() => execFormat('bold')} 
+              className="btn btn-sm"
+              style={{ background: 'transparent', border: 'none', color: 'inherit', fontWeight: 'bold' }}
+              title="Bold"
+            >
+              <Bold size={15} />
+            </button>
+            {/* Italic */}
+            <button 
+              onClick={() => execFormat('italic')} 
+              className="btn btn-sm"
+              style={{ background: 'transparent', border: 'none', color: 'inherit' }}
+              title="Italic"
+            >
+              <Italic size={15} />
+            </button>
+            {/* Underline */}
+            <button 
+              onClick={() => execFormat('underline')} 
+              className="btn btn-sm"
+              style={{ background: 'transparent', border: 'none', color: 'inherit' }}
+              title="Underline"
+            >
+              <Underline size={15} />
+            </button>
+
+            <div style={{ height: '16px', borderLeft: '1px solid rgba(0,0,0,0.1)' }}></div>
+
+            {/* Font Size Selector */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '11px', fontWeight: 700 }}>Size:</span>
+              <select 
+                value={activeNote.fontSize || '16px'} 
+                onChange={e => updateNoteWithIndicator(activeNote.id, { fontSize: e.target.value })}
+                style={{ 
+                  background: 'rgba(255,255,255,0.6)', 
+                  border: '1px solid rgba(0,0,0,0.15)',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  padding: '2px 6px',
+                  color: '#000',
+                  fontWeight: 700
+                }}
+              >
+                <option value="12px">12px</option>
+                <option value="14px">14px</option>
+                <option value="16px">16px</option>
+                <option value="18px">18px</option>
+                <option value="20px">20px</option>
+                <option value="24px">24px</option>
+              </select>
+            </div>
+
+            <div style={{ height: '16px', borderLeft: '1px solid rgba(0,0,0,0.1)' }}></div>
+
+            {/* Pin and Favorite options */}
+            <button
+              onClick={() => updateNoteWithIndicator(activeNote.id, { isPinned: !activeNote.isPinned })}
+              className="btn border-0 p-0"
+              style={{ color: activeNote.isPinned ? '#ca8a04' : 'inherit', background: 'transparent' }}
+              title={activeNote.isPinned ? 'Unpin note' : 'Pin note'}
+            >
+              {activeNote.isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+            </button>
+            <button
+              onClick={() => updateNoteWithIndicator(activeNote.id, { isFavorite: !activeNote.isFavorite })}
+              className="btn border-0 p-0"
+              style={{ color: activeNote.isFavorite ? '#fb7185' : 'inherit', background: 'transparent' }}
+              title={activeNote.isFavorite ? 'Remove Favorite' : 'Mark Favorite'}
+            >
+              <Star size={14} fill={activeNote.isFavorite ? '#fb7185' : 'none'} />
+            </button>
+
+            {/* Reminder Date Selector */}
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <button 
+                onClick={() => setShowReminderPopover(!showReminderPopover)}
+                className="btn btn-xs d-flex align-items-center gap-1 border-0"
+                style={{
+                  background: activeNote.reminderTime ? 'rgba(234,179,8,0.2)' : 'rgba(0,0,0,0.04)',
+                  color: activeNote.reminderTime ? '#ca8a04' : 'inherit',
+                  fontSize: '11px',
+                  fontWeight: 700
+                }}
+                disabled={activeNote.isLocked}
+              >
+                <Bell size={11} /> Reminder
+              </button>
+
+              {showReminderPopover && (
+                <div 
+                  className="position-absolute p-3 rounded shadow animate-scale-in"
+                  style={{
+                    bottom: '30px',
+                    right: 0,
+                    background: '#111827',
+                    border: '1.5px solid rgba(255,255,255,0.1)',
+                    width: '240px',
+                    zIndex: 105,
+                    color: '#fff'
+                  }}
+                >
+                  <label style={{ fontSize: '10px', display: 'block', marginBottom: '4px' }}>Date</label>
+                  <input 
+                    type="date" 
+                    className="form-control mb-2 text-primary"
+                    value={reminderDate}
+                    onChange={e => setReminderDate(e.target.value)}
+                  />
+                  <label style={{ fontSize: '10px', display: 'block', marginBottom: '4px' }}>Time</label>
+                  <input 
+                    type="time" 
+                    className="form-control mb-3 text-primary"
+                    value={reminderTime}
+                    onChange={e => setReminderTime(e.target.value)}
+                  />
+                  <div className="d-flex gap-2 justify-content-end">
+                    <button onClick={() => setShowReminderPopover(false)} className="btn btn-xs btn-ghost text-muted">Cancel</button>
+                    <button onClick={handleSaveReminder} className="btn btn-xs btn-primary text-white" style={{ background: '#6366F1' }}>Schedule</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Content Editor Area */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          {isCode ? (
+            <div style={{ flex: 1, overflow: 'hidden', borderRadius: '12px', border: '1px solid rgba(0,0,0,0.1)' }}>
+              <Editor
+                height="100%"
+                theme="vs-dark"
+                language={detectLanguage(activeNote.title)}
+                value={activeNote.content.replace(/<\/div>/g, '\n').replace(/<[^>]*>/g, '')}
+                onChange={(val) => {
+                  updateNoteWithIndicator(activeNote.id, { content: `<div>${(val || '').replace(/\n/g, '<br>')}</div>` });
+                }}
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 14,
+                  scrollbar: { vertical: 'auto', horizontal: 'auto' }
+                }}
+              />
+            </div>
+          ) : (
+            <div 
+              ref={editorContentRef}
+              contentEditable
+              onInput={handleEditorInput}
+              data-placeholder="Start typing your note here..."
+              style={{
+                flex: 1,
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                overflowY: 'auto',
+                fontSize: activeNote.fontSize || '16px',
+                lineHeight: 1.6,
+                color: 'inherit',
+                padding: '8px 4px',
+                resize: 'none'
+              }}
+            />
+          )}
+        </div>
+
+        {/* Bottom Save Indicator */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: '12px', fontSize: '11px', opacity: 0.8 }}>
+          <span>Last modified: {activeNote.updatedAt}</span>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {autoSaveStatus === 'saving' && <span className="badge bg-warning text-dark">⏳ Saving...</span>}
+            {autoSaveStatus === 'saved' && <span className="badge bg-success">✓ Saved</span>}
+            <button 
+              onClick={() => {
+                deleteNote(activeNote.id);
+                setActiveNoteId(null);
+              }}
+              className="btn p-0 text-danger border-0 ml-3"
+              style={{ background: 'transparent' }}
+            >
+              🗑️ Delete Note
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderNotesListView = () => {
+    return (
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '24px' }}>
+        
+        {/* Second Row: Tabs, Add button and Filter settings */}
+        <div 
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '16px',
+            flexWrap: 'wrap',
+            paddingBottom: '16px',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.08)'
+          }}
+        >
+          {/* Horizontal category tabs */}
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <span
+              onClick={() => setSelectedTagFilter('All')}
+              className="badge cursor-pointer rounded-pill"
+              style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                padding: '8px 16px',
+                border: '1.5px solid ' + (selectedTagFilter === 'All' ? '#6366F1' : 'rgba(255,255,255,0.1)'),
+                background: selectedTagFilter === 'All' ? '#6366F1' : 'rgba(255,255,255,0.03)',
+                color: '#fff',
+                cursor: 'pointer'
+              }}
+            >
+              🏠 All
+            </span>
+            {categories.map(tg => {
+              const colors = getTagColor(tg);
+              const isActive = selectedTagFilter === tg;
+              return (
+                <span
+                  key={tg}
+                  onClick={() => setSelectedTagFilter(tg)}
+                  className="badge cursor-pointer rounded-pill"
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    padding: '8px 16px',
+                    border: '1.5px solid ' + (isActive ? colors.border : 'rgba(255,255,255,0.1)'),
+                    background: isActive ? colors.bg : 'rgba(255,255,255,0.03)',
+                    color: colors.text,
+                    cursor: 'pointer'
+                  }}
+                >
+                  {getCategoryEmoji(tg)} {tg}
+                </span>
+              );
+            })}
+
+            {/* Create New Note Plus Button */}
+            <button 
+              onClick={() => createNewNote(selectedTagFilter === 'All' ? 'General' : selectedTagFilter)}
+              style={{ 
+                width: '32px', 
+                height: '32px', 
+                borderRadius: '50%', 
+                background: 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)', 
+                border: 'none', 
+                color: '#fff', 
+                fontWeight: 800,
+                fontSize: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 4px 10px rgba(99,102,241,0.3)',
+                cursor: 'pointer'
+              }}
+              title="Add New Note"
+            >
+              +
+            </button>
+          </div>
+
+          {/* Right Filters alignment */}
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {[
+              { id: 'all', label: 'All Notes' },
+              { id: 'favorites', label: 'Favorite List' },
+              { id: 'reminders', label: 'Reminder' },
+              { id: 'trash', label: 'Trash' }
+            ].map(item => (
+              <button
+                key={item.id}
+                onClick={() => setSelectedNav(item.id as any)}
+                className="btn btn-sm"
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid ' + (selectedNav === item.id ? '#ca8a04' : 'rgba(255,255,255,0.08)'),
+                  background: selectedNav === item.id ? 'rgba(202,138,4,0.1)' : 'rgba(255,255,255,0.02)',
+                  color: selectedNav === item.id ? '#facc15' : '#cbd5e1',
+                  cursor: 'pointer'
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Import & Export Files options */}
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+            <button 
+              onClick={() => importFileRef.current?.click()}
+              className="btn btn-xs text-info"
+              style={{ fontSize: '11px', fontWeight: 700, background: 'rgba(59,130,246,0.1)', border: '1.5px solid rgba(59,130,246,0.2)', padding: '5px 10px', borderRadius: '8px', cursor: 'pointer' }}
+              title="Import files from PC (.txt, .md, scripts)"
+            >
+              📥 Import
+            </button>
+            {filteredNotes.length > 0 && (
+              <button 
+                onClick={handleBulkExport}
+                className="btn btn-xs text-success"
+                style={{ fontSize: '11px', fontWeight: 700, background: 'rgba(16,185,129,0.1)', border: '1.5px solid rgba(16,185,129,0.2)', padding: '5px 10px', borderRadius: '8px', cursor: 'pointer' }}
+                title="Export listed notes as JSON"
+              >
+                Export
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Cards Grid */}
+        <div 
+          className="flex-grow-1 mt-4" 
+          style={{ 
+            overflowY: 'auto',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+            gap: '16px',
+            alignContent: 'start'
+          }}
+        >
+          {sortedNotes.length === 0 ? (
+            <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: '#94A3B8', fontSize: '13px', padding: '40px' }}>
+              📪 No notes found. Click the '+' button to add one.
+            </div>
+          ) : (
+            sortedNotes.map(n => {
+              const colorObj = NOTE_COLORS.find(c => c.bg === n.color) || NOTE_COLORS[0];
+              return (
+                <div
+                  key={n.id}
+                  onClick={() => {
+                    setActiveNoteId(n.id);
+                  }}
+                  className="p-3 note-card-grid transition-all"
+                  style={{
+                    background: colorObj.bg,
+                    color: colorObj.text,
+                    border: `2px solid ${colorObj.border}`,
+                    borderRadius: '16px',
+                    height: '140px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    position: 'relative',
+                    overflow: 'hidden'
+                  }}
+                  title="Click to view & edit note"
+                >
+                  {/* Note Title display */}
+                  <strong 
+                    style={{ 
+                      fontSize: '15px', 
+                      lineHeight: 1.4, 
+                      fontWeight: 800,
+                      wordBreak: 'break-word',
+                      display: '-webkit-box',
+                      WebkitLineClamp: 4,
+                      WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden',
+                      marginRight: n.isPinned ? '16px' : 0
+                    }}
+                  >
+                    {n.isLocked && '🔒 '}
+                    {n.title || 'Untitled Note'}
+                  </strong>
+
+                  {/* Bottom details of card */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '9px', opacity: 0.8, borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: '6px' }}>
+                    <span>{n.tag}</span>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      {n.isPinned && <span>📌</span>}
+                      {n.isFavorite && <span>⭐</span>}
+                      {n.reminderTime && <span>⏰</span>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div style={{ position: 'relative', zIndex: 9999 }}>
@@ -980,657 +1148,122 @@ export default function FloatingStickyNotes() {
         <StickyNote size={28} style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.25))' }} />
       </button>
 
-      {/* Main 3-Column Slide-out Drawer */}
-      <div
-        className="d-flex"
-        style={{
-          position: 'fixed',
-          right: 0,
-          top: 0,
-          width: isManagerOpen ? managerWidth : '0px',
-          height: '100vh',
-          background: '#0F172A',
-          borderLeft: '3px solid rgba(255, 255, 255, 0.08)',
-          boxShadow: isManagerOpen ? '-15px 0 45px rgba(0,0,0,0.6)' : 'none',
-          color: '#F8FAFC',
-          overflow: 'hidden',
-          zIndex: 9990,
-          transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), width 0.25s ease',
-          transform: isManagerOpen ? 'translateX(0)' : 'translateX(100%)'
-        }}
-      >
-        {isManagerOpen && (
-          <>
-            {/* Column 1: Left Sidebar Navigation (240px) */}
-            <div 
-              style={{
-                width: '240px',
-                background: 'rgba(17, 24, 39, 0.75)',
-                backdropFilter: 'blur(12px)',
-                WebkitBackdropFilter: 'blur(12px)',
-                borderRight: '1px solid rgba(255,255,255,0.06)',
-                display: 'flex',
-                flexDirection: 'column',
-                padding: '16px'
-              }}
-            >
-              {/* Logo & Header */}
-              <div className="d-flex align-items-center justify-content-between mb-4">
-                <div className="d-flex align-items-center gap-2">
-                  <StickyNote size={20} className="text-warning" />
-                  <strong style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '0.5px' }}>GSV WORKSPACE</strong>
-                </div>
-                <div className="d-flex gap-1">
-                  <button 
-                    onClick={() => setManagerWidth(prev => prev === '380px' ? '980px' : '380px')} 
-                    className="border-0 bg-transparent text-muted p-1"
-                    title="Toggle Workspace Width"
-                  >
-                    <Maximize2 size={13} />
-                  </button>
-                  <button 
-                    onClick={() => setIsManagerOpen(false)} 
-                    className="border-0 bg-transparent text-danger p-1"
-                    title="Close Panel"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              </div>
-
-              {/* Search Notes */}
-              <div className="position-relative mb-4">
-                <Search size={14} className="position-absolute text-muted" style={{ left: '10px', top: '10px' }} />
-                <input
-                  type="text"
-                  placeholder="Search notes, tags..."
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  className="form-control bg-dark border-0 text-white"
-                  style={{
-                    paddingLeft: '32px',
-                    height: '34px',
-                    fontSize: '12px',
-                    background: '#0F172A',
-                    borderRadius: '8px'
-                  }}
-                />
-              </div>
-
-              {/* Nav Tabs */}
-              <div className="d-flex flex-column gap-1 mb-4">
-                {[
-                  { id: 'all', label: 'All Notes', icon: <FileText size={16} /> },
-                  { id: 'favorites', label: 'Favorites', icon: <Star size={16} /> },
-                  { id: 'reminders', label: 'Reminders', icon: <Bell size={16} /> },
-                  { id: 'trash', label: 'Trash & Archive', icon: <Trash2 size={16} /> }
-                ].map(item => (
-                  <button
-                    key={item.id}
-                    onClick={() => { setSelectedNav(item.id as any); setActiveNoteId(null); }}
-                    className={`d-flex align-items-center gap-3 px-3 py-2 border-0 rounded-lg text-start transition-all sidebar-btn ${selectedNav === item.id ? 'active' : ''}`}
-                    style={{
-                      fontSize: '12px',
-                      fontWeight: 700,
-                      background: selectedNav === item.id ? '#6366F1' : 'transparent',
-                      color: selectedNav === item.id ? '#fff' : '#cbd5e1',
-                      borderRadius: '8px',
-                      height: '38px',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {item.icon}
-                    <span>{item.label}</span>
-                  </button>
-                ))}
-              </div>
-
-              {/* Undo / Redo controls */}
-              <div className="d-flex justify-content-between p-2 rounded mb-3" style={{ background: 'rgba(255,255,255,0.03)' }}>
-                <button onClick={handleUndo} disabled={undoStack.length === 0} className="border-0 bg-transparent text-white p-1 cursor-pointer" title="Undo"><RotateCcw size={15} /></button>
-                <button onClick={handleRedo} disabled={redoStack.length === 0} className="border-0 bg-transparent text-white p-1 cursor-pointer" title="Redo"><RotateCw size={15} /></button>
-                <button onClick={() => importFileRef.current?.click()} className="border-0 bg-transparent text-white p-1 cursor-pointer" title="Import Files"><Files size={15} /></button>
-              </div>
-
-              {/* Hidden file input */}
-              <input 
-                type="file" 
-                ref={importFileRef} 
-                onChange={handleImportFiles} 
-                style={{ display: 'none' }} 
-                multiple 
-                accept=".txt,.md,.json,.csv,.log,.ini,.cfg,.ino,.c,.cpp,.h,.py,.js,.ts,.html,.css,.php,.java,.cs,.sql,.sh,.bat,.ps1"
-              />
-
-              {/* Sidebar Action Button */}
-              <button 
-                onClick={() => createNewNote('General')}
-                className="btn btn-primary mt-auto w-100 d-flex align-items-center justify-content-center gap-2"
-                style={{ borderRadius: '12px', height: '42px', fontWeight: 800, background: '#6366F1', border: 'none' }}
-              >
-                <Plus size={16} /> New Note
-              </button>
-            </div>
-
-            {/* Column 2: Center Grid List (Flex 1) */}
-            <div
-              style={{
-                flex: 1,
-                background: '#0F172A',
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden',
-                position: 'relative'
-              }}
-            >
-              {/* Horizontal Chips Category scrollbar */}
-              <div 
-                className="d-flex gap-2 align-items-center px-3 border-bottom overflow-x-auto" 
-                style={{ 
-                  height: '52px', 
-                  borderColor: 'rgba(255,255,255,0.06)', 
-                  background: '#111827',
-                  scrollbarWidth: 'none'
-                }}
-              >
-                <span
-                  onClick={() => setSelectedTagFilter('All')}
-                  className={`badge cursor-pointer px-3 py-2 rounded-lg border text-white ${selectedTagFilter === 'All' ? 'active-chip' : ''}`}
-                  style={{
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    borderColor: 'rgba(255,255,255,0.1)',
-                    background: selectedTagFilter === 'All' ? '#6366F1' : 'rgba(255,255,255,0.03)'
-                  }}
-                >
-                  🏠 All
-                </span>
-                {categories.map(tg => {
-                  const colors = getTagColor(tg);
-                  const isActive = selectedTagFilter === tg;
-                  return (
-                    <span
-                      key={tg}
-                      onClick={() => setSelectedTagFilter(tg)}
-                      className="badge cursor-pointer px-3 py-2 rounded-lg border"
-                      style={{
-                        fontSize: '11px',
-                        fontWeight: 700,
-                        borderColor: isActive ? colors.border : 'rgba(255,255,255,0.1)',
-                        background: isActive ? colors.bg : 'rgba(255,255,255,0.03)',
-                        color: colors.text
-                      }}
-                    >
-                      {getCategoryEmoji(tg)} {tg}
-                    </span>
-                  );
-                })}
-                <button 
-                  className="btn btn-ghost d-flex align-items-center justify-content-center text-primary"
-                  style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '50%', width: '22px', height: '22px', fontWeight: 800, padding: 0 }}
-                  onClick={handleAddNewCategory}
-                  title="Add Custom Category Tag"
-                >
-                  +
-                </button>
-              </div>
-
-              {/* Bulk Actions Header */}
-              {filteredNotes.length > 0 && (
-                <div className="px-3 py-2 d-flex justify-content-between align-items-center border-bottom bg-dark bg-opacity-30" style={{ borderColor: 'rgba(255,255,255,0.05)', fontSize: '11px' }}>
-                  <span className="text-muted">{filteredNotes.length} notes listed</span>
-                  <div className="d-flex gap-2">
-                    <button onClick={handleBulkArchive} className="btn btn-xs btn-ghost text-primary border-0 p-0" style={{ fontSize: '10px', fontWeight: 700 }}>Archive All</button>
-                    <button onClick={handleBulkExport} className="btn btn-xs btn-ghost text-warning border-0 p-0" style={{ fontSize: '10px', fontWeight: 700 }}>Export JSON</button>
-                    {selectedNav === 'trash' && (
-                      <button onClick={handleBulkDelete} className="btn btn-xs btn-ghost text-danger border-0 p-0" style={{ fontSize: '10px', fontWeight: 700 }}>Delete All</button>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Pinterest/Grid Cards View */}
-              <div 
-                className="flex-grow-1 p-3 card-masonry-grid" 
-                style={{ 
-                  overflowY: 'auto'
-                }}
-              >
-                {sortedNotes.length === 0 ? (
-                  <div className="text-center text-muted" style={{ fontSize: '12px', marginTop: '40px' }}>
-                    📪 No notes matches filter
-                  </div>
-                ) : (
-                  sortedNotes.map(n => {
-                    const colorObj = NOTE_COLORS.find(c => c.bg === n.color) || NOTE_COLORS[0];
-                    const activeEditorOpen = activeNoteId === n.id;
-                    const textSnippet = n.content.replace(/<\/div>/g, ' ').replace(/<[^>]*>/g, '');
-                    
-                    return (
-                      <div
-                        key={n.id}
-                        onClick={() => {
-                          setActiveNoteId(n.id);
-                          if (managerWidth === '380px') setManagerWidth('980px'); // Auto widen to edit!
-                        }}
-                        onDoubleClick={() => handleDoubleClickNote(n.id)}
-                        className="p-3 note-card transition-all"
-                        style={{
-                          background: '#1E293B',
-                          borderRadius: '16px',
-                          border: activeEditorOpen ? '2px solid #6366F1' : '1px solid rgba(255,255,255,0.06)',
-                          borderLeft: `5px solid ${colorObj.border}`,
-                          cursor: 'pointer',
-                          boxShadow: '0 4px 10px rgba(0,0,0,0.1)'
-                        }}
-                        title="Click to edit, Double-click to float"
-                      >
-                        <div className="d-flex justify-content-between align-items-center mb-2">
-                          <span className="badge" style={{ background: colorObj.bg, color: colorObj.text, fontSize: '9px', fontWeight: 800, padding: '2px 6px', borderRadius: '4px' }}>
-                            {getCategoryEmoji(n.tag)} {n.tag}
-                          </span>
-                          
-                          <div className="d-flex align-items-center gap-2" onClick={e => e.stopPropagation()}>
-                            <button 
-                              onClick={() => updateNote(n.id, { isPinned: !n.isPinned })}
-                              className="border-0 bg-transparent p-0"
-                              style={{ color: n.isPinned ? '#ca8a04' : '#64748b' }}
-                            >
-                              <Pin size={12} fill={n.isPinned ? '#ca8a04' : 'none'} />
-                            </button>
-                            <button 
-                              onClick={() => updateNote(n.id, { isFavorite: !n.isFavorite })}
-                              className="border-0 bg-transparent p-0"
-                              style={{ color: n.isFavorite ? '#fb7185' : '#64748b' }}
-                            >
-                              <Star size={12} fill={n.isFavorite ? '#fb7185' : 'none'} />
-                            </button>
-                          </div>
-                        </div>
-
-                        <strong style={{ fontSize: '13px', color: '#F8FAFC', display: 'block', marginBottom: '4px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                          {n.isLocked && '🔒 '}
-                          {n.title || 'Untitled note'}
-                        </strong>
-
-                        <p style={{ fontSize: '12px', color: '#94A3B8', margin: '0 0 8px 0', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                          {textSnippet || 'No content...'}
-                        </p>
-
-                        <div className="d-flex justify-content-between align-items-center border-top pt-2" style={{ borderColor: 'rgba(255,255,255,0.04)', fontSize: '10px', color: '#64748b' }}>
-                          <span>{n.updatedAt}</span>
-                          {n.reminderTime && <span title="Scheduled reminder">⏰ Set</span>}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-
-              {/* Floating Add Note Action Button in Center Area */}
-              <button
-                onClick={() => createNewNote(selectedTagFilter === 'All' ? 'General' : selectedTagFilter)}
-                className="d-flex align-items-center justify-content-center border-0 rounded-circle text-white shadow-lg"
-                style={{
-                  position: 'absolute',
-                  bottom: '24px',
-                  right: '24px',
-                  width: '56px',
-                  height: '56px',
-                  background: '#6366F1',
-                  cursor: 'pointer',
-                  zIndex: 10,
-                  transition: 'all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-                  boxShadow: '0 8px 16px rgba(99,102,241,0.4)'
-                }}
-                onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.08)'}
-                onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
-                title="Add New Note"
-              >
-                <Plus size={24} />
-              </button>
-            </div>
-
-            {/* Column 3: Right Editor Panel (360px - Only shown when wide mode is active) */}
-            {managerWidth === '980px' && (
-              <div
-                style={{
-                  width: '380px',
-                  background: '#1E293B',
-                  borderLeft: '1px solid rgba(255,255,255,0.06)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  overflow: 'hidden'
-                }}
-              >
-                {activeNote ? (
-                  <div className="d-flex flex-column h-100 flex-grow-1 p-3" style={{ minHeight: 0 }}>
-                    
-                    {/* Editor Control Headers */}
-                    <div className="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-                      <div className="d-flex align-items-center gap-2">
-                        {autoSaveStatus === 'saving' && <span className="badge bg-warning text-dark" style={{ fontSize: '10px' }}>⏳ Saving...</span>}
-                        {autoSaveStatus === 'saved' && <span className="badge bg-success" style={{ fontSize: '10px' }}>✓ Saved</span>}
-                      </div>
-
-                      <div className="d-flex align-items-center gap-1">
-                        <button 
-                          onClick={() => handleDuplicateNote(activeNote)} 
-                          className="border-0 bg-transparent text-muted p-1 hover-editor-action"
-                          title="Duplicate"
-                        >
-                          <Copy size={13} />
-                        </button>
-                        <button 
-                          onClick={() => updateNoteWithIndicator(activeNote.id, { isLocked: !activeNote.isLocked })} 
-                          className="border-0 bg-transparent text-muted p-1 hover-editor-action"
-                          style={{ color: activeNote.isLocked ? '#eab308' : '' }}
-                          title={activeNote.isLocked ? 'Unlock Note' : 'Lock Note'}
-                        >
-                          {activeNote.isLocked ? <Lock size={13} /> : <Unlock size={13} />}
-                        </button>
-                        <button 
-                          onClick={() => archiveNoteToggle(activeNote.id)} 
-                          className="border-0 bg-transparent text-muted p-1 hover-editor-action"
-                          style={{ color: activeNote.isArchived ? '#34d399' : '' }}
-                          title={activeNote.isArchived ? 'Restore' : 'Archive Note'}
-                        >
-                          <Archive size={13} />
-                        </button>
-                        <button 
-                          onClick={() => handlePrintNote(activeNote)} 
-                          className="border-0 bg-transparent text-muted p-1 hover-editor-action"
-                          title="Print Note"
-                        >
-                          <Printer size={13} />
-                        </button>
-                        <button 
-                          onClick={() => setZoomNote(activeNote)} 
-                          className="border-0 bg-transparent text-muted p-1 hover-editor-action"
-                          title="Zoom / Full Editor"
-                        >
-                          <Maximize2 size={13} />
-                        </button>
-                        <button 
-                          onClick={() => deleteNote(activeNote.id)} 
-                          className="border-0 bg-transparent text-danger p-1 hover-editor-action"
-                          title="Delete Note"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Locked Banner Warning */}
-                    {activeNote.isLocked && (
-                      <div className="alert alert-warning py-1 px-2 mb-3 text-center" style={{ fontSize: '11px', fontWeight: 600 }}>
-                        🔒 Locked: Disable editing modes.
-                      </div>
-                    )}
-
-                    {/* Note Title Input */}
-                    <input 
-                      type="text"
-                      className="bg-transparent border-0 text-white font-weight-bold w-100 mb-3"
-                      style={{ fontSize: '18px', outline: 'none', fontWeight: 800 }}
-                      placeholder="Note title..."
-                      value={activeNote.title}
-                      onChange={e => updateNoteWithIndicator(activeNote.id, { title: e.target.value })}
-                      disabled={activeNote.isLocked}
-                    />
-
-                    {/* Metadata & Tag line */}
-                    <div className="d-flex align-items-center justify-content-between mb-3" style={{ fontSize: '11px' }}>
-                      <div className="d-flex align-items-center gap-2 text-muted">
-                        <span>Category:</span>
-                        <select 
-                          value={activeNote.tag}
-                          onChange={e => updateNoteWithIndicator(activeNote.id, { tag: e.target.value })}
-                          className="bg-dark text-white border-0 p-1 rounded"
-                          style={{ fontSize: '11px', outline: 'none' }}
-                          disabled={activeNote.isLocked}
-                        >
-                          {categories.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                      </div>
-                      
-                      {/* Reminder icon trigger */}
-                      <div className="position-relative">
-                        <button 
-                          onClick={() => setShowReminderPopover(!showReminderPopover)}
-                          className="btn btn-xs d-flex align-items-center gap-1 border-0"
-                          style={{
-                            background: activeNote.reminderTime ? 'rgba(234,179,8,0.2)' : 'rgba(255,255,255,0.04)',
-                            color: activeNote.reminderTime ? '#facc15' : '#cbd5e1'
-                          }}
-                          disabled={activeNote.isLocked}
-                        >
-                          <Bell size={11} /> Reminder
-                        </button>
-
-                        {showReminderPopover && (
-                          <div 
-                            className="position-absolute p-3 rounded shadow"
-                            style={{
-                              bottom: '30px',
-                              right: 0,
-                              background: '#111827',
-                              border: '1.5px solid rgba(255,255,255,0.1)',
-                              width: '240px',
-                              zIndex: 105
-                            }}
-                          >
-                            <label style={{ fontSize: '10px', display: 'block', marginBottom: '4px' }}>Date</label>
-                            <input 
-                              type="date" 
-                              className="form-control mb-2 text-primary"
-                              value={reminderDate}
-                              onChange={e => setReminderDate(e.target.value)}
-                            />
-                            <label style={{ fontSize: '10px', display: 'block', marginBottom: '4px' }}>Time</label>
-                            <input 
-                              type="time" 
-                              className="form-control mb-3 text-primary"
-                              value={reminderTime}
-                              onChange={e => setReminderTime(e.target.value)}
-                            />
-                            <div className="d-flex gap-2 justify-content-end">
-                              <button onClick={() => setShowReminderPopover(false)} className="btn btn-xs btn-ghost">Cancel</button>
-                              <button onClick={handleSaveReminder} className="btn btn-xs btn-primary">Schedule</button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Rich text formatting controls (WYSIWYG tools) */}
-                    {!activeNote.isLocked && !isCodeNoteActive && (
-                      <div className="d-flex align-items-center gap-2 p-1 rounded mb-3" style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)' }}>
-                        <button onClick={() => execFormat('bold')} className="btn btn-xs text-white p-1 hover-editor-action" title="Bold"><Bold size={13} /></button>
-                        <button onClick={() => execFormat('italic')} className="btn btn-xs text-white p-1 hover-editor-action" title="Italic"><Italic size={13} /></button>
-                        <button onClick={() => execFormat('underline')} className="btn btn-xs text-white p-1 hover-editor-action" title="Underline"><Underline size={13} /></button>
-                        <button onClick={() => execFormat('insertUnorderedList')} className="btn btn-xs text-white p-1 hover-editor-action" title="Bullet List"><List size={13} /></button>
-                        <button onClick={() => execFormat('insertOrderedList')} className="btn btn-xs text-white p-1 hover-editor-action" title="Number List"><ListOrdered size={13} /></button>
-                      </div>
-                    )}
-
-                    {/* Active Editor Panel Content Area */}
-                    <div className="flex-grow-1 d-flex flex-column mb-3" style={{ minHeight: 0 }}>
-                      {isCodeNoteActive ? (
-                        <div style={{ flex: 1, overflow: 'hidden', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
-                          <Editor
-                            height="100%"
-                            theme="vs-dark"
-                            language={detectLanguage(activeNote.title)}
-                            value={activeNote.content.replace(/<\/div>/g, '\n').replace(/<[^>]*>/g, '')}
-                            onChange={(val) => {
-                              if (!activeNote.isLocked) {
-                                updateNoteWithIndicator(activeNote.id, { content: `<div>${(val || '').replace(/\n/g, '<br>')}</div>` });
-                              }
-                            }}
-                            options={{
-                              minimap: { enabled: false },
-                              fontSize: 13,
-                              readOnly: activeNote.isLocked,
-                              scrollbar: { vertical: 'auto', horizontal: 'auto' }
-                            }}
-                          />
-                        </div>
-                      ) : (
-                        <div
-                          ref={editorContentRef}
-                          contentEditable={!activeNote.isLocked}
-                          onInput={handleEditorInput}
-                          data-placeholder="Start typing broad notes here..."
-                          style={{
-                            flex: 1,
-                            background: 'transparent',
-                            border: 'none',
-                            outline: 'none',
-                            overflowY: 'auto',
-                            fontSize: '15px',
-                            lineHeight: 1.6,
-                            color: '#F8FAFC',
-                            padding: '8px 0',
-                            resize: 'none'
-                          }}
-                        />
-                      )}
-                    </div>
-
-                    {/* Tag Manager Input */}
-                    {!activeNote.isLocked && (
-                      <div className="mb-3">
-                        <div className="d-flex flex-wrap gap-1 mb-2">
-                          {(activeNote.tags || []).map(tag => (
-                            <span 
-                              key={tag}
-                              className="badge bg-secondary d-flex align-items-center gap-1"
-                              style={{ fontSize: '9px', padding: '3px 6px', background: 'rgba(255,255,255,0.08)' }}
-                            >
-                              {tag}
-                              <X size={10} className="cursor-pointer" onClick={() => handleRemoveTag(tag)} />
-                            </span>
-                          ))}
-                        </div>
-                        <input 
-                          type="text" 
-                          placeholder="Add Tag (Press Enter)..." 
-                          value={tagInput}
-                          onChange={e => setTagInput(e.target.value)}
-                          onKeyDown={handleAddTag}
-                          className="form-control bg-dark border-0 text-white"
-                          style={{ height: '28px', fontSize: '11px', borderRadius: '6px' }}
-                        />
-                      </div>
-                    )}
-
-                    {/* Colors Palette dots selector */}
-                    {!activeNote.isLocked && (
-                      <div className="d-flex justify-content-between align-items-center border-top pt-2" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-                        <span style={{ fontSize: '11px', color: '#94A3B8' }}>Note Card Color:</span>
-                        <div className="d-flex gap-1">
-                          {NOTE_COLORS.map(c => (
-                            <div 
-                              key={c.name}
-                              onClick={() => updateNoteWithIndicator(activeNote.id, { color: c.bg })}
-                              style={{
-                                width: '15px', height: '15px', borderRadius: '50%', background: c.bg,
-                                cursor: 'pointer', border: activeNote.color === c.bg ? '2.5px solid #fff' : '1px solid rgba(255,255,255,0.2)'
-                              }}
-                              title={c.name}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                  </div>
-                ) : (
-                  // Right Panel Empty State
-                  <div className="d-flex flex-column align-items-center justify-content-center h-100 p-4 text-center">
-                    <div style={{ fontSize: '56px', marginBottom: '16px', opacity: 0.25 }}>📝</div>
-                    <strong style={{ fontSize: '15px', color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
-                      Select a note or create a new one
-                    </strong>
-                    <button 
-                      onClick={() => createNewNote('General')}
-                      className="btn btn-outline-primary btn-sm mt-3 px-3 py-2"
-                      style={{ fontSize: '11px', fontWeight: 700 }}
-                    >
-                      + New Note
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* Render Draggable Sticky note panels */}
-      {openNoteIds.map(noteId => {
-        const note = notes.find(n => n.id === noteId);
-        if (!note) return null;
-        return (
-          <DraggableNoteCard
-            key={note.id}
-            note={note}
-            categories={categories}
-            onUpdate={updateNote}
-            onClose={() => setOpenNoteIds(prev => prev.filter(nid => nid !== note.id))}
-            onDelete={(e) => deleteNote(note.id, e)}
-            onDownload={handleDownload}
-          />
-        );
-      })}
-
-      {/* Full Screen Editor Modal (Zoom view) */}
-      {zoomNote && (
-        <div className="modal-backdrop" style={{ zIndex: 10009 }} onClick={() => setZoomNote(null)}>
+      {/* Main Centered Popup Page */}
+      {isPopupOpen && (
+        <div 
+          className="animate-scale-in"
+          style={{
+            position: 'fixed',
+            left: isMaximized ? 0 : '50%',
+            top: isMaximized ? 0 : '50%',
+            width: isMaximized ? '100vw' : '900px',
+            height: isMaximized ? '100vh' : '600px',
+            transform: isMaximized ? 'none' : 'translate(-50%, -50%)',
+            background: 'rgba(15, 23, 42, 0.95)',
+            backdropFilter: 'blur(20px)',
+            border: '2px solid rgba(255, 255, 255, 0.1)',
+            borderRadius: isMaximized ? 0 : '20px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.75)',
+            color: '#F8FAFC',
+            zIndex: 10000,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            fontFamily: "'Inter', system-ui, sans-serif"
+          }}
+        >
+          {/* Header Row */}
           <div 
-            className="modal p-4 animate-scale-in" 
-            style={{ 
-              maxWidth: '800px', 
-              width: '90%', 
-              background: '#1E293B', 
-              color: '#F8FAFC', 
-              borderRadius: '16px',
-              border: '2px solid rgba(255,255,255,0.1)'
-            }} 
-            onClick={e => e.stopPropagation()}
+            style={{
+              padding: '16px 24px',
+              background: 'rgba(30, 41, 59, 0.5)',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '16px'
+            }}
           >
-            <div className="d-flex justify-content-between align-items-center border-bottom pb-2 mb-3">
-              <strong style={{ fontSize: '16px' }}>📝 {zoomNote.title || 'Note Details'}</strong>
-              <button className="btn btn-ghost text-white btn-sm" onClick={() => setZoomNote(null)}>✕</button>
-            </div>
-            
-            <div style={{ fontSize: '13px', color: '#94A3B8', marginBottom: '16px' }}>
-              📁 Category: <strong>{zoomNote.tag}</strong> | Last Updated: <strong>{zoomNote.updatedAt}</strong>
-            </div>
-
-            <div 
-              style={{ 
-                maxHeight: '400px', 
-                overflowY: 'auto', 
-                fontSize: '15px', 
-                lineHeight: 1.7,
-                background: 'rgba(0,0,0,0.15)',
-                padding: '16px',
-                borderRadius: '8px',
-                whiteSpace: 'pre-wrap'
-              }}
-            >
-              {zoomNote.content.replace(/<\/div>/g, '\n').replace(/<[^>]*>/g, '')}
+            {/* Logo and User Name */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span style={{ fontSize: '24px' }}>📝</span>
+              <div>
+                <strong style={{ fontSize: '15px', fontWeight: 800, color: '#fff', letterSpacing: '-0.3px' }}>
+                  GSV Sticky Notes
+                </strong>
+                <span style={{ display: 'block', fontSize: '11px', color: '#94A3B8' }}>
+                  User: {user?.fullName || 'Active User'}
+                </span>
+              </div>
             </div>
 
-            <div className="d-flex gap-2 justify-content-end mt-4">
-              <button className="btn btn-secondary btn-sm" onClick={() => handlePrintNote(zoomNote)}>🖨️ Print Note</button>
-              <button className="btn btn-primary btn-sm" onClick={() => setZoomNote(null)}>Close View</button>
+            {/* Search Box */}
+            <div style={{ position: 'relative', flex: 1, maxWidth: '320px' }}>
+              <Search size={14} className="position-absolute text-muted" style={{ left: '12px', top: '10px' }} />
+              <input
+                type="text"
+                placeholder="Search note titles or content..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="form-control"
+                style={{
+                  paddingLeft: '34px',
+                  height: '34px',
+                  fontSize: '12px',
+                  background: 'rgba(15, 23, 42, 0.6)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  color: '#fff',
+                  borderRadius: '10px'
+                }}
+              />
+            </div>
+
+            {/* Window Action Buttons */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {/* Maximize */}
+              <button 
+                onClick={() => setIsMaximized(!isMaximized)} 
+                className="btn" 
+                style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.06)', border: 'none', color: '#fff', borderRadius: '6px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                title={isMaximized ? "Restore Window" : "Maximize Window"}
+              >
+                <Maximize2 size={13} />
+              </button>
+              {/* Minimize */}
+              <button 
+                onClick={() => setIsPopupOpen(false)} 
+                className="btn" 
+                style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.06)', border: 'none', color: '#fff', borderRadius: '6px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                title="Minimize Window"
+              >
+                <Minimize2 size={13} />
+              </button>
+              {/* Close */}
+              <button 
+                onClick={() => setIsPopupOpen(false)} 
+                className="btn text-danger" 
+                style={{ width: '28px', height: '28px', background: 'rgba(239,68,68,0.1)', border: 'none', color: '#ef4444', borderRadius: '6px', fontWeight: 'bold', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                title="Close Window"
+              >
+                ✕
+              </button>
             </div>
           </div>
+
+          {/* Subpage Router Area */}
+          {activeNoteId ? renderNoteEditView() : renderNotesListView()}
         </div>
       )}
+
+      {/* Hidden file input */}
+      <input 
+        type="file" 
+        ref={importFileRef} 
+        onChange={handleImportFiles} 
+        style={{ display: 'none' }} 
+        multiple 
+        accept=".txt,.md,.json,.csv,.log,.ini,.cfg,.ino,.c,.cpp,.h,.py,.js,.ts,.html,.css,.php,.java,.cs,.sql,.sh,.bat,.ps1"
+      />
 
       {/* Styled css sheets */}
       <style>{`
@@ -1641,58 +1274,23 @@ export default function FloatingStickyNotes() {
           transform: scale(1.1) rotate(5deg) !important;
           box-shadow: 0 0 35px rgba(245, 158, 11, 0.85), 0 8px 20px rgba(0,0,0,0.4) !important;
         }
-        .sidebar-btn {
-          transition: all 0.15s ease;
-        }
-        .sidebar-btn:hover {
-          background: rgba(255,255,255,0.06) !important;
-          color: #fff !important;
-        }
-        .sidebar-btn.active {
-          box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
-        }
-        .note-card {
-          break-inside: avoid;
-          margin-bottom: 12px;
-          display: block;
+        .note-card-grid {
           transition: transform 0.2s cubic-bezier(0.165, 0.84, 0.44, 1), box-shadow 0.2s ease;
         }
-        .note-card:hover {
-          transform: translateY(-3px);
-          box-shadow: 0 12px 24px rgba(0,0,0,0.2) !important;
+        .note-card-grid:hover {
+          transform: translateY(-4px) scale(1.02);
+          box-shadow: 0 12px 24px rgba(0,0,0,0.3) !important;
         }
-        .active-chip {
-          background: #6366F1 !important;
-          border-color: #6366F1 !important;
-          box-shadow: 0 2px 8px rgba(99,102,241,0.4);
-        }
-        .hover-editor-action {
+        .hover-note-item {
+          width: 100%;
+          border: none;
+          background: transparent;
           transition: background 0.15s;
-          border-radius: 4px;
-        }
-        .hover-editor-action:hover {
-          background: rgba(255,255,255,0.08) !important;
-          color: #fff !important;
+          padding: 8px 16px;
         }
         .hover-note-item:hover {
-          background: rgba(255,255,255,0.12) !important;
+          background: rgba(255,255,255,0.08) !important;
           color: #facc15 !important;
-        }
-        .card-masonry-grid {
-          column-count: 2;
-          column-gap: 12px;
-        }
-        @media (max-width: 768px) {
-          .card-masonry-grid {
-            column-count: 1;
-          }
-        }
-        .card-masonry-grid::-webkit-scrollbar {
-          width: 6px;
-        }
-        .card-masonry-grid::-webkit-scrollbar-thumb {
-          background: rgba(255,255,255,0.1);
-          border-radius: 3px;
         }
       `}</style>
 

@@ -28,6 +28,62 @@ const PluginsPage = lazy(() => import('./features/plugins/PluginsPage'));
 const ServerPage = lazy(() => import('./features/server/ServerPage'));
 const ProfilePage = lazy(() => import('./features/profile/ProfilePage'));
 
+function hasPermission(user: any, module: string, action: string): boolean {
+  if (!user) return false;
+  if (user.role?.name === 'Super Admin') return true;
+
+  const effective = new Map<string, boolean>();
+
+  if (user.role?.permissions) {
+    for (const rp of user.role.permissions) {
+      if (rp.granted) {
+        effective.set(`${rp.permission?.module}:${rp.permission?.action}`, true);
+      }
+    }
+  }
+
+  if (user.userPermissions) {
+    for (const up of user.userPermissions) {
+      effective.set(`${up.permission?.module}:${up.permission?.action}`, up.granted);
+    }
+  }
+
+  return effective.get(`${module}:${action}`) === true;
+}
+
+function PermittedRoute({ module, action, children }: { module: string; action: string; children: React.ReactNode }) {
+  const { user } = useAuthStore();
+  const permitted = hasPermission(user, module, action);
+
+  if (!permitted) {
+    return (
+      <div 
+        className="d-flex flex-column align-items-center justify-content-center text-center animate-scale-in" 
+        style={{ 
+          color: 'var(--text-secondary)', 
+          background: 'transparent', 
+          minHeight: '75vh',
+          padding: '40px' 
+        }}
+      >
+        <div style={{ fontSize: '72px', margin: '24px 0', filter: 'drop-shadow(0 0 15px rgba(239, 68, 68, 0.35))' }}>🔒</div>
+        <h2 style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '24px', letterSpacing: '-0.5px', marginBottom: '8px' }}>Access Locked</h2>
+        <p style={{ maxWidth: '480px', fontSize: '14px', lineHeight: 1.6, margin: '0 auto 24px auto', color: 'var(--text-secondary)', fontWeight: 500 }}>
+          Your user profile does not have access permissions for this module. Please coordinate with your department head or administrator to unlock access.
+        </p>
+        <div 
+          className="badge bg-danger bg-opacity-10 text-danger border border-danger px-4 py-2 rounded-pill" 
+          style={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.5px' }}
+        >
+          STATUS: LOCKED
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
@@ -121,25 +177,25 @@ export default function App() {
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="workspace" element={<EOfficePage />} />
-            <Route path="remote-desktop" element={<RemoteDesktopPage />} />
-            <Route path="chat" element={<ChatPage />} />
-            <Route path="chat/:conversationId" element={<ChatPage />} />
-            <Route path="files" element={<FilesPage />} />
-            <Route path="files/:folderId" element={<FilesPage />} />
-            <Route path="tickets" element={<TicketsPage />} />
-            <Route path="tickets/:ticketId" element={<TicketsPage />} />
-            <Route path="email" element={<EmailPage />} />
-            <Route path="users" element={<UsersPage />} />
-            <Route path="roles" element={<RolesPage />} />
-            <Route path="requests" element={<RequestsPage />} />
-            <Route path="storage" element={<StoragePage />} />
-            <Route path="billing" element={<BillingPage />} />
-            <Route path="billing/:section" element={<BillingPage />} />
-            <Route path="inventory" element={<InventoryPage />} />
-            <Route path="purchase" element={<PurchasePage />} />
-            <Route path="analytics" element={<AnalyticsPage />} />
-            <Route path="plugins" element={<PluginsPage />} />
-            <Route path="server" element={<ServerPage />} />
+            <Route path="remote-desktop" element={<PermittedRoute module="chat" action="read"><RemoteDesktopPage /></PermittedRoute>} />
+            <Route path="chat" element={<PermittedRoute module="chat" action="read"><ChatPage /></PermittedRoute>} />
+            <Route path="chat/:conversationId" element={<PermittedRoute module="chat" action="read"><ChatPage /></PermittedRoute>} />
+            <Route path="files" element={<PermittedRoute module="files" action="read"><FilesPage /></PermittedRoute>} />
+            <Route path="files/:folderId" element={<PermittedRoute module="files" action="read"><FilesPage /></PermittedRoute>} />
+            <Route path="tickets" element={<PermittedRoute module="tickets" action="read"><TicketsPage /></PermittedRoute>} />
+            <Route path="tickets/:ticketId" element={<PermittedRoute module="tickets" action="read"><TicketsPage /></PermittedRoute>} />
+            <Route path="email" element={<PermittedRoute module="email" action="read"><EmailPage /></PermittedRoute>} />
+            <Route path="users" element={<PermittedRoute module="users" action="read"><UsersPage /></PermittedRoute>} />
+            <Route path="roles" element={<PermittedRoute module="roles" action="read"><RolesPage /></PermittedRoute>} />
+            <Route path="requests" element={<PermittedRoute module="users" action="update"><RequestsPage /></PermittedRoute>} />
+            <Route path="storage" element={<PermittedRoute module="server" action="view"><StoragePage /></PermittedRoute>} />
+            <Route path="billing" element={<PermittedRoute module="billing" action="read"><BillingPage /></PermittedRoute>} />
+            <Route path="billing/:section" element={<PermittedRoute module="billing" action="read"><BillingPage /></PermittedRoute>} />
+            <Route path="inventory" element={<PermittedRoute module="inventory" action="read"><InventoryPage /></PermittedRoute>} />
+            <Route path="purchase" element={<PermittedRoute module="purchase" action="read"><PurchasePage /></PermittedRoute>} />
+            <Route path="analytics" element={<PermittedRoute module="dashboard" action="view_financials"><AnalyticsPage /></PermittedRoute>} />
+            <Route path="plugins" element={<PermittedRoute module="plugins" action="read"><PluginsPage /></PermittedRoute>} />
+            <Route path="server" element={<PermittedRoute module="server" action="view"><ServerPage /></PermittedRoute>} />
             <Route path="profile" element={<ProfilePage />} />
           </Route>
 

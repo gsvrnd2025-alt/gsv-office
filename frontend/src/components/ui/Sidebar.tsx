@@ -17,26 +17,28 @@ interface NavItem {
   label: string;
   badge?: number;
   section?: string;
+  module?: string;
+  action?: string;
 }
 
 const navItems: NavItem[] = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', section: 'main' },
   { to: '/workspace', icon: Laptop, label: 'Workspace', section: 'main' },
-  { to: '/remote-desktop', icon: Monitor, label: 'Remote Desktop', section: 'main' },
-  { to: '/chat', icon: MessageSquare, label: 'Team Chat', section: 'main' },
-  { to: '/files', icon: FolderOpen, label: 'Files', section: 'main' },
-  { to: '/tickets', icon: Ticket, label: 'Helpdesk', section: 'main' },
-  { to: '/email', icon: Mail, label: 'Email', section: 'main' },
-  { to: '/users', icon: Users, label: 'Users', section: 'admin' },
-  { to: '/roles', icon: Shield, label: 'Roles & Access', section: 'admin' },
-  { to: '/requests', icon: Inbox, label: 'Requests', section: 'admin' },
-  { to: '/storage', icon: HardDrive, label: 'Storage Quotas', section: 'admin' },
-  { to: '/billing', icon: Receipt, label: 'Billing', section: 'business' },
-  { to: '/inventory', icon: Package, label: 'Inventory', section: 'business' },
-  { to: '/purchase', icon: ShoppingCart, label: 'Purchase', section: 'business' },
-  { to: '/analytics', icon: BarChart3, label: 'Analytics', section: 'business' },
-  { to: '/plugins', icon: Puzzle, label: 'Plugins', section: 'system' },
-  { to: '/server', icon: Server, label: 'Server Admin', section: 'system' },
+  { to: '/remote-desktop', icon: Monitor, label: 'Remote Desktop', section: 'main', module: 'chat', action: 'read' },
+  { to: '/chat', icon: MessageSquare, label: 'Team Chat', section: 'main', module: 'chat', action: 'read' },
+  { to: '/files', icon: FolderOpen, label: 'Files', section: 'main', module: 'files', action: 'read' },
+  { to: '/tickets', icon: Ticket, label: 'Helpdesk', section: 'main', module: 'tickets', action: 'read' },
+  { to: '/email', icon: Mail, label: 'Email', section: 'main', module: 'email', action: 'read' },
+  { to: '/users', icon: Users, label: 'Users', section: 'admin', module: 'users', action: 'read' },
+  { to: '/roles', icon: Shield, label: 'Roles & Access', section: 'admin', module: 'roles', action: 'read' },
+  { to: '/requests', icon: Inbox, label: 'Requests', section: 'admin', module: 'users', action: 'update' },
+  { to: '/storage', icon: HardDrive, label: 'Storage Quotas', section: 'admin', module: 'server', action: 'view' },
+  { to: '/billing', icon: Receipt, label: 'Billing', section: 'business', module: 'billing', action: 'read' },
+  { to: '/inventory', icon: Package, label: 'Inventory', section: 'business', module: 'inventory', action: 'read' },
+  { to: '/purchase', icon: ShoppingCart, label: 'Purchase', section: 'business', module: 'purchase', action: 'read' },
+  { to: '/analytics', icon: BarChart3, label: 'Analytics', section: 'business', module: 'dashboard', action: 'view_financials' },
+  { to: '/plugins', icon: Puzzle, label: 'Plugins', section: 'system', module: 'plugins', action: 'read' },
+  { to: '/server', icon: Server, label: 'Server Admin', section: 'system', module: 'server', action: 'view' },
 ];
 
 const sections: { key: string; label: string }[] = [
@@ -45,6 +47,29 @@ const sections: { key: string; label: string }[] = [
   { key: 'business', label: 'Business' },
   { key: 'system', label: 'System' },
 ];
+
+function hasPermission(user: any, module: string, action: string): boolean {
+  if (!user) return false;
+  if (user.role?.name === 'Super Admin') return true;
+
+  const effective = new Map<string, boolean>();
+
+  if (user.role?.permissions) {
+    for (const rp of user.role.permissions) {
+      if (rp.granted) {
+        effective.set(`${rp.permission?.module}:${rp.permission?.action}`, true);
+      }
+    }
+  }
+
+  if (user.userPermissions) {
+    for (const up of user.userPermissions) {
+      effective.set(`${up.permission?.module}:${up.permission?.action}`, up.granted);
+    }
+  }
+
+  return effective.get(`${module}:${action}`) === true;
+}
 
 interface SidebarProps {
   collapsed: boolean;
@@ -98,20 +123,29 @@ export function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose }: Side
           });
           return (
             <div key={section.key} className={styles.navSection}>
-              {!collapsed && <span className={styles.sectionLabel}>{section.label}</span>}
-              {items.map(item => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  className={({ isActive }) => `${styles.navItem} ${isActive ? styles.active : ''}`}
-                  onClick={onMobileClose}
-                  title={collapsed ? item.label : undefined}
-                >
-                  <span className={styles.navIcon}><item.icon size={18} /></span>
-                  {!collapsed && <span className={styles.navLabel}>{item.label}</span>}
-                  {!collapsed && item.badge ? <span className={styles.badge}>{item.badge}</span> : null}
-                </NavLink>
-              ))}
+              {!collapsed && <span className={section.key === 'main' ? styles.sectionLabel : styles.sectionLabel}>{section.label}</span>}
+              {items.map(item => {
+                const isLocked = item.module && item.action && !hasPermission(user, item.module, item.action);
+                return (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    className={({ isActive }) => `${styles.navItem} ${isActive ? styles.active : ''}`}
+                    onClick={onMobileClose}
+                    title={collapsed ? item.label + (isLocked ? ' (Locked)' : '') : undefined}
+                    style={isLocked ? { opacity: 0.65 } : undefined}
+                  >
+                    <span className={styles.navIcon}><item.icon size={18} /></span>
+                    {!collapsed && <span className={styles.navLabel} style={isLocked ? { color: 'var(--text-secondary)' } : undefined}>{item.label}</span>}
+                    {!collapsed && isLocked && (
+                      <span style={{ fontSize: '11px', marginLeft: 'auto', opacity: 0.7 }} title="Access Locked">
+                        🔒
+                      </span>
+                    )}
+                    {!collapsed && item.badge ? <span className={styles.badge}>{item.badge}</span> : null}
+                  </NavLink>
+                );
+              })}
             </div>
           );
         })}
