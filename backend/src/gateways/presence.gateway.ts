@@ -4,6 +4,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
+import { UsersService } from '../modules/users/users.service';
 
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
@@ -14,7 +15,10 @@ export class PresenceGateway implements OnGatewayConnection, OnGatewayDisconnect
   @WebSocketServer() server: Server;
   private onlineUsers = new Set<string>();
 
-  constructor(private jwtService: JwtService) {}
+  constructor(
+    private jwtService: JwtService,
+    private usersService: UsersService,
+  ) {}
 
   async handleConnection(client: Socket) {
     try {
@@ -23,13 +27,21 @@ export class PresenceGateway implements OnGatewayConnection, OnGatewayDisconnect
       const payload = this.jwtService.verify(token);
       client.data.userId = payload.sub;
       this.onlineUsers.add(payload.sub);
+      
+      // Update database online status in real-time
+      await this.usersService.setOnlineStatus(payload.sub, true);
+      
       this.server.emit('presence:update', { userId: payload.sub, isOnline: true });
     } catch { client.disconnect(); }
   }
 
-  handleDisconnect(client: Socket) {
+  async handleDisconnect(client: Socket) {
     if (client.data.userId) {
       this.onlineUsers.delete(client.data.userId);
+      
+      // Update database online status in real-time
+      await this.usersService.setOnlineStatus(client.data.userId, false);
+      
       this.server.emit('presence:update', { userId: client.data.userId, isOnline: false });
     }
   }

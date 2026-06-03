@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Mail, Inbox, Send, Trash2, Archive, Star, Plus, Reply, 
@@ -11,10 +12,26 @@ import toast from 'react-hot-toast';
 
 export default function EmailPage() {
   const qc = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [folder, setFolder] = useState('inbox');
   const [selected, setSelected] = useState<any>(null);
   const [compose, setCompose] = useState(false);
   const [composeMinimized, setComposeMinimized] = useState(false);
+
+  // Parse compose param from URL query parameter (clicked from Chat page)
+  useEffect(() => {
+    const composeTarget = searchParams.get('compose');
+    if (composeTarget) {
+      setTo(composeTarget);
+      setCompose(true);
+      setComposeMinimized(false);
+      
+      // Clear query param to avoid reopening dialog on page refresh
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete('compose');
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [searchParams]);
   
   // Search state
   const [searchQuery, setSearchQuery] = useState('');

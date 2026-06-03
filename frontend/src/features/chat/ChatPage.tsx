@@ -29,6 +29,7 @@ const normalizeMessage = (m: any) => {
     fileUrl: m.file_url !== undefined ? m.file_url : m.fileUrl,
     fileSize: m.file_size !== undefined ? m.file_size : m.fileSize,
     mimeType: m.mime_type !== undefined ? m.mime_type : m.mimeType,
+    folderId: m.folder_id !== undefined ? m.folder_id : m.folderId,
   };
 };
 
@@ -120,6 +121,7 @@ export default function ChatPage() {
     title: string;
     message: string;
     onConfirm: () => void;
+    onCancel?: () => void;
     iconType?: 'trash' | 'folder' | 'download' | 'info';
     confirmText?: string;
     cancelText?: string;
@@ -490,6 +492,7 @@ export default function ChatPage() {
   const { data: usersData } = useQuery({
     queryKey: ['users', '', '', 1],
     queryFn: () => usersApi.getAll().then(r => r.data?.data || r.data || []),
+    refetchInterval: 4000,
   });
 
   const users = usersData?.data ? usersData.data : (Array.isArray(usersData) ? usersData : []);
@@ -1201,10 +1204,10 @@ export default function ChatPage() {
   // Text URL Link highlight parser
   const renderMessageContent = (text: string) => {
     if (!text) return '';
-    // Regex for URLs, emails, phone numbers
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/g;
-    const phoneRegex = /(\+?\d{1,3}[-.\s]?\d{3,4}[-.\s]?\d{4})/g;
+    // Use anchored regexes for per-word tests to avoid global flag test bugs
+    const urlRegex = /^https?:\/\/[^\s]+$/;
+    const emailRegex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+$/;
+    const phoneRegex = /^\+?\d{1,3}[-.\s]?\d{3,4}[-.\s]?\d{4}$/;
 
     const parts = text.split(/(\s+)/);
     return parts.map((part, idx) => {
@@ -1217,7 +1220,28 @@ export default function ChatPage() {
       }
       if (emailRegex.test(part)) {
         return (
-          <a key={idx} href={`mailto:${part}`} style={{ color: 'var(--brand-primary)', fontWeight: 600 }}>
+          <a 
+            key={idx} 
+            href={`mailto:${part}`} 
+            style={{ color: 'var(--brand-primary)', fontWeight: 600, textDecoration: 'underline', cursor: 'pointer' }}
+            onClick={(e) => {
+              e.preventDefault();
+              setConfirmModal({
+                title: 'Compose Email',
+                message: `Would you like to compose an email to ${part} using GSV Office Mail or your default external email app?`,
+                onConfirm: () => {
+                  navigate(`/email?compose=${encodeURIComponent(part)}`);
+                },
+                onCancel: () => {
+                  window.open(`mailto:${part}`, '_self');
+                },
+                confirmText: 'GSV Office Mail',
+                cancelText: 'External App',
+                iconType: 'info',
+                brandColor: 'var(--brand-primary)'
+              });
+            }}
+          >
             {part}
           </a>
         );
@@ -1780,8 +1804,38 @@ export default function ChatPage() {
                 >
                   <CheckSquare size={18} />
                 </button>
-                <button className="btn btn-ghost btn-icon" onClick={() => handleCallHandshake('audio')} title="Audio Handshake"><Phone size={18} style={{ color: 'var(--brand-primary)' }} /></button>
-                <button className="btn btn-ghost btn-icon" onClick={() => handleCallHandshake('video')} title="Video Resonance"><Video size={18} style={{ color: 'var(--brand-primary)' }} /></button>
+                {(() => {
+                  let isOffline = false;
+                  if (activeConv && activeConv.type === 'private') {
+                    const partnerName = activeConv.name?.replace('DM with ', '');
+                    const partnerUser = otherUsers.find(
+                      (u: any) => u.fullName?.toLowerCase() === partnerName?.toLowerCase() || u.loginId?.toLowerCase() === partnerName?.toLowerCase()
+                    );
+                    isOffline = partnerUser ? !partnerUser.isOnline : true;
+                  }
+                  return (
+                    <>
+                      <button 
+                        className="btn btn-ghost btn-icon" 
+                        onClick={() => handleCallHandshake('audio')} 
+                        disabled={isOffline}
+                        title={isOffline ? "Teammate offline" : "Audio Handshake"}
+                        style={{ opacity: isOffline ? 0.4 : 1, cursor: isOffline ? 'not-allowed' : 'pointer' }}
+                      >
+                        <Phone size={18} style={{ color: isOffline ? 'var(--text-tertiary)' : 'var(--brand-primary)' }} />
+                      </button>
+                      <button 
+                        className="btn btn-ghost btn-icon" 
+                        onClick={() => handleCallHandshake('video')} 
+                        disabled={isOffline}
+                        title={isOffline ? "Teammate offline" : "Video Resonance"}
+                        style={{ opacity: isOffline ? 0.4 : 1, cursor: isOffline ? 'not-allowed' : 'pointer' }}
+                      >
+                        <Video size={18} style={{ color: isOffline ? 'var(--text-tertiary)' : 'var(--brand-primary)' }} />
+                      </button>
+                    </>
+                  );
+                })()}
                 <button className="btn btn-ghost btn-icon" onClick={simulateIncomingCall} title="Simulate Call"><MoreVertical size={18} /></button>
               </div>
             </div>
@@ -1835,9 +1889,17 @@ export default function ChatPage() {
                       onContextMenu={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
+                        const menuWidth = 240;
+                        const menuHeight = 350;
+                        let x = e.clientX;
+                        let y = e.clientY;
+                        if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 16;
+                        if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 16;
+                        if (x < 16) x = 16;
+                        if (y < 16) y = 16;
                         setMsgContextMenu({
-                          x: e.clientX,
-                          y: e.clientY,
+                          x,
+                          y,
                           msg: msg
                         });
                       }}
@@ -1891,8 +1953,18 @@ export default function ChatPage() {
                                       src={msg.file_url || msg.fileUrl}
                                       alt={msg.file_name || msg.fileName || 'photo'}
                                       style={{ width: '100%', height: 'auto', display: 'block', minHeight: '60px', background: 'var(--bg-secondary)', maxHeight: '360px', objectFit: 'cover' }}
-                                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                      onError={(e) => {
+                                        const target = e.target as HTMLImageElement;
+                                        target.style.display = 'none';
+                                        const fallback = target.nextElementSibling as HTMLElement;
+                                        if (fallback) fallback.style.display = 'flex';
+                                      }}
                                     />
+                                    <div style={{ display: 'none', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '16px', gap: '8px', color: 'var(--text-secondary)', background: 'var(--wa-bg)', borderRadius: '8px', border: '1px solid var(--wa-border)', minWidth: '200px' }}>
+                                      <Image size={24} style={{ color: 'var(--brand-primary)' }} />
+                                      <span style={{ fontSize: '11px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '180px' }} title={msg.file_name || msg.fileName}>{msg.file_name || msg.fileName || 'Image preview unavailable'}</span>
+                                      <a href={msg.file_url || msg.fileUrl} download={msg.file_name || msg.fileName} style={{ fontSize: '10px', color: 'var(--brand-primary)', textDecoration: 'underline' }} onClick={e => e.stopPropagation()}>Download Image</a>
+                                    </div>
                                     <div style={{ position: 'absolute', bottom: '4px', right: '6px', fontSize: '10px', color: 'rgba(255,255,255,0.9)', background: 'rgba(0,0,0,0.4)', borderRadius: '4px', padding: '1px 5px' }}>{msg.file_name || msg.fileName || ''}</div>
                                   </div>
                                   {msg.content && (
@@ -1904,13 +1976,11 @@ export default function ChatPage() {
                               )}
                               {msg.type === 'video' && (msg.file_url || msg.fileUrl) && (
                                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                  <div style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)', maxWidth: '420px', cursor: 'pointer', position: 'relative' }} onClick={() => setPreviewFile({ url: msg.file_url || msg.fileUrl, name: msg.file_name || msg.fileName || 'video.mp4', type: 'video' })}>
-                                    <video style={{ width: '100%', display: 'block', maxHeight: '240px', objectFit: 'cover' }}>
+                                  <div style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)', maxWidth: '420px', position: 'relative' }}>
+                                    <video controls preload="metadata" style={{ width: '100%', display: 'block', maxHeight: '240px', objectFit: 'contain', background: '#000' }}>
                                       <source src={msg.file_url || msg.fileUrl} type={msg.mime_type || msg.mimeType || 'video/mp4'} />
+                                      Your browser does not support the video tag.
                                     </video>
-                                    <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', background: 'rgba(0,0,0,0.5)', borderRadius: '50%', padding: '12px', pointerEvents: 'none' }}>
-                                      <div style={{ width: 0, height: 0, borderTop: '8px solid transparent', borderBottom: '8px solid transparent', borderLeft: '12px solid white', marginLeft: '4px' }} />
-                                    </div>
                                   </div>
                                   {msg.content && (
                                     <div style={{ padding: '6px 8px 2px 8px', fontSize: '15px', color: 'inherit', wordBreak: 'break-word' }}>
@@ -2687,6 +2757,55 @@ export default function ChatPage() {
             </div>
           )}
 
+          {(() => {
+            if (!msgContextMenu.msg.content) return null;
+            const urlMatch = msgContextMenu.msg.content.match(/https?:\/\/[^\s]+/);
+            const emailMatch = msgContextMenu.msg.content.match(/[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+/);
+            
+            return (
+              <>
+                {urlMatch && (
+                  <div 
+                    className="dropdown-item" 
+                    onClick={() => {
+                      window.open(urlMatch[0], '_blank', 'noopener,noreferrer');
+                      setMsgContextMenu(null);
+                    }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', padding: '8px 12px', cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    🔗 Open Link in New Tab
+                  </div>
+                )}
+                {emailMatch && (
+                  <div 
+                    className="dropdown-item" 
+                    onClick={() => {
+                      const emailAddr = emailMatch[0];
+                      setMsgContextMenu(null);
+                      setConfirmModal({
+                        title: 'Compose Email',
+                        message: `Would you like to compose an email to ${emailAddr} using GSV Office Mail or your default external email app?`,
+                        onConfirm: () => {
+                          navigate(`/email?compose=${encodeURIComponent(emailAddr)}`);
+                        },
+                        onCancel: () => {
+                          window.open(`mailto:${emailAddr}`, '_self');
+                        },
+                        confirmText: 'GSV Office Mail',
+                        cancelText: 'External App',
+                        iconType: 'info',
+                        brandColor: 'var(--brand-primary)'
+                      });
+                    }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', padding: '8px 12px', cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    📧 Compose Email
+                  </div>
+                )}
+              </>
+            );
+          })()}
+
           {(msgContextMenu.msg.file_url || msgContextMenu.msg.fileUrl) && (
             <div className="dropdown-item" onClick={() => {
               handleSaveToPC(msgContextMenu.msg.file_name || msgContextMenu.msg.fileName || 'file', '', msgContextMenu.msg.file_url || msgContextMenu.msg.fileUrl);
@@ -2787,7 +2906,14 @@ export default function ChatPage() {
             </p>
             
             <div style={{ display: 'flex', gap: '12px', marginTop: '8px', justifyContent: 'flex-end' }}>
-              <button className="btn btn-secondary btn-sm" style={{ padding: '8px 16px', borderRadius: '8px' }} onClick={() => setConfirmModal(null)}>
+              <button 
+                className="btn btn-secondary btn-sm" 
+                style={{ padding: '8px 16px', borderRadius: '8px' }} 
+                onClick={() => {
+                  if (confirmModal.onCancel) confirmModal.onCancel();
+                  setConfirmModal(null);
+                }}
+              >
                 {confirmModal.cancelText || 'Cancel'}
               </button>
               <button 
@@ -2852,6 +2978,16 @@ export default function ChatPage() {
             <div style={{ display: 'flex', gap: '12px', marginTop: '8px', justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary btn-sm" style={{ padding: '8px 16px' }} onClick={() => setShowMicWarningModal(false)}>
                 Dismiss
+              </button>
+              <button className="btn btn-primary btn-sm" style={{ padding: '8px 16px', background: 'var(--wa-accent)', borderColor: 'var(--wa-accent)' }} onClick={async () => {
+                setShowMicWarningModal(false);
+                try {
+                  await startRecording();
+                } catch {
+                  setShowMicWarningModal(true);
+                }
+              }}>
+                🎤 Try Again
               </button>
               <button className="btn btn-primary btn-sm" style={{ padding: '8px 16px', background: 'var(--brand-primary)', borderColor: 'var(--brand-primary)' }} onClick={() => {
                 window.location.reload();

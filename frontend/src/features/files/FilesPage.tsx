@@ -1,4 +1,5 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useDropzone } from 'react-dropzone';
 import {
@@ -66,14 +67,34 @@ function formatBytes(bytes: number) {
 export default function FilesPage() {
   const qc = useQueryClient();
   const { user } = useAuthStore();
+
+  const { folderId: routeFolderId } = useParams();
+  const [searchParams] = useSearchParams();
+  const queryFolderId = searchParams.get('folderId');
+  const initialFolderId = routeFolderId || queryFolderId || undefined;
+
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [folderId, setFolderId] = useState<string | undefined>();
+  const [folderId, setFolderId] = useState<string | undefined>(initialFolderId);
   const [breadcrumbs, setBreadcrumbs] = useState<{ id?: string; name: string }[]>([{ name: 'Home' }]);
   const [search, setSearch] = useState('');
   const [uploading, setUploading] = useState(false);
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [activeTab, setActiveTab] = useState<'files' | 'requests'>('files');
+
+  // Sync folderId with route or query search parameter updates (e.g. when clicking chat bubbles)
+  useEffect(() => {
+    if (initialFolderId) {
+      setFolderId(initialFolderId);
+      setBreadcrumbs(prev => {
+        if (prev.some(b => b.id === initialFolderId)) return prev;
+        return [{ name: 'Home' }, { id: initialFolderId, name: 'Active Folder' }];
+      });
+    } else {
+      setFolderId(undefined);
+      setBreadcrumbs([{ name: 'Home' }]);
+    }
+  }, [routeFolderId, queryFolderId]);
 
   // Category filter and preview states
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'photos' | 'videos' | 'docs' | 'pdfs' | 'programs'>('all');
@@ -315,6 +336,19 @@ export default function FilesPage() {
     setBreadcrumbs(prev => prev.slice(0, idx + 1));
     setFolderId(item.id);
     setCategoryFilter('all'); // Reset filter on navigation
+  };
+
+  const openContextMenu = (e: React.MouseEvent, item: any, itemType: 'file' | 'folder') => {
+    e.preventDefault();
+    const menuWidth = 180;
+    const menuHeight = 250;
+    let x = e.clientX;
+    let y = e.clientY;
+    if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 12;
+    if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 12;
+    if (x < 12) x = 12;
+    if (y < 12) y = 12;
+    setContextMenu({ x, y, item, itemType });
   };
 
   const handleCopyStructure = (name: string) => {
@@ -920,10 +954,7 @@ export default function FilesPage() {
                     className="card card-hoverable" 
                     style={{ padding: '16px', textAlign: 'center', cursor: 'pointer', position: 'relative' }} 
                     onDoubleClick={() => handleDoubleClickFolder(folder)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setContextMenu({ x: e.clientX, y: e.clientY, item: folder, itemType: 'folder' });
-                    }}
+                    onContextMenu={(e) => openContextMenu(e, folder, 'folder')}
                   >
                     {isBulkMode && (
                       <input
@@ -974,10 +1005,7 @@ export default function FilesPage() {
                     style={{ padding: '16px', textAlign: 'center', position: 'relative', cursor: 'pointer' }}
                     onClick={() => handleOpenPreview(file)}
                     onDoubleClick={() => { if (file.storageUrl) window.open(file.storageUrl, '_blank'); }}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setContextMenu({ x: e.clientX, y: e.clientY, item: file, itemType: 'file' });
-                    }}
+                    onContextMenu={(e) => openContextMenu(e, file, 'file')}
                   >
                     {isBulkMode && (
                       <input
@@ -1046,10 +1074,7 @@ export default function FilesPage() {
                       return (
                         <tr 
                           key={item.id}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            setContextMenu({ x: e.clientX, y: e.clientY, item, itemType: item.isFolder ? 'folder' : 'file' });
-                          }}
+                          onContextMenu={(e) => openContextMenu(e, item, item.isFolder ? 'folder' : 'file')}
                         >
                           <td>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
