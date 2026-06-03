@@ -57,6 +57,7 @@ export const authApi = {
 
 export const usersApi = {
   getAll: (params?: any) => api.get('/users', { params }),
+  getDirectory: () => api.get('/users/directory'), // For remote desktop - no admin perm needed
   getById: (id: string) => api.get(`/users/${id}`),
   create: (data: any) => api.post('/users', data),
   update: (id: string, data: any) => api.put(`/users/${id}`, data),

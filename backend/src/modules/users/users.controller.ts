@@ -18,6 +18,16 @@ import { CreateUserDto, UpdateUserDto, ResetPasswordDto } from './dto/create-use
 export class UsersController {
   constructor(private usersService: UsersService) {}
 
+  @Get('directory')
+  @ApiOperation({ summary: 'Get all active users for peer directory (no admin permission needed)' })
+  async getDirectory(@CurrentUser('id') currentUserId: string) {
+    // Any logged-in user can get the directory listing for remote desktop / chat
+    return this.usersService.findAll({ status: 'active', limit: 200 }).then(result => ({
+      success: true,
+      data: result.data.filter((u: any) => u.id !== currentUserId),
+    }));
+  }
+
   @Get()
   @RequirePermissions(['users', 'read'])
   @ApiOperation({ summary: 'List all users' })

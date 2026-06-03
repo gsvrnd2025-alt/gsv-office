@@ -32,11 +32,13 @@ export default function RequestsPage() {
 
   const usersList = usersData?.data ? usersData.data : (Array.isArray(usersData) ? usersData : []);
 
-  // Forgot password queries
-  const { data: forgotRequestsData, isLoading: loadingForgot } = useQuery({
+  // Forgot password queries - always fetch for superadmin (don't wait for tab click)
+  const { data: forgotRequestsData, isLoading: loadingForgot, refetch: refetchForgot } = useQuery({
     queryKey: ['forgot-password-requests'],
     queryFn: () => authApi.getForgotPasswordRequests().then((r: any) => r.data?.data || r.data || []),
-    enabled: isSuperAdmin && viewType === 'forgot',
+    enabled: isSuperAdmin,
+    refetchInterval: 30000, // Auto-refresh every 30 seconds
+    staleTime: 10000,
   });
 
   const forgotList = Array.isArray(forgotRequestsData) ? forgotRequestsData : [];
@@ -121,6 +123,9 @@ export default function RequestsPage() {
             style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}
           >
             <KeyRound size={16} /> Password Resets
+            {forgotList.length > 0 && (
+              <span className="badge badge-primary" style={{ fontSize: '9px', padding: '1px 5px', background: 'var(--brand-danger)' }}>{forgotList.length}</span>
+            )}
           </button>
         </div>
       )}
@@ -290,7 +295,18 @@ export default function RequestsPage() {
           <div className="card-header" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', padding: '16px 20px', background: 'rgba(255,255,255,0.02)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h3 style={{ fontSize: '15px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', margin: 0, color: 'var(--text-primary)' }}>
               🔑 Pending Password Reset Approvals
+              {forgotList.length > 0 && (
+                <span className="badge badge-primary" style={{ fontSize: '10px', padding: '2px 6px', background: 'var(--brand-danger)' }}>{forgotList.length} pending</span>
+              )}
             </h3>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => refetchForgot()}
+              style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}
+            >
+              <RefreshCw size={12} /> Refresh
+            </button>
           </div>
           <div className="table-container" style={{ minHeight: '300px' }}>
             <table>

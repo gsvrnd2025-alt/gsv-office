@@ -286,17 +286,33 @@ export default function RemoteDesktopPage() {
     }
   }, [videoRef.current, isConnected, remoteStream, isHosting, localStream]);
 
-  // Socket Connection setup
+  // Stable refs for socket event handlers (avoids socket reconnect on every state change)
+  const teammatesRef = useRef<any[]>([]);
+  const targetPhoneRef = useRef<string>('');
+
+  // Keep refs in sync with state
+  useEffect(() => { teammatesRef.current = teammates; }, [teammates]);
+  useEffect(() => { targetPhoneRef.current = targetPhone; }, [targetPhone]);
+
+  // Socket Connection setup — ONLY depends on accessToken, never on teammates/targetPhone
+  // Using refs for event handlers so they always have latest values without reconnecting
   useEffect(() => {
     if (!accessToken) return;
     
     const s = io('/webrtc', {
       auth: { token: accessToken },
-      transports: ['websocket', 'polling']
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 2000,
     });
 
     s.on('connect', () => {
       addLog('Secure signaling socket tunnel online.');
+    });
+
+    s.on('disconnect', (reason: string) => {
+      addLog(`Socket disconnected: ${reason}. Reconnecting...`);
     });
 
     s.on('remote:request', (data: any) => {
@@ -313,11 +329,11 @@ export default function RemoteDesktopPage() {
         toast.error('Remote access request was rejected by host.');
         addLog(`Host rejected remote access request.`);
         
-        const targetId = targetPhone.replace(/\s+/g, '');
-        const target = teammates.find(t => t.phone?.replace(/\s+/g, '') === targetId || t.loginId === targetId);
+        const targetId = targetPhoneRef.current.replace(/\s+/g, '');
+        const target = teammatesRef.current.find(t => t.phone?.replace(/\s+/g, '') === targetId || t.loginId === targetId);
         addConnectionHistory({
-          peerName: target?.fullName || targetPhone,
-          peerPhone: target?.phone || targetPhone,
+          peerName: target?.fullName || targetPhoneRef.current,
+          peerPhone: target?.phone || targetPhoneRef.current,
           type: 'Outgoing',
           status: 'Rejected'
         });
@@ -325,7 +341,7 @@ export default function RemoteDesktopPage() {
         setDialingStatus('accepted');
         addLog('Host accepted request. Setting up WebRTC session...');
         setActivePartnerId(data.hostId);
-        const hostUser = teammates.find(t => t.id === data.hostId);
+        const hostUser = teammatesRef.current.find(t => t.id === data.hostId);
         setActivePartnerName(hostUser?.fullName || 'Host');
         
         addConnectionHistory({
@@ -386,23 +402,27 @@ export default function RemoteDesktopPage() {
       s.disconnect();
       if (dialingTimeoutRef.current) clearTimeout(dialingTimeoutRef.current);
     };
-  }, [accessToken, teammates, targetPhone]);
+  // ✅ CRITICAL FIX: Only depend on accessToken — NOT teammates or targetPhone
+  // teammates/targetPhone use refs so handlers always have fresh values without reconnecting socket
+  }, [accessToken]);
 
-  // Fetch users for directories
+  // Fetch users for directories — use /users/directory (no admin perm needed, any user can call)
+  // Poll every 30s to detect online/offline changes
   const fetchTeammates = async () => {
     try {
-      const res = await usersApi.getAll();
-      const list = res.data?.data || res.data || [];
-      const cleanList = list.filter((u: any) => u.id !== user?.id);
-      setTeammates(cleanList);
+      const res = await usersApi.getDirectory();
+      // /users/directory returns {success: true, data: [...]}
+      const list = Array.isArray(res.data?.data) ? res.data.data : [];
+      setTeammates(list); // Already excludes current user on backend
     } catch (e) {
-      console.error(e);
+      console.error('fetchTeammates error:', e);
     }
   };
 
   useEffect(() => {
     fetchTeammates();
-    const interval = setInterval(fetchTeammates, 5000);
+    // 30s interval — fast enough to detect online/offline changes without spamming state updates
+    const interval = setInterval(fetchTeammates, 30000);
     return () => clearInterval(interval);
   }, [user]);
 
