@@ -10,6 +10,7 @@ import {
 import { chatApi, usersApi, filesApi } from '../../api';
 import { useAuthStore } from '../../store/auth.store';
 import { SoundManager } from '../../utils/sound';
+import { copyTextToClipboard } from '../../utils/clipboard';
 import toast from 'react-hot-toast';
 import styles from './ChatPage.module.css';
 
@@ -292,18 +293,17 @@ export default function ChatPage() {
           url: absoluteUrl,
         });
         toast.success('Shared successfully!');
+        return;
       } catch (err: any) {
-        if (err.name !== 'AbortError') {
-          toast.error('Failed to share.');
-        }
+        if (err.name === 'AbortError') return;
       }
+    }
+
+    const success = await copyTextToClipboard(absoluteUrl);
+    if (success) {
+      toast.success('Link copied to clipboard! 🔗');
     } else {
-      try {
-        await navigator.clipboard.writeText(absoluteUrl);
-        toast.success('Link copied to clipboard! 🔗');
-      } catch {
-        toast.error('Failed to copy link.');
-      }
+      toast.error('Failed to copy link.');
     }
   };
 
@@ -1677,7 +1677,11 @@ export default function ChatPage() {
                           ))}
                         </div>
                         <div style={{ display: 'flex', gap: '8px' }}>
-                          <span title="Copy Message Text" onClick={() => { navigator.clipboard.writeText(msg.content); toast.success('Message content copied to clipboard.'); }} style={{ display: 'inline-flex', cursor: 'pointer', color: isOwn ? '#ffffff' : 'var(--text-secondary)' }}>
+                          <span title="Copy Message Text" onClick={async () => {
+                            const copied = await copyTextToClipboard(msg.content);
+                            if (copied) toast.success('Message content copied to clipboard.');
+                            else toast.error('Failed to copy message content.');
+                          }} style={{ display: 'inline-flex', cursor: 'pointer', color: isOwn ? '#ffffff' : 'var(--text-secondary)' }}>
                             <Copy size={13} />
                           </span>
                           <span title="Pin Message" onClick={() => setPinnedMessage(msg)} style={{ display: 'inline-flex', cursor: 'pointer', color: isOwn ? '#ffffff' : 'var(--text-secondary)' }}>

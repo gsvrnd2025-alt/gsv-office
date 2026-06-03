@@ -9,6 +9,7 @@ import {
 import { filesApi, usersApi } from '../../api';
 import { useAuthStore } from '../../store/auth.store';
 import toast from 'react-hot-toast';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 function getFileIcon(mime: string) {
   if (!mime) return <File size={20} />;
@@ -181,19 +182,24 @@ export default function FilesPage() {
     try {
       const response = await fetch(url);
       const blob = await response.blob();
-      await navigator.clipboard.write([
-        new ClipboardItem({
-          [blob.type]: blob
-        })
-      ]);
-      toast.success('Image copied to clipboard! 📋');
-    } catch {
-      try {
-        await navigator.clipboard.writeText(window.location.origin + url);
-        toast.success('Image URL copied to clipboard! 🔗');
-      } catch {
-        toast.error('Failed to copy image');
+      if (navigator.clipboard && navigator.clipboard.write) {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            [blob.type]: blob
+          })
+        ]);
+        toast.success('Image copied to clipboard! 📋');
+        return;
       }
+    } catch (e) {
+      console.warn("Unable to copy image blob directly, trying URL", e);
+    }
+    
+    const copied = await copyTextToClipboard(window.location.origin + url);
+    if (copied) {
+      toast.success('Image URL copied to clipboard! 🔗');
+    } else {
+      toast.error('Failed to copy image link');
     }
   };
 
@@ -309,7 +315,12 @@ export default function FilesPage() {
           display: 'flex', flexDirection: 'column', padding: '4px', minWidth: '150px'
         }} onMouseLeave={() => setContextMenu(null)}>
           <div className="dropdown-item" onClick={() => { copyImageToClipboard(contextMenu.file.storageUrl); setContextMenu(null); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Copy size={13} /> Copy Image</div>
-          <div className="dropdown-item" onClick={() => { navigator.clipboard.writeText(window.location.origin + contextMenu.file.storageUrl); toast.success('Link copied! 🔗'); setContextMenu(null); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Share2 size={13} /> Copy Link</div>
+          <div className="dropdown-item" onClick={async () => {
+            const copied = await copyTextToClipboard(window.location.origin + contextMenu.file.storageUrl);
+            if (copied) toast.success('Link copied! 🔗');
+            else toast.error('Failed to copy link.');
+            setContextMenu(null);
+          }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Share2 size={13} /> Copy Link</div>
           <a href={contextMenu.file.storageUrl} download className="dropdown-item" onClick={() => setContextMenu(null)} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer', color: 'inherit', textDecoration: 'none' }}><Download size={13} /> Download File</a>
         </div>
       )}

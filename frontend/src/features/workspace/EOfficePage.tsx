@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { filesApi } from '../../api';
 import toast from 'react-hot-toast';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 const LANGUAGE_PRESETS = {
   python: `def greet(name):\n    print(f"Hello, {name}!")\n    print("Welcome to GSV E-Office workspace.")\n\ngreet("GSV User")\n`,
@@ -96,9 +97,10 @@ function DraggableStickyNote({ note, onUpdate, onDelete }: DraggableStickyNotePr
         <span>📌 Sticky Note</span>
         <div style={{ display: 'flex', gap: '6px' }} onClick={e => e.stopPropagation()}>
           <button 
-            onClick={() => {
-              navigator.clipboard.writeText(text);
-              toast.success('Note content copied!');
+            onClick={async () => {
+              const copied = await copyTextToClipboard(text);
+              if (copied) toast.success('Note content copied!');
+              else toast.error('Failed to copy note content.');
             }}
             style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px', fontSize: '12px' }}
             title="Copy Content"
@@ -597,7 +599,11 @@ export default function EOfficePage() {
               </select>
 
               <div className="ms-auto" style={{ display: 'flex', gap: '8px' }}>
-                <button className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => toast.success('Code copied to clipboard')}>
+                <button className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={async () => {
+                  const copied = await copyTextToClipboard(codeContent);
+                  if (copied) toast.success('Code copied to clipboard! 📋');
+                  else toast.error('Failed to copy code.');
+                }}>
                   Copy Code
                 </button>
                 <button 
@@ -742,9 +748,10 @@ export default function EOfficePage() {
                     <button 
                       className="btn btn-ghost btn-sm" 
                       style={{ fontSize: '10px', padding: '2px 4px', height: 'auto' }}
-                      onClick={() => {
-                        navigator.clipboard.writeText(note.text);
-                        toast.success('Note text copied!');
+                      onClick={async () => {
+                        const copied = await copyTextToClipboard(note.text);
+                        if (copied) toast.success('Note text copied!');
+                        else toast.error('Failed to copy note text.');
                       }}
                     >
                       Copy
@@ -759,9 +766,10 @@ export default function EOfficePage() {
                     <button 
                       className="btn btn-ghost btn-sm" 
                       style={{ fontSize: '10px', padding: '2px 4px', height: 'auto' }}
-                      onClick={() => {
-                        navigator.clipboard.writeText(`GSV Sticky Note (${note.createdAt}):\n\n${note.text}`);
-                        toast.success('Share link copied!');
+                      onClick={async () => {
+                        const copied = await copyTextToClipboard(`GSV Sticky Note (${note.createdAt}):\n\n${note.text}`);
+                        if (copied) toast.success('Share content copied! 🔗');
+                        else toast.error('Failed to copy share content.');
                       }}
                     >
                       Share
