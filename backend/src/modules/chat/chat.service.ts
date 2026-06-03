@@ -46,6 +46,20 @@ export class ChatService {
   }
 
   async createConversation(dto: any) {
+    if (dto.type === 'private' && dto.members && dto.members.length === 1) {
+      const existing = await this.dataSource.query(
+        `SELECT c.* FROM conversations c
+         JOIN conversation_members cm1 ON c.id = cm1.conversation_id AND cm1.user_id = $1
+         JOIN conversation_members cm2 ON c.id = cm2.conversation_id AND cm2.user_id = $2
+         WHERE c.type = 'private'
+         LIMIT 1`,
+        [dto.createdBy, dto.members[0]]
+      );
+      if (existing.length > 0) {
+        return existing[0];
+      }
+    }
+
     const [conv] = await this.dataSource.query(
       `INSERT INTO conversations (type, name, description, created_by)
        VALUES ($1, $2, $3, $4) RETURNING *`,
