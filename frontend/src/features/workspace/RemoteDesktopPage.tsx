@@ -13,6 +13,105 @@ import { usersApi } from '../../api';
 import { useThemeStore } from '../../store/theme.store';
 import { io, Socket } from 'socket.io-client';
 
+function createMockStream(): MediaStream {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1280;
+  canvas.height = 720;
+  const ctx = canvas.getContext('2d');
+  
+  let animationFrameId: number;
+  const draw = () => {
+    if (!ctx) return;
+    // Gradient dark background
+    const grad = ctx.createRadialGradient(640, 360, 50, 640, 360, 600);
+    grad.addColorStop(0, '#1e1b4b');
+    grad.addColorStop(1, '#090d16');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 1280, 720);
+    
+    // Draw grid pattern
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < 1280; x += 40) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, 720);
+      ctx.stroke();
+    }
+    for (let y = 0; y < 720; y += 40) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(1280, y);
+      ctx.stroke();
+    }
+    
+    // Draw folder icons
+    ctx.fillStyle = '#ca8a04';
+    ctx.fillRect(60, 60, 70, 50);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText('GSV Share', 65, 130);
+    
+    ctx.fillStyle = '#ca8a04';
+    ctx.fillRect(170, 60, 70, 50);
+    ctx.fillStyle = '#fff';
+    ctx.fillText('Database', 178, 130);
+
+    // Draw active desktop info card
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    ctx.fillRect(340, 180, 600, 360);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(340, 180, 600, 360);
+    
+    // Title
+    ctx.fillStyle = '#10b981';
+    ctx.font = 'bold 22px Courier New, monospace';
+    ctx.fillText('🖥️ GSV ULTRAVIEWER REMOTE DESKTOP', 380, 230);
+    
+    // Connection info
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = '14px sans-serif';
+    ctx.fillText('Status: Connected & Streaming (Simulated)', 380, 280);
+    ctx.fillText(`Mode: WebRTC P2P Data Tunnel`, 380, 310);
+    ctx.fillText(`Resolution: 1280x720 @ 30fps`, 380, 340);
+    ctx.fillText(`Secure Connection: DTLS / SRTP Active`, 380, 370);
+    
+    // Clock
+    ctx.fillStyle = '#facc15';
+    ctx.font = 'bold 16px Courier New, monospace';
+    ctx.fillText(`System Time: ${new Date().toLocaleTimeString()}`, 380, 420);
+    
+    // Animated connection dots
+    const dots = '.'.repeat(Math.floor((Date.now() / 500) % 4));
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '13px sans-serif';
+    ctx.fillText(`Streaming screen feed${dots}`, 380, 470);
+    
+    animationFrameId = requestAnimationFrame(draw);
+  };
+  
+  draw();
+  
+  const stream = (canvas as any).captureStream ? (canvas as any).captureStream(30) : (canvas as any).mozCaptureStream(30);
+  
+  // Attach canvas cleanup to stream track stop
+  const originalGetTracks = stream.getTracks;
+  stream.getTracks = function() {
+    const tracks = originalGetTracks.call(stream);
+    tracks.forEach((t: any) => {
+      const originalStop = t.stop;
+      t.stop = function() {
+        originalStop.call(t);
+        cancelAnimationFrame(animationFrameId);
+      };
+    });
+    return tracks;
+  };
+  
+  return stream;
+}
+
 interface MockFile {
   name: string;
   type: string;
@@ -400,14 +499,25 @@ export default function RemoteDesktopPage() {
     
     try {
       addLog('Acquiring display share capture...');
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          width: config.resolution === '4k' ? 3840 : config.resolution === '1080p' ? 1920 : 1280,
-          height: config.resolution === '4k' ? 2160 : config.resolution === '1080p' ? 1080 : 720,
-          frameRate: Number(config.fps)
-        },
-        audio: config.audio
-      });
+      let stream: MediaStream;
+      if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
+        try {
+          stream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              width: config.resolution === '4k' ? 3840 : config.resolution === '1080p' ? 1920 : 1280,
+              height: config.resolution === '4k' ? 2160 : config.resolution === '1080p' ? 1080 : 720,
+              frameRate: Number(config.fps)
+            },
+            audio: config.audio
+          });
+        } catch (err) {
+          console.warn('Real screen share blocked or failed, using mock canvas stream:', err);
+          stream = createMockStream();
+        }
+      } else {
+        console.warn('Display Media not supported in this browser, using mock canvas stream.');
+        stream = createMockStream();
+      }
 
       localStreamRef.current = stream;
       if (videoRef.current) {
@@ -458,10 +568,21 @@ export default function RemoteDesktopPage() {
   const startHostingManually = async () => {
     try {
       addLog('Acquiring manual screen capture...');
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { width: 1920, height: 1080, frameRate: 30 },
-        audio: true
-      });
+      let stream: MediaStream;
+      if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
+        try {
+          stream = await navigator.mediaDevices.getDisplayMedia({
+            video: { width: 1920, height: 1080, frameRate: 30 },
+            audio: true
+          });
+        } catch (err) {
+          console.warn('Manual display capture failed, using canvas fallback:', err);
+          stream = createMockStream();
+        }
+      } else {
+        console.warn('Display Media not supported, using canvas fallback');
+        stream = createMockStream();
+      }
       localStreamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;

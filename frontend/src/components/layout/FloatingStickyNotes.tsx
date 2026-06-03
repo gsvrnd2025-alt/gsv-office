@@ -153,17 +153,23 @@ function DraggableNoteCard({ note, onUpdate, onClose, onDelete, onDownload, cate
           📌 NOTE EDITOR
         </span>
         <div className="d-flex align-items-center gap-2" onClick={e => e.stopPropagation()}>
+          {/* Mac-style controls: Red to delete note, Yellow to minimize/dock it back to the drawer */}
+          <button
+            onClick={onDelete}
+            style={{
+              width: '12px', height: '12px', borderRadius: '50%', border: 'none',
+              background: '#ff5f56', cursor: 'pointer'
+            }}
+            title="Delete Note"
+          />
           <button
             onClick={onClose}
             style={{
-              width: '18px', height: '18px', borderRadius: '50%', border: '1px solid rgba(0,0,0,0.2)',
-              background: '#ef4444', color: '#fff', cursor: 'pointer', display: 'flex',
-              alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 'bold'
+              width: '12px', height: '12px', borderRadius: '50%', border: 'none',
+              background: '#ffbd2e', cursor: 'pointer'
             }}
-            title="Minimize to manager"
-          >
-            ×
-          </button>
+            title="Minimize to Drawer"
+          />
         </div>
       </div>
 
@@ -331,14 +337,7 @@ export default function FloatingStickyNotes() {
   const fabPosStartRef = useRef({ x: 0, y: 0 });
   const dragDistanceRef = useRef(0);
 
-  // Manager Drag Position
-  const [managerPosition, setManagerPosition] = useState({
-    x: window.innerWidth - 380,
-    y: window.innerHeight - 600
-  });
-  const [isDraggingManager, setIsDraggingManager] = useState(false);
-  const managerDragStartRef = useRef({ x: 0, y: 0 });
-  const managerPosStartRef = useRef({ x: 0, y: 0 });
+
 
   // Load notes
   const loadNotes = () => {
@@ -417,37 +416,7 @@ export default function FloatingStickyNotes() {
     }
   };
 
-  // Manager Drag Mouse Events
-  const handleManagerMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('.manager-drag-handle') === null) return;
-    setIsDraggingManager(true);
-    managerDragStartRef.current = { x: e.clientX, y: e.clientY };
-    managerPosStartRef.current = { ...managerPosition };
-  };
 
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (isDraggingManager) {
-        const dx = e.clientX - managerDragStartRef.current.x;
-        const dy = e.clientY - managerDragStartRef.current.y;
-        setManagerPosition({
-          x: Math.max(10, Math.min(window.innerWidth - 360, managerPosStartRef.current.x + dx)),
-          y: Math.max(10, Math.min(window.innerHeight - 500, managerPosStartRef.current.y + dy))
-        });
-      }
-    };
-    const handleMouseUp = () => {
-      setIsDraggingManager(false);
-    };
-    if (isDraggingManager) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-    }
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDraggingManager]);
 
   // Create note
   const createNewNote = () => {
@@ -611,51 +580,49 @@ export default function FloatingStickyNotes() {
         <StickyNote size={28} style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.25))' }} />
       </button>
 
-      {/* Main Notes Manager Panel */}
-      {isManagerOpen && (
-        <div
-          onMouseDown={handleManagerMouseDown}
-          className="d-flex flex-column"
-          style={{
-            position: 'fixed',
-            left: `${managerPosition.x}px`,
-            top: `${managerPosition.y}px`,
-            width: '350px',
-            height: '490px',
-            background: 'var(--bg-card)',
-            border: '2px solid var(--border-color)',
-            borderRadius: '14px',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.4)',
-            color: 'var(--text-primary)',
-            overflow: 'hidden',
-            transition: isDraggingManager ? 'none' : 'transform 0.15s'
-          }}
-        >
+      {/* Main Notes Manager Panel (Right Side Slide-out Drawer) */}
+      <div
+        className="d-flex flex-column"
+        style={{
+          position: 'fixed',
+          right: 0,
+          top: 0,
+          width: '380px',
+          height: '100vh',
+          background: 'var(--bg-card)',
+          borderLeft: '2px solid var(--border-color)',
+          boxShadow: isManagerOpen ? '-10px 0 35px rgba(0,0,0,0.3)' : 'none',
+          color: 'var(--text-primary)',
+          overflow: 'hidden',
+          zIndex: 9990,
+          transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+          transform: isManagerOpen ? 'translateX(0)' : 'translateX(100%)'
+        }}
+      >
           {/* Header Bar */}
           <div
-            className="manager-drag-handle d-flex justify-content-between align-items-center px-3 border-bottom"
+            className="d-flex justify-content-between align-items-center px-3 border-bottom"
             style={{
-              height: '50px',
+              height: '56px',
               borderColor: 'var(--border-color)',
               background: 'var(--bg-secondary)',
-              cursor: 'move',
               userSelect: 'none'
             }}
           >
-            <div className="d-flex align-items-center gap-2 manager-drag-handle">
+            <div className="d-flex align-items-center gap-2">
               <FileText size={18} className="text-warning" />
-              <strong style={{ fontSize: '13px', letterSpacing: '0.5px' }}>GSV Workspace Notes</strong>
+              <strong style={{ fontSize: '14px', letterSpacing: '0.5px' }}>GSV Notes Drawer</strong>
             </div>
 
             <div className="d-flex align-items-center gap-2" onClick={e => e.stopPropagation()}>
               <button
                 onClick={() => setIsManagerOpen(false)}
                 style={{
-                  width: '18px', height: '18px', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.2)',
-                  background: '#ef4444', color: '#fff', cursor: 'pointer', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 'bold'
+                  width: '24px', height: '24px', borderRadius: '50%', border: 'none',
+                  background: 'rgba(255,255,255,0.1)', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 'bold'
                 }}
-                title="Minimize Notes"
+                title="Close Drawer"
               >
                 ×
               </button>
@@ -784,7 +751,6 @@ export default function FloatingStickyNotes() {
             </button>
           </div>
         </div>
-      )}
 
       {/* Render Independent Draggable Note Cards */}
       {openNoteIds.map(noteId => {
