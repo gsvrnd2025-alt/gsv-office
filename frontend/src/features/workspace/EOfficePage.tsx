@@ -97,8 +97,8 @@ function DraggableStickyNote({ note, onUpdate, onDelete }: DraggableStickyNotePr
         <span>📌 Sticky Note</span>
         <div style={{ display: 'flex', gap: '6px' }} onClick={e => e.stopPropagation()}>
           <button 
-            onClick={async () => {
-              const copied = await copyTextToClipboard(text);
+            onClick={() => {
+              const copied = copyTextToClipboard(text);
               if (copied) toast.success('Note content copied!');
               else toast.error('Failed to copy note content.');
             }}
@@ -748,8 +748,8 @@ export default function EOfficePage() {
                     <button 
                       className="btn btn-ghost btn-sm" 
                       style={{ fontSize: '10px', padding: '2px 4px', height: 'auto' }}
-                      onClick={async () => {
-                        const copied = await copyTextToClipboard(note.text);
+                      onClick={() => {
+                        const copied = copyTextToClipboard(note.text);
                         if (copied) toast.success('Note text copied!');
                         else toast.error('Failed to copy note text.');
                       }}
@@ -766,8 +766,8 @@ export default function EOfficePage() {
                     <button 
                       className="btn btn-ghost btn-sm" 
                       style={{ fontSize: '10px', padding: '2px 4px', height: 'auto' }}
-                      onClick={async () => {
-                        const copied = await copyTextToClipboard(`GSV Sticky Note (${note.createdAt}):\n\n${note.text}`);
+                      onClick={() => {
+                        const copied = copyTextToClipboard(`GSV Sticky Note (${note.createdAt}):\n\n${note.text}`);
                         if (copied) toast.success('Share content copied! 🔗');
                         else toast.error('Failed to copy share content.');
                       }}

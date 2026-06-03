@@ -276,7 +276,7 @@ export default function ChatPage() {
     }
   };
 
-  const handleShareFile = async (msg: any) => {
+  const handleShareFile = (msg: any) => {
     const url = msg.file_url || msg.fileUrl;
     const name = msg.file_name || msg.fileName || 'Shared file';
     if (!url) {
@@ -286,24 +286,29 @@ export default function ChatPage() {
     const absoluteUrl = url.startsWith('http') ? url : `${window.location.origin}${url}`;
     
     if (navigator.share) {
-      try {
-        await navigator.share({
-          title: name,
-          text: `Shared via GSV Office: ${name}`,
-          url: absoluteUrl,
-        });
+      navigator.share({
+        title: name,
+        text: `Shared via GSV Office: ${name}`,
+        url: absoluteUrl,
+      }).then(() => {
         toast.success('Shared successfully!');
-        return;
-      } catch (err: any) {
-        if (err.name === 'AbortError') return;
-      }
-    }
-
-    const success = await copyTextToClipboard(absoluteUrl);
-    if (success) {
-      toast.success('Link copied to clipboard! 🔗');
+      }).catch((err: any) => {
+        if (err.name !== 'AbortError') {
+          const success = copyTextToClipboard(absoluteUrl);
+          if (success) {
+            toast.success('Link copied to clipboard! 🔗');
+          } else {
+            toast.error('Failed to copy link.');
+          }
+        }
+      });
     } else {
-      toast.error('Failed to copy link.');
+      const success = copyTextToClipboard(absoluteUrl);
+      if (success) {
+        toast.success('Link copied to clipboard! 🔗');
+      } else {
+        toast.error('Failed to copy link.');
+      }
     }
   };
 
@@ -1677,8 +1682,8 @@ export default function ChatPage() {
                           ))}
                         </div>
                         <div style={{ display: 'flex', gap: '8px' }}>
-                          <span title="Copy Message Text" onClick={async () => {
-                            const copied = await copyTextToClipboard(msg.content);
+                          <span title="Copy Message Text" onClick={() => {
+                            const copied = copyTextToClipboard(msg.content);
                             if (copied) toast.success('Message content copied to clipboard.');
                             else toast.error('Failed to copy message content.');
                           }} style={{ display: 'inline-flex', cursor: 'pointer', color: isOwn ? '#ffffff' : 'var(--text-secondary)' }}>

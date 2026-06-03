@@ -315,8 +315,8 @@ export default function FilesPage() {
           display: 'flex', flexDirection: 'column', padding: '4px', minWidth: '150px'
         }} onMouseLeave={() => setContextMenu(null)}>
           <div className="dropdown-item" onClick={() => { copyImageToClipboard(contextMenu.file.storageUrl); setContextMenu(null); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Copy size={13} /> Copy Image</div>
-          <div className="dropdown-item" onClick={async () => {
-            const copied = await copyTextToClipboard(window.location.origin + contextMenu.file.storageUrl);
+          <div className="dropdown-item" onClick={() => {
+            const copied = copyTextToClipboard(window.location.origin + contextMenu.file.storageUrl);
             if (copied) toast.success('Link copied! 🔗');
             else toast.error('Failed to copy link.');
             setContextMenu(null);
