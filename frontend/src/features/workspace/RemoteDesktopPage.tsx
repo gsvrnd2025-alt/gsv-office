@@ -221,6 +221,7 @@ export default function RemoteDesktopPage() {
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const dialingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const iceCandidatesQueueRef = useRef<any[]>([]);
   
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [selectedFileIndex, setSelectedFileIndex] = useState<number>(0);
@@ -351,21 +352,57 @@ export default function RemoteDesktopPage() {
           status: 'Accepted'
         });
 
-        await setupWebRTC(false, data.hostId);
+        if (!peerConnectionRef.current) {
+          await setupWebRTC(false, data.hostId);
+        }
       }
     });
 
     s.on('remote:signal', async (data: any) => {
-      if (!peerConnectionRef.current) return;
+      if (!peerConnectionRef.current) {
+        if (data.signal.type === 'offer') {
+          addLog('Received WebRTC offer before connection was initialized. Setting up now...');
+          await setupWebRTC(false, data.fromId);
+        } else {
+          return;
+        }
+      }
+      const pc = peerConnectionRef.current;
+      if (!pc) return;
+
       try {
         const signal = data.signal;
         if (signal.type === 'offer') {
-          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(signal));
-          const answer = await peerConnectionRef.current.createAnswer();
-          await peerConnectionRef.current.setLocalDescription(answer);
+          await pc.setRemoteDescription(new RTCSessionDescription(signal));
+          // Drain queued ICE candidates
+          if (iceCandidatesQueueRef.current.length > 0) {
+            addLog(`Draining ${iceCandidatesQueueRef.current.length} queued ICE candidates...`);
+            for (const candidate of iceCandidatesQueueRef.current) {
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(candidate));
+              } catch (e) {
+                console.error('Error adding queued ICE candidate', e);
+              }
+            }
+            iceCandidatesQueueRef.current = [];
+          }
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
           s.emit('remote:signal', { targetUserId: data.fromId, signal: answer });
         } else if (signal.type === 'answer') {
-          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(signal));
+          await pc.setRemoteDescription(new RTCSessionDescription(signal));
+          // Drain queued ICE candidates
+          if (iceCandidatesQueueRef.current.length > 0) {
+            addLog(`Draining ${iceCandidatesQueueRef.current.length} queued ICE candidates...`);
+            for (const candidate of iceCandidatesQueueRef.current) {
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(candidate));
+              } catch (e) {
+                console.error('Error adding queued ICE candidate', e);
+              }
+            }
+            iceCandidatesQueueRef.current = [];
+          }
         }
       } catch (e) {
         console.error('Signal error', e);
@@ -373,9 +410,13 @@ export default function RemoteDesktopPage() {
     });
 
     s.on('remote:ice-candidate', async (data: any) => {
-      if (!peerConnectionRef.current) return;
       try {
-        await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+        if (peerConnectionRef.current && peerConnectionRef.current.remoteDescription) {
+          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+        } else {
+          // Queue ICE candidate if remote description is not set yet
+          iceCandidatesQueueRef.current.push(data.candidate);
+        }
       } catch (e) {
         console.error('Error adding ICE candidate', e);
       }
@@ -777,6 +818,7 @@ export default function RemoteDesktopPage() {
     setIsControlLocked(false);
     setLocalStream(null);
     setRemoteStream(null);
+    iceCandidatesQueueRef.current = [];
 
     addLog('Remote Desk connection closed.');
     toast.success('Session disconnected.');
