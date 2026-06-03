@@ -4,7 +4,7 @@ import { useDropzone } from 'react-dropzone';
 import {
   FolderOpen, Upload, Search, Grid, List, Plus, Download, Trash2, Share2,
   ChevronRight, Home, File, FileImage, FileText, FileVideo, FileArchive,
-  Folder, Lock, Unlock, Check, X, ShieldAlert, Key, Users, Copy, Move, RefreshCw
+  Folder, Lock, Unlock, Check, X, ShieldAlert, Key, Users, Copy, RefreshCw
 } from 'lucide-react';
 import { filesApi, usersApi } from '../../api';
 import { useAuthStore } from '../../store/auth.store';
@@ -38,6 +38,12 @@ export default function FilesPage() {
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [activeTab, setActiveTab] = useState<'files' | 'requests'>('files');
+
+  // Category filter and lightbox states
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'photos' | 'videos' | 'docs' | 'pdfs'>('all');
+  const [lightboxImage, setLightboxImage] = useState<any>(null);
+  const [zoomLevel, setZoomLevel] = useState<number>(1);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; file: any } | null>(null);
 
   // Folder Access Request Modal State
   const [lockFolder, setLockFolder] = useState<any>(null);
@@ -152,9 +158,9 @@ export default function FilesPage() {
   const navigateBreadcrumb = (idx: number, item: { id?: string; name: string }) => {
     setBreadcrumbs(prev => prev.slice(0, idx + 1));
     setFolderId(item.id);
+    setCategoryFilter('all'); // Reset filter on navigation
   };
 
-  // Enterprise Tree actions triggers
   const handleCopyStructure = (name: string) => {
     toast.success(`📋 SMB Path copied: \\\\gsv-office-smb\\folders\\${name}`);
   };
@@ -167,10 +173,52 @@ export default function FilesPage() {
     toast.success(`👑 Transferred ownership of folder ${folderName} to ${targetUser}`);
   };
 
+  const copyImageToClipboard = async (url: string) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          [blob.type]: blob
+        })
+      ]);
+      toast.success('Image copied to clipboard! 📋');
+    } catch {
+      try {
+        await navigator.clipboard.writeText(window.location.origin + url);
+        toast.success('Image URL copied to clipboard! 🔗');
+      } catch {
+        toast.error('Failed to copy image');
+      }
+    }
+  };
+
   const pendingRequests = accessRequests.filter((r: any) => r.ownerId === user?.id && r.status === 'pending');
 
+  // Perform category-based file filtering
+  const filteredFiles = files.filter((file: any) => {
+    if (categoryFilter === 'all') return true;
+    const mime = (file.mimeType || '').toLowerCase();
+    const ext = (file.extension || '').toLowerCase();
+    if (categoryFilter === 'photos') {
+      return mime.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(ext);
+    }
+    if (categoryFilter === 'videos') {
+      return mime.startsWith('video/') || ['mp4', 'mkv', 'avi', 'mov', 'webm'].includes(ext);
+    }
+    if (categoryFilter === 'docs') {
+      return mime.includes('word') || mime.includes('excel') || mime.includes('spreadsheet') || mime.includes('text') || mime.includes('csv') || ['doc', 'docx', 'xls', 'xlsx', 'txt', 'csv', 'ppt', 'pptx'].includes(ext);
+    }
+    if (categoryFilter === 'pdfs') {
+      return mime.includes('pdf') || ext === 'pdf';
+    }
+    return true;
+  });
+
+  const shouldShowFolders = categoryFilter === 'all';
+
   return (
-    <div className="page-enter" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }} {...getRootProps()}>
+    <div className="page-enter" style={{ display: 'flex', flexDirection: 'column', gap: '24px', position: 'relative' }} {...getRootProps()}>
       <input {...getInputProps()} />
 
       {isDragActive && (
@@ -223,6 +271,42 @@ export default function FilesPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Lightbox Modal */}
+      {lightboxImage && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', backdropFilter: 'blur(10px)', zIndex: 1200, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }} onClick={() => { setLightboxImage(null); setZoomLevel(1); }}>
+          <div style={{ position: 'absolute', top: '20px', right: '20px', display: 'flex', gap: '10px', zIndex: 1300 }} onClick={e => e.stopPropagation()}>
+            <button className="btn btn-secondary btn-sm" onClick={() => setZoomLevel(z => Math.min(3, z + 0.2))}>Zoom In (+)</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => setZoomLevel(z => Math.max(0.5, z - 0.2))}>Zoom Out (-)</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => setZoomLevel(1)}>Reset</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => copyImageToClipboard(lightboxImage.storageUrl)}>Copy Image</button>
+            <a href={lightboxImage.storageUrl} download className="btn btn-primary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Download size={14} /> Download</a>
+            <button className="btn btn-ghost btn-icon btn-sm" style={{ color: 'white' }} onClick={() => { setLightboxImage(null); setZoomLevel(1); }}><X size={20} /></button>
+          </div>
+          
+          <div style={{ overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', maxWidth: '90%', maxHeight: '80%' }} onClick={e => e.stopPropagation()}>
+            <img src={lightboxImage.storageUrl} alt={lightboxImage.originalName} style={{ transform: `scale(${zoomLevel})`, transition: 'transform 0.2s', maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+          </div>
+          
+          <div style={{ position: 'absolute', bottom: '20px', color: 'white', fontSize: '14px', fontWeight: 600 }}>
+            {lightboxImage.originalName} ({formatBytes(lightboxImage.sizeBytes || lightboxImage.size)})
+          </div>
+        </div>
+      )}
+
+      {/* Floating Context Menu */}
+      {contextMenu && (
+        <div style={{
+          position: 'fixed', top: contextMenu.y, left: contextMenu.x,
+          background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+          borderRadius: '8px', boxShadow: '0 10px 25px rgba(0,0,0,0.3)', zIndex: 1100,
+          display: 'flex', flexDirection: 'column', padding: '4px', minWidth: '150px'
+        }} onMouseLeave={() => setContextMenu(null)}>
+          <div className="dropdown-item" onClick={() => { copyImageToClipboard(contextMenu.file.storageUrl); setContextMenu(null); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Copy size={13} /> Copy Image</div>
+          <div className="dropdown-item" onClick={() => { navigator.clipboard.writeText(window.location.origin + contextMenu.file.storageUrl); toast.success('Link copied! 🔗'); setContextMenu(null); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Share2 size={13} /> Copy Link</div>
+          <a href={contextMenu.file.storageUrl} download className="dropdown-item" onClick={() => setContextMenu(null)} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer', color: 'inherit', textDecoration: 'none' }}><Download size={13} /> Download File</a>
         </div>
       )}
 
@@ -281,7 +365,27 @@ export default function FilesPage() {
                 ))}
               </div>
 
-              <div className="search-bar" style={{ width: '220px' }}>
+              {/* Horizontal Category Tabs */}
+              <div style={{ display: 'flex', gap: '6px', background: 'var(--bg-secondary)', padding: '3px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                {[
+                  { key: 'all', label: 'All Files' },
+                  { key: 'photos', label: '🖼️ Photos' },
+                  { key: 'videos', label: '🎥 Videos' },
+                  { key: 'docs', label: '📄 Docs' },
+                  { key: 'pdfs', label: '📕 PDFs' }
+                ].map(tab => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setCategoryFilter(tab.key as any)}
+                    className={`btn btn-xs ${categoryFilter === tab.key ? 'btn-primary' : 'btn-ghost'}`}
+                    style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '6px' }}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="search-bar" style={{ width: '180px' }}>
                 <Search size={14} style={{ position: 'absolute', left: '12px', color: 'var(--text-tertiary)' }} />
                 <input type="text" placeholder="Search files..." value={search} onChange={e => setSearch(e.target.value)} className="form-control" style={{ paddingLeft: '36px', height: '34px', fontSize: '12px' }} />
               </div>
@@ -306,7 +410,7 @@ export default function FilesPage() {
           {viewMode === 'grid' ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '16px' }}>
               {/* Folders */}
-              {folders.map((folder: any) => {
+              {shouldShowFolders && folders.map((folder: any) => {
                 const locked = !hasAccess(folder);
                 const isPublic = folder.path?.startsWith('/public');
                 return (
@@ -336,21 +440,45 @@ export default function FilesPage() {
               })}
 
               {/* Files */}
-              {files.map((file: any) => (
-                <div key={file.id} className="card card-hoverable group" style={{ padding: '16px', textAlign: 'center', position: 'relative' }}>
-                  <div style={{ fontSize: '40px', margin: '0 auto 10px', display: 'flex', justifyContent: 'center' }}>{getFileIcon(file.mimeType)}</div>
-                  <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={file.originalName}>{file.originalName}</div>
-                  <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{formatBytes(file.sizeBytes || file.size)}</div>
-                  <div style={{ position: 'absolute', top: '8px', right: '8px', display: 'flex', gap: '2px' }}>
-                    <a href={file.storageUrl} download className="btn btn-ghost btn-icon btn-sm" title="Download"><Download size={12} /></a>
-                    <button className="btn btn-ghost btn-icon btn-sm danger" title="Delete" onClick={() => { if (confirm(`Delete ${file.originalName}?`)) deleteMutation.mutate(file.id); }}><Trash2 size={12} /></button>
+              {filteredFiles.map((file: any) => {
+                const isImage = file.mimeType?.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(file.extension?.toLowerCase() || '');
+                return (
+                  <div 
+                    key={file.id} 
+                    className="card card-hoverable group" 
+                    style={{ padding: '16px', textAlign: 'center', position: 'relative' }}
+                    onContextMenu={(e) => {
+                      if (isImage) {
+                        e.preventDefault();
+                        setContextMenu({ x: e.clientX, y: e.clientY, file });
+                      }
+                    }}
+                  >
+                    {isImage ? (
+                      <div 
+                        style={{ position: 'relative', width: '100%', aspectRatio: '1/1', borderRadius: '8px', overflow: 'hidden', background: 'var(--bg-secondary)', marginBottom: '10px', cursor: 'zoom-in' }} 
+                        onClick={() => setLightboxImage(file)}
+                      >
+                        <img src={file.storageUrl} alt={file.originalName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: '40px', margin: '0 auto 10px', display: 'flex', justifyContent: 'center' }}>
+                        {getFileIcon(file.mimeType)}
+                      </div>
+                    )}
+                    <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={file.originalName}>{file.originalName}</div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{formatBytes(file.sizeBytes || file.size)}</div>
+                    <div style={{ position: 'absolute', top: '8px', right: '8px', display: 'flex', gap: '2px' }}>
+                      <a href={file.storageUrl} download className="btn btn-ghost btn-icon btn-sm" title="Download"><Download size={12} /></a>
+                      <button className="btn btn-ghost btn-icon btn-sm danger" title="Delete" onClick={() => { if (confirm(`Delete ${file.originalName}?`)) deleteMutation.mutate(file.id); }}><Trash2 size={12} /></button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
 
-              {folders.length === 0 && files.length === 0 && (
+              {(!shouldShowFolders || folders.length === 0) && filteredFiles.length === 0 && (
                 <div style={{ gridColumn: '1 / -1' }}>
-                  <div className="empty-state" style={{ padding: '48px' }}><FolderOpen size={48} /><h3>No directories available</h3><p>Create folders or synchronize SMB workspace</p></div>
+                  <div className="empty-state" style={{ padding: '48px' }}><FolderOpen size={48} /><h3>No files available</h3><p>Upload files or choose a different category tab</p></div>
                 </div>
               )}
             </div>
@@ -360,14 +488,26 @@ export default function FilesPage() {
                 <table>
                   <thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Permissions</th><th>Actions</th></tr></thead>
                   <tbody>
-                    {[...folders.map((f: any) => ({ ...f, isFolder: true })), ...files].map((item: any) => {
+                    {[
+                      ...(shouldShowFolders ? folders.map((f: any) => ({ ...f, isFolder: true })) : []),
+                      ...filteredFiles
+                    ].map((item: any) => {
                       const locked = item.isFolder && !hasAccess(item);
+                      const isImage = !item.isFolder && (item.mimeType?.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(item.extension?.toLowerCase() || ''));
                       return (
-                        <tr key={item.id}>
+                        <tr 
+                          key={item.id}
+                          onContextMenu={(e) => {
+                            if (isImage) {
+                              e.preventDefault();
+                              setContextMenu({ x: e.clientX, y: e.clientY, file: item });
+                            }
+                          }}
+                        >
                           <td>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                               {item.isFolder ? <Folder size={18} style={{ color: locked ? 'var(--text-tertiary)' : '#f59e0b', flexShrink: 0 }} /> : getFileIcon(item.mimeType)}
-                              <span style={{ fontSize: '13px', fontWeight: 500 }}>{item.name || item.originalName}</span>
+                              <span style={{ fontSize: '13px', fontWeight: 500, cursor: isImage ? 'zoom-in' : 'inherit' }} onClick={() => isImage && setLightboxImage(item)}>{item.name || item.originalName}</span>
                             </div>
                           </td>
                           <td style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{item.isFolder ? 'Folder' : (item.mimeType || 'File')}</td>

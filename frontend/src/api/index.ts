@@ -59,6 +59,7 @@ export const usersApi = {
   resetPassword: (id: string, data: any) => api.patch(`/users/${id}/reset-password`, data),
   delete: (id: string) => api.delete(`/users/${id}`),
   syncSheets: () => api.post('/users/sync-sheets'),
+  getUserLogs: (userId: string) => api.get('/audit', { params: { userId } }),
 };
 
 export const rolesApi = {
@@ -152,6 +153,8 @@ export const emailApi = {
   getEmails: (folder?: string) => api.get('/email', { params: { folder } }),
   sendEmail: (data: any) => api.post('/email/send', data),
   deleteEmail: (id: string) => api.delete(`/email/${id}`),
+  updateReadStatus: (id: string, isRead: boolean) => api.post(`/email/${id}/read`, { isRead }),
+  toggleStar: (id: string, isStarred: boolean) => api.post(`/email/${id}/star`, { isStarred }),
 };
 
 export const notificationsApi = {

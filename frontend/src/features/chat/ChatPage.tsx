@@ -113,6 +113,56 @@ export default function ChatPage() {
 
   // 3. Message Forwarding
   const [forwardingMsg, setForwardingMsg] = useState<any>(null);
+
+  // Chat Privacy, Blocking & Handshakes
+  const [blockedUsers, setBlockedUsers] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('gsv_blocked_users') || '[]'); }
+    catch { return []; }
+  });
+  const [approvedHandshakes, setApprovedHandshakes] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('gsv_approved_handshakes') || '[]'); }
+    catch { return []; }
+  });
+  const [sentHandshakes, setSentHandshakes] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('gsv_sent_handshakes') || '[]'); }
+    catch { return []; }
+  });
+  const [showGroupDetails, setShowGroupDetails] = useState(false);
+  const [simulatedRequests, setSimulatedRequests] = useState<any[]>(() => [
+    { id: 'sim-req-1', fullName: 'Syed Rahim Basha', loginId: 'syed.rahim', employeeId: 'EMP-0003', requestedAt: new Date().toISOString() },
+    { id: 'sim-req-2', fullName: 'Jane Smith', loginId: 'jane.smith', employeeId: 'EMP-0004', requestedAt: new Date().toISOString() }
+  ]);
+
+  const toggleBlockUser = (userId: string) => {
+    const next = blockedUsers.includes(userId)
+      ? blockedUsers.filter(id => id !== userId)
+      : [...blockedUsers, userId];
+    setBlockedUsers(next);
+    localStorage.setItem('gsv_blocked_users', JSON.stringify(next));
+    if (next.includes(userId)) {
+      toast.success('Teammate blocked');
+    } else {
+      toast.success('Teammate unblocked');
+    }
+  };
+
+  const sendHandshakeRequest = (partnerId: string) => {
+    if (sentHandshakes.includes(partnerId)) return;
+    const next = [...sentHandshakes, partnerId];
+    setSentHandshakes(next);
+    localStorage.setItem('gsv_sent_handshakes', JSON.stringify(next));
+    toast.success('Handshake request sent to partner');
+    
+    // Auto-approve simulation: after 3 seconds, simulate other department user approving it!
+    setTimeout(() => {
+      setApprovedHandshakes(prev => {
+        const nextApp = [...prev, partnerId];
+        localStorage.setItem('gsv_approved_handshakes', JSON.stringify(nextApp));
+        return nextApp;
+      });
+      toast.success('Cross-department handshake established!');
+    }, 3000);
+  };
   const [forwardTargets, setForwardTargets] = useState<string[]>([]);
 
   // 4. Voice Recorder HUD Simulation
@@ -288,7 +338,8 @@ export default function ChatPage() {
   });
 
   const users = usersData?.data ? usersData.data : (Array.isArray(usersData) ? usersData : []);
-  const otherUsers = users.filter((u: any) => u.id !== user?.id);
+  const uniqueUsers: any[] = Array.from(new Map<any, any>(users.map((u: any) => [u.id, u])).values());
+  const otherUsers: any[] = uniqueUsers.filter((u: any) => u.id !== user?.id);
 
   // Mutations
   const sendMutation = useMutation({
@@ -697,6 +748,9 @@ export default function ChatPage() {
   });
 
   const activeConv = conversations.find((c: any) => c.id === conversationId);
+  const partnerName = activeConv?.name?.replace('DM with ', '');
+  const partner = activeConv?.type === 'private' ? otherUsers.find((u: any) => u.fullName?.toLowerCase() === partnerName?.toLowerCase() || u.loginId?.toLowerCase() === partnerName?.toLowerCase()) : null;
+  const handshakeRequired = activeConv?.type === 'private' && partner && (partner as any).departmentId !== (user as any)?.departmentId && (partner as any).department_id !== (user as any)?.department_id && !approvedHandshakes.includes((partner as any).id);
   
   // Sort messages chronologically: oldest first, newest last (WhatsApp style)
   let sortedMessages = [...messages].sort((a: any, b: any) => {
@@ -704,6 +758,7 @@ export default function ChatPage() {
     const timeB = new Date(b.created_at || b.createdAt || 0).getTime();
     return timeA - timeB;
   });
+  sortedMessages = sortedMessages.filter((msg: any) => !blockedUsers.includes(msg.sender_id));
   sortedMessages = [...sortedMessages, ...sendingMessages];
   if (fileSearch.trim() || fileCategory !== 'all') {
     const query = fileSearch.toLowerCase();
@@ -1200,6 +1255,37 @@ export default function ChatPage() {
                 />
               </div>
               <div className={styles.chatActions}>
+                {activeConv?.type === 'private' && partner && (
+                  <button 
+                    className="btn btn-xs" 
+                    onClick={() => toggleBlockUser(partner.id)} 
+                    style={{
+                      marginRight: '8px',
+                      fontSize: '11px',
+                      padding: '4px 10px',
+                      height: 'auto',
+                      border: 'none',
+                      borderRadius: '16px',
+                      background: blockedUsers.includes(partner.id) ? 'var(--brand-success)' : 'rgba(239, 68, 68, 0.15)',
+                      color: blockedUsers.includes(partner.id) ? 'white' : 'var(--brand-danger)',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                    title={blockedUsers.includes(partner.id) ? "Unblock teammate" : "Block teammate"}
+                  >
+                    {blockedUsers.includes(partner.id) ? "🔓 Unblock" : "🚫 Block"}
+                  </button>
+                )}
+                {(activeConv?.type === 'group' || activeConv?.type === 'department') && (
+                  <button
+                    className="btn btn-ghost btn-icon"
+                    onClick={() => setShowGroupDetails(!showGroupDetails)}
+                    title="Group Info"
+                    style={{ marginRight: '8px' }}
+                  >
+                    <Users2 size={18} style={{ color: showGroupDetails ? 'var(--brand-primary)' : 'var(--text-secondary)' }} />
+                  </button>
+                )}
                 <button className="btn btn-ghost btn-icon" onClick={() => handleCallHandshake('audio')} title="Audio Handshake"><Phone size={18} style={{ color: 'var(--brand-primary)' }} /></button>
                 <button className="btn btn-ghost btn-icon" onClick={() => handleCallHandshake('video')} title="Video Resonance"><Video size={18} style={{ color: 'var(--brand-primary)' }} /></button>
                 <button className="btn btn-ghost btn-icon" onClick={simulateIncomingCall} title="Simulate Call"><MoreVertical size={18} /></button>
@@ -1280,13 +1366,12 @@ export default function ChatPage() {
                       {hasAttachment && (
                         <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                           {msg.type === 'photo' && (
-                            <div style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)', maxWidth: '280px', cursor: 'zoom-in' }} onClick={() => setPreviewFile({ url: msg.file_url || msg.fileUrl || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&q=80", name: msg.file_name || msg.fileName || "photo.jpg", type: 'photo' })}>
+                            <div style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)', maxWidth: '420px', cursor: 'zoom-in' }} onClick={() => setPreviewFile({ url: msg.file_url || msg.fileUrl || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&q=80", name: msg.file_name || msg.fileName || "photo.jpg", type: 'photo' })}>
                               <img src={msg.file_url || msg.fileUrl || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&q=80"} alt={msg.file_name || msg.fileName || "photo"} style={{ width: '100%', height: 'auto', display: 'block' }} />
                             </div>
                           )}
-
                           {msg.type === 'video' && (
-                            <div style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)', maxWidth: '280px', cursor: 'pointer' }} onClick={() => setPreviewFile({ url: msg.file_url || msg.fileUrl || "https://www.w3schools.com/html/mov_bbb.mp4", name: msg.file_name || msg.fileName || "video.mp4", type: 'video' })}>
+                            <div style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)', maxWidth: '420px', cursor: 'pointer' }} onClick={() => setPreviewFile({ url: msg.file_url || msg.fileUrl || "https://www.w3schools.com/html/mov_bbb.mp4", name: msg.file_name || msg.fileName || "video.mp4", type: 'video' })}>
                               <video style={{ width: '100%', display: 'block', maxHeight: '160px' }}>
                                 <source src={msg.file_url || msg.fileUrl || "https://www.w3schools.com/html/mov_bbb.mp4"} type={msg.mime_type || msg.mimeType || "video/mp4"} />
                               </video>
@@ -1361,31 +1446,76 @@ export default function ChatPage() {
                           )}
 
                           {/* File Actions Quick Bar */}
-                          <div style={{ display: 'flex', gap: '12px', marginTop: '6px', borderTop: '1px solid var(--wa-border)', paddingTop: '6px', flexWrap: 'wrap' }}>
+                          <div style={{ display: 'flex', gap: '8px', marginTop: '8px', borderTop: '1px solid var(--wa-border)', paddingTop: '8px', flexWrap: 'wrap' }}>
                             <span
                               onClick={() => handleSaveToPC(msg.file_name || msg.fileName || (msg.type === 'folder' ? 'GSV_Office_Init.zip' : msg.type === 'music' ? 'Acoustic_Handshake.mp3' : 'System_Audit_Report.pdf'), '', msg.file_url || msg.fileUrl)}
-                              style={{ fontSize: '10px', color: 'var(--wa-accent)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '2px', fontWeight: 600 }}
+                              style={{
+                                fontSize: '11px',
+                                background: '#00a884',
+                                color: '#ffffff',
+                                padding: '4px 10px',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontWeight: 700,
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                              }}
                               title="Download to PC"
                             >
                               💾 Download
                             </span>
                             <span
                               onClick={() => handleShareFile(msg)}
-                              style={{ fontSize: '10px', color: 'var(--wa-accent)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '2px', fontWeight: 600 }}
+                              style={{
+                                fontSize: '11px',
+                                background: isOwn ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.05)',
+                                color: isOwn ? '#ffffff' : 'var(--text-primary)',
+                                padding: '4px 10px',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontWeight: 700
+                              }}
                               title="Copy sharing link"
                             >
                               🔗 Share
                             </span>
                             <span
                               onClick={() => setForwardingMsg(msg)}
-                              style={{ fontSize: '10px', color: 'var(--wa-accent)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '2px', fontWeight: 600 }}
+                              style={{
+                                fontSize: '11px',
+                                background: isOwn ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.05)',
+                                color: isOwn ? '#ffffff' : 'var(--text-primary)',
+                                padding: '4px 10px',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontWeight: 700
+                              }}
                               title="Forward file message"
                             >
                               ➡️ Forward
                             </span>
                             <span
                               onClick={() => handleAddBookmark(msg)}
-                              style={{ fontSize: '10px', color: 'var(--wa-accent)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '2px', fontWeight: 600 }}
+                              style={{
+                                fontSize: '11px',
+                                background: isOwn ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.05)',
+                                color: '#ffd700',
+                                padding: '4px 10px',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontWeight: 700
+                              }}
                               title="Save bookmark"
                             >
                               🔖 Bookmark
@@ -1393,7 +1523,18 @@ export default function ChatPage() {
                             {msg.file_id && (
                               <span
                                 onClick={() => handleSaveToCloud(msg.file_id)}
-                                style={{ fontSize: '10px', color: 'var(--wa-accent)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '2px', fontWeight: 600 }}
+                                style={{
+                                  fontSize: '11px',
+                                  background: isOwn ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.05)',
+                                  color: isOwn ? '#ffffff' : 'var(--text-primary)',
+                                  padding: '4px 10px',
+                                  borderRadius: '6px',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  fontWeight: 700
+                                }}
                                 title="Backup to Cloud storage"
                               >
                                 ☁️ Cloud
@@ -1402,7 +1543,7 @@ export default function ChatPage() {
                           </div>
                         </div>
                       )}
-
+ 
                       {/* Reactions Overlay Panel on Hover */}
                       <div style={{ display: 'flex', gap: '10px', marginTop: '6px', borderTop: '1px solid var(--border-color)', paddingTop: '4px', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ display: 'flex', gap: '4px' }}>
@@ -1417,18 +1558,18 @@ export default function ChatPage() {
                           ))}
                         </div>
                         <div style={{ display: 'flex', gap: '8px' }}>
-                          <span title="Copy Message Text" onClick={() => { navigator.clipboard.writeText(msg.content); toast.success('Message content copied to clipboard.'); }} style={{ display: 'inline-flex', cursor: 'pointer', color: 'var(--text-tertiary)' }}>
-                            <Copy size={10} />
+                          <span title="Copy Message Text" onClick={() => { navigator.clipboard.writeText(msg.content); toast.success('Message content copied to clipboard.'); }} style={{ display: 'inline-flex', cursor: 'pointer', color: isOwn ? '#ffffff' : 'var(--text-secondary)' }}>
+                            <Copy size={13} />
                           </span>
-                          <span title="Pin Message" onClick={() => setPinnedMessage(msg)} style={{ display: 'inline-flex', cursor: 'pointer', color: 'var(--text-tertiary)' }}>
-                            <Pin size={10} />
+                          <span title="Pin Message" onClick={() => setPinnedMessage(msg)} style={{ display: 'inline-flex', cursor: 'pointer', color: isOwn ? '#ffffff' : 'var(--text-secondary)' }}>
+                            <Pin size={13} />
                           </span>
-                          <span title="Forward Message" onClick={() => setForwardingMsg(msg)} style={{ display: 'inline-flex', cursor: 'pointer', color: 'var(--text-tertiary)' }}>
-                            <ArrowRight size={10} />
+                          <span title="Forward Message" onClick={() => setForwardingMsg(msg)} style={{ display: 'inline-flex', cursor: 'pointer', color: isOwn ? '#ffffff' : 'var(--text-secondary)' }}>
+                            <ArrowRight size={13} />
                           </span>
                           {isOwn && (
-                            <span title="Delete Message" onClick={() => { if (window.confirm('Delete this message permanently?')) deleteMessageMutation.mutate(msg.id); }} style={{ display: 'inline-flex', cursor: 'pointer', color: 'var(--brand-danger)' }}>
-                              <Trash2 size={10} />
+                            <span title="Delete Message" onClick={() => { if (window.confirm('Delete this message permanently?')) deleteMessageMutation.mutate(msg.id); }} style={{ display: 'inline-flex', cursor: 'pointer', color: '#ff4d4d' }}>
+                              <Trash2 size={13} />
                             </span>
                           )}
                         </div>
@@ -1549,8 +1690,36 @@ export default function ChatPage() {
           )}
 
           {/* Chat Input controls bar */}
-          <div className={styles.chatInput} style={{ borderTop: '1px solid var(--border-color)', background: 'var(--bg-card)', position: 'relative' }}>
-            {isRecording ? (
+          <div className={styles.chatInput} style={{ borderTop: '1px solid var(--border-color)', background: 'var(--bg-card)', position: 'relative', padding: handshakeRequired || (partner && blockedUsers.includes(partner.id)) ? '0' : undefined }}>
+            {handshakeRequired ? (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '16px', background: 'var(--bg-secondary)', borderRadius: '12px', border: '1.5px dashed var(--brand-primary)', margin: '8px' }}>
+                <div style={{ fontSize: '24px', marginBottom: '8px' }}>🔒</div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>Cross-Department Handshake Required</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px', textAlign: 'center', maxWidth: '360px' }}>
+                  You and {partner?.fullName} belong to different departments ({user?.department?.name || 'Local'} vs {partner?.department?.name || 'Remote'}). Establish a handshake to verify resonance.
+                </div>
+                {sentHandshakes.includes(partner!.id) ? (
+                  <button className="btn btn-secondary btn-sm" style={{ marginTop: '12px' }} disabled>
+                    ⏳ Request Pending Approval...
+                  </button>
+                ) : (
+                  <button className="btn btn-primary btn-sm" style={{ marginTop: '12px', background: 'var(--gradient-brand)', border: 'none' }} onClick={() => sendHandshakeRequest(partner!.id)}>
+                    🤝 Request Contact Handshake
+                  </button>
+                )}
+              </div>
+            ) : partner && blockedUsers.includes(partner.id) ? (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '16px', background: 'var(--bg-secondary)', borderRadius: '12px', border: '1.5px dashed var(--brand-danger)', margin: '8px' }}>
+                <div style={{ fontSize: '24px', marginBottom: '8px' }}>🚫</div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--brand-danger)' }}>Coworker Blocked</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px', textAlign: 'center' }}>
+                  You have blocked {partner?.fullName}. Unblock to enable message transmission.
+                </div>
+                <button className="btn btn-primary btn-sm" style={{ marginTop: '12px', background: 'var(--gradient-danger)', border: 'none' }} onClick={() => toggleBlockUser(partner!.id)}>
+                  🔓 Unblock Teammate
+                </button>
+              </div>
+            ) : isRecording ? (
               /* Voice Recording sliding timeline HUD */
               <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', background: 'rgba(239,68,68,0.05)', borderRadius: '12px', border: '1.5px dashed var(--brand-danger)' }} className="animate-slide-in">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -1693,6 +1862,98 @@ export default function ChatPage() {
               </div>
             )}
           </div>
+
+          {/* Group details & pending requests sidebar */}
+          {showGroupDetails && (activeConv.type === 'group' || activeConv.type === 'department') && (
+            <div style={{
+              width: '320px', borderLeft: '1px solid var(--border-color)', height: '100%',
+              background: 'var(--bg-card)', display: 'flex', flexDirection: 'column', flexShrink: 0,
+              animation: 'slideLeft 0.25s ease', overflowY: 'auto'
+            }}>
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', borderBottom: '1px solid var(--border-color)' }}>
+                <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)' }}>Group Node Resonance</span>
+                <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setShowGroupDetails(false)}>✕</button>
+              </div>
+
+              {/* Body */}
+              <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {/* Profile block */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '8px' }}>
+                  <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: 'linear-gradient(135deg, #00a884, #005c4b)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '28px', fontWeight: 'bold' }}>
+                    {activeConv.name?.charAt(0).toUpperCase() || 'G'}
+                  </div>
+                  <div style={{ fontWeight: 700, fontSize: '16px', color: 'var(--text-primary)' }}>{activeConv.name}</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{activeConv.description || 'Secure group resonance channel'}</div>
+                </div>
+
+                {/* Simulated Requests Area */}
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--brand-primary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '10px', display: 'flex', justifyContent: 'space-between' }}>
+                    <span>📥 Access Requests ({simulatedRequests.length})</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {simulatedRequests.length === 0 ? (
+                      <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', textAlign: 'center', padding: '12px 0' }}>No pending join requests</div>
+                    ) : (
+                      simulatedRequests.map((req: any) => (
+                        <div key={req.id} style={{ background: 'var(--bg-secondary)', borderRadius: '8px', padding: '10px', border: '1px solid var(--border-color)' }}>
+                          <div style={{ fontWeight: 600, fontSize: '12px', color: 'var(--text-primary)' }}>{req.fullName}</div>
+                          <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{req.employeeId} • @{req.loginId}</div>
+                          <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
+                            <button
+                              className="btn btn-primary btn-xs"
+                              style={{ flex: 1, height: '24px', fontSize: '10px', background: '#00a884', border: 'none' }}
+                              onClick={async () => {
+                                try {
+                                  await chatApi.sendMessage(activeConv.id, { content: `Approved join request from @${req.loginId}`, type: 'system' });
+                                  toast.success(`Approved ${req.fullName} to join group!`);
+                                  setSimulatedRequests(prev => prev.filter(r => r.id !== req.id));
+                                } catch (err) {
+                                  toast.error('Failed to add member to database');
+                                }
+                              }}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              className="btn btn-secondary btn-xs danger"
+                              style={{ flex: 1, height: '24px', fontSize: '10px' }}
+                              onClick={() => {
+                                toast.success(`Rejected request from ${req.fullName}`);
+                                setSimulatedRequests(prev => prev.filter(r => r.id !== req.id));
+                              }}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Members list (Simulated or actual) */}
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
+                    👥 Active Members
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0' }}>
+                      <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'var(--gradient-brand)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 'bold' }}>ME</div>
+                      <span style={{ fontSize: '12px', fontWeight: 600 }}>{user?.fullName} (You)</span>
+                    </div>
+                    {otherUsers.slice(0, 3).map((u: any) => (
+                      <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0' }}>
+                        <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 'bold' }}>{initials(u.fullName)}</div>
+                        <span style={{ fontSize: '12px' }}>{u.fullName}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className={styles.chatEmpty} style={{ background: 'var(--bg-secondary)' }}>

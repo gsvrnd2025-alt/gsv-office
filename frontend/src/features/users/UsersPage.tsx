@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, Filter, MoreVertical, Edit, Trash2, Lock, UserX, UserCheck, Mail, RefreshCw } from 'lucide-react';
-import { usersApi, rolesApi, departmentsApi } from '../../api';
+import { 
+  Plus, Search, MoreVertical, Edit, Trash2, Lock, 
+  UserX, UserCheck, RefreshCw, X, HardDrive, Database, Clock, Key 
+} from 'lucide-react';
+import { usersApi, rolesApi, departmentsApi, storageApi } from '../../api';
 import toast from 'react-hot-toast';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -15,6 +18,8 @@ export default function UsersPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [editUser, setEditUser] = useState<any>(null);
   const [page, setPage] = useState(1);
+  const [selectedUserForDetail, setSelectedUserForDetail] = useState<any>(null);
+  const [userQuotaLimit, setUserQuotaLimit] = useState<number>(10);
 
   const { data, isLoading } = useQuery({
     queryKey: ['users', search, statusFilter, page],
@@ -24,15 +29,38 @@ export default function UsersPage() {
   const { data: roles = [] } = useQuery({ queryKey: ['roles'], queryFn: () => rolesApi.getAll().then(r => r.data?.data || r.data || []) });
   const { data: departments = [] } = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.getAll().then(r => r.data?.data || r.data || []) });
 
+  const { data: userLogs = [] } = useQuery({
+    queryKey: ['user-logs', selectedUserForDetail?.id],
+    queryFn: () => usersApi.getUserLogs(selectedUserForDetail!.id).then(r => r.data?.data || r.data || []),
+    enabled: !!selectedUserForDetail?.id,
+  });
+
+  useEffect(() => {
+    if (selectedUserForDetail) {
+      const quotaBytes = selectedUserForDetail.metadata?.storageQuotaBytes || (10 * 1024 * 1024 * 1024);
+      setUserQuotaLimit(Math.round(quotaBytes / (1024 * 1024 * 1024)));
+    }
+  }, [selectedUserForDetail]);
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => usersApi.delete(id),
-    onSuccess: () => { toast.success('User deleted'); qc.invalidateQueries({ queryKey: ['users'] }); },
+    onSuccess: () => { 
+      toast.success('User deleted'); 
+      setSelectedUserForDetail(null);
+      qc.invalidateQueries({ queryKey: ['users'] }); 
+    },
     onError: () => toast.error('Delete failed'),
   });
 
   const statusMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => usersApi.updateStatus(id, status),
-    onSuccess: () => { toast.success('Status updated'); qc.invalidateQueries({ queryKey: ['users'] }); },
+    onSuccess: (res: any, variables: any) => { 
+      toast.success('Status updated'); 
+      qc.invalidateQueries({ queryKey: ['users'] }); 
+      if (selectedUserForDetail && selectedUserForDetail.id === variables.id) {
+        setSelectedUserForDetail((prev: any) => ({ ...prev, status: variables.status }));
+      }
+    },
     onError: () => toast.error('Update failed'),
   });
 
@@ -40,6 +68,24 @@ export default function UsersPage() {
     mutationFn: ({ id }: { id: string }) => usersApi.resetPassword(id, { newPassword: 'TempPass@123' }),
     onSuccess: () => toast.success('Password reset to: TempPass@123'),
     onError: () => toast.error('Reset failed'),
+  });
+
+  const quotaMutation = useMutation({
+    mutationFn: (variables: { loginId: string; limitBytes: number }) => storageApi.updateQuota(variables),
+    onSuccess: () => {
+      toast.success('Storage quota updated successfully!');
+      qc.invalidateQueries({ queryKey: ['users'] });
+      if (selectedUserForDetail) {
+        setSelectedUserForDetail((prev: any) => ({
+          ...prev,
+          metadata: {
+            ...prev.metadata,
+            storageQuotaBytes: userQuotaLimit * 1024 * 1024 * 1024
+          }
+        }));
+      }
+    },
+    onError: () => toast.error('Failed to update storage quota'),
   });
 
   const [syncing, setSyncing] = useState(false);
@@ -51,6 +97,7 @@ export default function UsersPage() {
       qc.invalidateQueries({ queryKey: ['users'] });
       qc.invalidateQueries({ queryKey: ['roles'] });
       qc.invalidateQueries({ queryKey: ['departments'] });
+      if (selectedUserForDetail) setSelectedUserForDetail(null);
     },
     onError: (err: any) => {
       toast.error(err.response?.data?.message || 'Sync failed');
@@ -63,8 +110,16 @@ export default function UsersPage() {
 
   const initials = (name: string) => name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U';
 
+  const handleSaveQuota = () => {
+    if (!selectedUserForDetail) return;
+    quotaMutation.mutate({
+      loginId: selectedUserForDetail.loginId,
+      limitBytes: userQuotaLimit * 1024 * 1024 * 1024
+    });
+  };
+
   return (
-    <div className="page-enter" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+    <div className="page-enter" style={{ display: 'flex', flexDirection: 'column', gap: '24px', position: 'relative' }}>
       {/* Header */}
       <div className="page-header">
         <div>
@@ -101,89 +156,183 @@ export default function UsersPage() {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="card">
-        <div className="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th>User</th>
-                <th>Employee ID</th>
-                <th>Role</th>
-                <th>Department</th>
-                <th>Status</th>
-                <th>Last Seen</th>
-                <th style={{ width: '60px' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <tr key={i}>
-                    {Array.from({ length: 7 }).map((_, j) => (
-                      <td key={j}><div className="skeleton" style={{ height: '16px', width: '80%' }} /></td>
-                    ))}
-                  </tr>
-                ))
-              ) : users.length === 0 ? (
-                <tr><td colSpan={7}>
-                  <div className="empty-state" style={{ padding: '48px' }}>
-                    <div style={{ fontSize: '48px' }}>👥</div>
-                    <h3>No users found</h3>
-                    <p>Create your first user to get started</p>
-                  </div>
-                </td></tr>
-              ) : (
-                users.map((u: any) => (
-                  <tr key={u.id}>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <div className="avatar" style={{ background: u.avatarUrl ? 'none' : 'var(--gradient-brand)' }}>
-                          {u.avatarUrl ? <img src={u.avatarUrl} alt={u.fullName} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} /> : initials(u.fullName)}
+      {/* Main content grid (supporting detail panel) */}
+      <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start', width: '100%' }}>
+        {/* Table */}
+        <div className="card" style={{ flex: 1, minWidth: 0 }}>
+          <div className="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Employee ID</th>
+                  <th>Role</th>
+                  <th>Department</th>
+                  <th>Status</th>
+                  <th>Last Seen</th>
+                  <th style={{ width: '60px' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {isLoading ? (
+                  Array.from({ length: 5 }).map((_, i) => (
+                    <tr key={i}>
+                      {Array.from({ length: 7 }).map((_, j) => (
+                        <td key={j}><div className="skeleton" style={{ height: '16px', width: '80%' }} /></td>
+                      ))}
+                    </tr>
+                  ))
+                ) : users.length === 0 ? (
+                  <tr><td colSpan={7}>
+                    <div className="empty-state" style={{ padding: '48px' }}>
+                      <div style={{ fontSize: '48px' }}>👥</div>
+                      <h3>No users found</h3>
+                      <p>Create your first user to get started</p>
+                    </div>
+                  </td></tr>
+                ) : (
+                  users.map((u: any) => (
+                    <tr key={u.id} onClick={() => setSelectedUserForDetail(u)} style={{ cursor: 'pointer', background: selectedUserForDetail?.id === u.id ? 'var(--bg-selected)' : undefined }}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <div className="avatar" style={{ background: u.avatarUrl ? 'none' : 'var(--gradient-brand)' }}>
+                            {u.avatarUrl ? <img src={u.avatarUrl} alt={u.fullName} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} /> : initials(u.fullName)}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: '13px' }}>{u.fullName}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{u.email}</div>
+                          </div>
                         </div>
-                        <div>
-                          <div style={{ fontWeight: 600, fontSize: '13px' }}>{u.fullName}</div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{u.email}</div>
+                      </td>
+                      <td style={{ fontSize: '12px', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>{u.employeeId}</td>
+                      <td>
+                        <span className="badge badge-primary" style={{ background: u.role?.color ? `${u.role.color}22` : undefined, color: u.role?.color }}>
+                          {u.role?.name || '—'}
+                        </span>
+                      </td>
+                      <td style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{u.department?.name || '—'}</td>
+                      <td>
+                        <span className={`badge badge-${STATUS_COLORS[u.status] || 'secondary'}`}>
+                          {u.status}
+                        </span>
+                      </td>
+                      <td style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                        {u.isOnline ? <span style={{ color: 'var(--brand-success)' }}>🟢 Online</span> : (u.lastSeen ? new Date(u.lastSeen).toLocaleDateString('en-IN') : 'Never')}
+                      </td>
+                      <td onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setEditUser(u)} title="Edit"><Edit size={14} /></button>
+                          <UserActionMenu user={u} onStatus={(status: string) => statusMutation.mutate({ id: u.id, status })} onReset={() => resetPwdMutation.mutate({ id: u.id })} onDelete={() => { if (confirm(`Delete ${u.fullName}?`)) deleteMutation.mutate(u.id); }} />
                         </div>
-                      </div>
-                    </td>
-                    <td style={{ fontSize: '12px', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>{u.employeeId}</td>
-                    <td>
-                      <span className="badge badge-primary" style={{ background: u.role?.color ? `${u.role.color}22` : undefined, color: u.role?.color }}>
-                        {u.role?.name || '—'}
-                      </span>
-                    </td>
-                    <td style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{u.department?.name || '—'}</td>
-                    <td>
-                      <span className={`badge badge-${STATUS_COLORS[u.status] || 'secondary'}`}>
-                        {u.status}
-                      </span>
-                    </td>
-                    <td style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                      {u.isOnline ? <span style={{ color: 'var(--brand-success)' }}>🟢 Online</span> : (u.lastSeen ? new Date(u.lastSeen).toLocaleDateString('en-IN') : 'Never')}
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: '4px' }}>
-                        <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setEditUser(u)} title="Edit"><Edit size={14} /></button>
-                        <UserActionMenu user={u} onStatus={(status: string) => statusMutation.mutate({ id: u.id, status })} onReset={() => resetPwdMutation.mutate({ id: u.id })} onDelete={() => { if (confirm(`Delete ${u.fullName}?`)) deleteMutation.mutate(u.id); }} />
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {meta.totalPages > 1 && (
+            <div className="card-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                Page {meta.page} of {meta.totalPages}
+              </span>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button className="btn btn-secondary btn-sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</button>
+                <button className="btn btn-secondary btn-sm" disabled={page >= meta.totalPages} onClick={() => setPage(p => p + 1)}>Next</button>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Pagination */}
-        {meta.totalPages > 1 && (
-          <div className="card-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-              Page {meta.page} of {meta.totalPages}
-            </span>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button className="btn btn-secondary btn-sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</button>
-              <button className="btn btn-secondary btn-sm" disabled={page >= meta.totalPages} onClick={() => setPage(p => p + 1)}>Next</button>
+        {/* User Detail Side Drawer */}
+        {selectedUserForDetail && (
+          <div className="card animate-fade-in" style={{ width: '400px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px', border: '1px solid var(--border-color)', minHeight: '520px', position: 'sticky', top: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700 }}>User Profile Details</h3>
+              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setSelectedUserForDetail(null)}><X size={16} /></button>
+            </div>
+
+            {/* Profile Block */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ width: '56px', height: '56px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--gradient-brand)', color: 'white', fontWeight: 'bold', fontSize: '20px' }}>
+                {selectedUserForDetail.avatarUrl ? <img src={selectedUserForDetail.avatarUrl} alt={selectedUserForDetail.fullName} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} /> : initials(selectedUserForDetail.fullName)}
+              </div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: '15px', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedUserForDetail.fullName}</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>@{selectedUserForDetail.loginId} • {selectedUserForDetail.email}</div>
+                <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                  <span className="badge badge-primary" style={{ fontSize: '10px' }}>{selectedUserForDetail.role?.name || 'User'}</span>
+                  <span className="badge badge-secondary" style={{ fontSize: '10px' }}>{selectedUserForDetail.department?.name || 'No Dept'}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Bar */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', borderTop: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', padding: '12px 0' }}>
+              <button className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }} onClick={() => setEditUser(selectedUserForDetail)}>
+                <Edit size={13} /> Edit Profile
+              </button>
+              <button className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }} onClick={() => resetPwdMutation.mutate({ id: selectedUserForDetail.id })}>
+                <Key size={13} /> Reset Pass
+              </button>
+              <button 
+                className={`btn btn-sm ${selectedUserForDetail.status === 'blocked' ? 'btn-primary' : 'btn-outline-danger'}`} 
+                onClick={() => statusMutation.mutate({ id: selectedUserForDetail.id, status: selectedUserForDetail.status === 'blocked' ? 'active' : 'blocked' })}
+              >
+                {selectedUserForDetail.status === 'blocked' ? 'Unblock Account' : 'Block Teammate'}
+              </button>
+              <button 
+                className="btn btn-secondary btn-sm danger" 
+                onClick={() => { if (confirm(`Delete ${selectedUserForDetail.fullName}?`)) deleteMutation.mutate(selectedUserForDetail.id); }}
+              >
+                <Trash2 size={13} /> Delete User
+              </button>
+            </div>
+
+            {/* Storage Quota Control */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px', fontWeight: 600 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><HardDrive size={14} style={{ color: 'var(--brand-primary)' }} /> SMB Quota Cap</span>
+                <span style={{ color: 'var(--brand-primary)', fontWeight: 'bold' }}>{userQuotaLimit} GB</span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="200"
+                step="5"
+                value={userQuotaLimit}
+                onChange={(e) => setUserQuotaLimit(Number(e.target.value))}
+                style={{ width: '100%', accentColor: 'var(--brand-primary)', cursor: 'pointer' }}
+              />
+              <button className="btn btn-primary btn-xs" style={{ alignSelf: 'flex-end', display: 'flex', gap: '4px', alignItems: 'center' }} onClick={handleSaveQuota} disabled={quotaMutation.isPending}>
+                <Database size={12} /> Apply Quota
+              </button>
+            </div>
+
+            {/* Audit Logs History */}
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: '220px', borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Clock size={13} /> User Activity History
+              </div>
+              <div style={{ flex: 1, overflowY: 'auto', maxHeight: '240px', display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '4px' }}>
+                {userLogs.length === 0 ? (
+                  <div style={{ color: 'var(--text-tertiary)', fontSize: '11px', textAlign: 'center', padding: '24px 0' }}>No activity records found</div>
+                ) : (
+                  userLogs.map((log: any) => (
+                    <div key={log.id} style={{ display: 'flex', flexDirection: 'column', gap: '2px', background: 'var(--bg-secondary)', borderRadius: '6px', padding: '8px', fontSize: '11px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-tertiary)', fontSize: '10px' }}>
+                        <span style={{ textTransform: 'uppercase', fontWeight: 'bold', color: 'var(--brand-primary)' }}>{log.action}</span>
+                        <span>{new Date(log.createdAt || log.created_at).toLocaleDateString('en-IN')}</span>
+                      </div>
+                      <div style={{ color: 'var(--text-secondary)', fontWeight: 500, marginTop: '2px' }}>
+                        {log.description || `${log.action} on ${log.resourceType || 'resource'}`}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -486,4 +635,3 @@ function QuickDeptModal({ onClose, onSuccess }: any) {
     </div>
   );
 }
-

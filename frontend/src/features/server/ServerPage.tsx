@@ -1,12 +1,18 @@
 import { useQuery } from '@tanstack/react-query';
-import { Server, Database, Activity, Settings, Cpu, RefreshCw, Save, ShieldAlert, Key, HardDrive, Terminal } from 'lucide-react';
+import { Server, Database, Activity, Settings, Cpu, RefreshCw, Save, ShieldAlert, Key, HardDrive, Terminal, FileText } from 'lucide-react';
 import { serverApi, securityApi } from '../../api';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 
 export default function ServerPage() {
   const [activeTab, setActiveTab] = useState<'system' | 'audit'>('system');
   const [logFilter, setLogFilter] = useState<string>('all');
+
+  // Google Sheets sync configurations states
+  const [sheetLink, setSheetLink] = useState('');
+  const [sheetId, setSheetId] = useState('');
+  const [appscriptId, setAppscriptId] = useState('');
+  const [savingSyncSettings, setSavingSyncSettings] = useState(false);
 
   const { data: info, isLoading } = useQuery({
     queryKey: ['server-info'],
@@ -30,6 +36,34 @@ export default function ServerPage() {
     queryFn: () => securityApi.getLogs().then(r => r.data?.data || r.data || []),
     refetchInterval: 10000
   });
+
+  useEffect(() => {
+    if (settings && settings.length > 0) {
+      setSheetLink(settings.find((s: any) => s.key === 'google_sheet_link')?.value || '');
+      setSheetId(settings.find((s: any) => s.key === 'google_sheet_id')?.value || '');
+      setAppscriptId(settings.find((s: any) => s.key === 'google_appscript_deployment_id')?.value || '');
+    }
+  }, [settings]);
+
+  const handleSaveSyncSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingSyncSettings(true);
+    try {
+      await serverApi.updateSetting('google_sheet_link', sheetLink);
+      await serverApi.updateSetting('google_sheet_id', sheetId);
+      await serverApi.updateSetting('google_appscript_deployment_id', appscriptId);
+      if (appscriptId.trim()) {
+        const syncUrl = `https://script.google.com/macros/s/${appscriptId.trim()}/exec`;
+        await serverApi.updateSetting('google_sheets_sync_url', syncUrl);
+      }
+      toast.success('Google Sheet settings saved successfully!');
+      refetchSettings();
+    } catch (err) {
+      toast.error('Failed to save Google Sheet configurations');
+    } finally {
+      setSavingSyncSettings(false);
+    }
+  };
 
   const memUsed = info ? info.totalMemoryMB - info.freeMemoryMB : 0;
   const memPct = info ? (memUsed / info.totalMemoryMB) * 100 : 0;
@@ -123,6 +157,61 @@ export default function ServerPage() {
               </div>
             </div>
           )}
+
+          {/* Google Sheets Sync Configurations */}
+          <div className="card" style={{ marginBottom: '20px' }}>
+            <div className="card-header" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <FileText size={18} style={{ color: 'var(--brand-primary)' }} />
+              <div>
+                <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0 }}>Google Sheets Synchronization Settings</h3>
+                <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', margin: '2px 0 0 0' }}>Configure company spreadsheet credentials for database mapping and automated syncs</p>
+              </div>
+            </div>
+            <form onSubmit={handleSaveSyncSettings}>
+              <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontWeight: 600 }}>Google Sheet URL Link</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="https://docs.google.com/spreadsheets/d/..."
+                      value={sheetLink}
+                      onChange={(e) => setSheetLink(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontWeight: 600 }}>Google Sheet ID</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="e.g. 1aBCDeFGhIjkLMnoPqRSTUvwxyZ..."
+                      value={sheetId}
+                      onChange={(e) => setSheetId(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="form-group" style={{ maxWidth: '100%' }}>
+                  <label className="form-label" style={{ fontWeight: 600 }}>Google Apps Script Deployment ID</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="e.g. AKfycbw6pAarz91qhP5HfTgn..."
+                    value={appscriptId}
+                    onChange={(e) => setAppscriptId(e.target.value)}
+                  />
+                  <small style={{ color: 'var(--text-tertiary)', fontSize: '10px', marginTop: '4px', display: 'block' }}>
+                    Deployment ID will be mapped automatically to form the endpoint URL: <code>https://script.google.com/macros/s/&#123;Deployment_ID&#125;/exec</code>
+                  </small>
+                </div>
+              </div>
+              <div className="card-footer" style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', padding: '12px 20px' }}>
+                <button type="submit" className="btn btn-primary" disabled={savingSyncSettings}>
+                  <Save size={14} /> {savingSyncSettings ? 'Saving Settings...' : 'Save Google Sheet Settings'}
+                </button>
+              </div>
+            </form>
+          </div>
 
           {/* System Settings Table */}
           <div className="card">

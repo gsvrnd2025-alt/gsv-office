@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Edit, Trash2, Shield, CheckSquare, Square } from 'lucide-react';
 import { rolesApi, permissionsApi } from '../../api';
@@ -40,12 +40,36 @@ export default function RolesPage() {
     onError: () => toast.error('Failed to save permissions'),
   });
 
-  const grantedPerms = new Set(rolePerms.filter((p: any) => p.granted || p.role_granted).map((p: any) => p.id));
+  const [localPerms, setLocalPerms] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (rolePerms && Array.isArray(rolePerms)) {
+      const active = new Set(
+        rolePerms
+          .filter((p: any) => p.granted === true || p.granted === 'true' || p.role_granted === true || p.role_granted === 'true')
+          .map((p: any) => p.id)
+      );
+      setLocalPerms(active as Set<string>);
+    } else {
+      setLocalPerms(new Set());
+    }
+  }, [rolePerms]);
 
   const togglePerm = (permId: string) => {
-    const next = new Set(grantedPerms);
-    if (next.has(permId)) next.delete(permId); else next.add(permId);
-    assignMutation.mutate({ roleId: selected.id, permIds: Array.from(next) as string[] });
+    setLocalPerms(prev => {
+      const next = new Set(prev);
+      if (next.has(permId)) {
+        next.delete(permId);
+      } else {
+        next.add(permId);
+      }
+      return next;
+    });
+  };
+
+  const handleSavePermissions = () => {
+    if (!selected?.id) return;
+    assignMutation.mutate({ roleId: selected.id, permIds: Array.from(localPerms) });
   };
 
   return (
@@ -95,12 +119,22 @@ export default function RolesPage() {
         <div className="card">
           {selected ? (
             <>
-              <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
                 <div>
                   <h3 style={{ fontSize: '16px', fontWeight: 700 }}>Permissions — {selected.name}</h3>
-                  <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '2px' }}>Click to toggle permissions for this role</p>
+                  <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '2px' }}>Check the permissions and click Save</p>
                 </div>
-                <span className="badge badge-primary">{grantedPerms.size} granted</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <span className="badge badge-primary">{localPerms.size} selected</span>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={handleSavePermissions}
+                    disabled={assignMutation.isPending}
+                    style={{ background: 'var(--gradient-brand)', border: 'none', boxShadow: 'var(--shadow-brand)', fontWeight: 600 }}
+                  >
+                    {assignMutation.isPending ? 'Saving...' : 'Save Permissions'}
+                  </button>
+                </div>
               </div>
               <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 {Object.entries(permissionsGrouped).map(([module, perms]: [string, any]) => (
@@ -108,16 +142,16 @@ export default function RolesPage() {
                     <div style={{ fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-secondary)', marginBottom: '10px' }}>{module}</div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px' }}>
                       {perms.map((p: any) => {
-                        const granted = grantedPerms.has(p.id);
+                        const granted = localPerms.has(p.id);
                         return (
                           <div key={p.id}
-                            onClick={() => !selected.isSystem && togglePerm(p.id)}
+                            onClick={() => togglePerm(p.id)}
                             style={{
                               display: 'flex', alignItems: 'center', gap: '8px',
                               padding: '8px 12px', borderRadius: '8px',
                               background: granted ? 'rgba(99,102,241,0.1)' : 'var(--bg-secondary)',
                               border: `1px solid ${granted ? '#6366f1' : 'var(--border-color)'}`,
-                              cursor: selected.isSystem ? 'default' : 'pointer',
+                              cursor: 'pointer',
                               transition: 'all 0.15s',
                             }}>
                             {granted ? <CheckSquare size={15} style={{ color: '#6366f1', flexShrink: 0 }} /> : <Square size={15} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />}
