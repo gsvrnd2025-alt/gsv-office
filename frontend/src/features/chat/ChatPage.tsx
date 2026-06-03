@@ -85,6 +85,7 @@ export default function ChatPage() {
   const [activeFilter, setActiveFilter] = useState<'all' | 'channels' | 'dms' | 'groups' | 'online' | 'teammates' | 'bookmarks'>('all');
   const [selectedMessages, setSelectedMessages] = useState<string[]>([]);
   const [chatSidebarCollapsed, setChatSidebarCollapsed] = useState(false);
+  const [activeMainTab, setActiveMainTab] = useState<'chats' | 'teammates' | 'bookmarks'>('chats');
   
   // Custom states
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
@@ -734,6 +735,24 @@ export default function ChatPage() {
     const dateB = new Date(b.last_message_at || b.created_at || b.createdAt || 0).getTime();
     return dateB - dateA;
   });
+
+  const deduplicatedSortedConvs = (() => {
+    const seenPartners = new Set<string>();
+    const result = [];
+    for (const c of sortedFilteredConvs) {
+      if (c.type === 'private') {
+        const partnerName = c.name?.replace('DM with ', '').trim().toLowerCase();
+        if (partnerName) {
+          if (seenPartners.has(partnerName)) {
+            continue;
+          }
+          seenPartners.add(partnerName);
+        }
+      }
+      result.push(c);
+    }
+    return result;
+  })();
   
   const displayedTeammates = otherUsers
     .filter((u: any) => {
@@ -1007,113 +1026,147 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Tab Filters Split Row 1 */}
-        <DraggableRow className={styles.filterScrollContainer} style={{ paddingBottom: '4px' }}>
+        {/* Main top-level navigation tabs */}
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--wa-border)', background: 'var(--wa-header)' }}>
           {[
-            { key: 'all', label: 'All' },
-            { key: 'dms', label: 'DMs' },
-            { key: 'groups', label: 'Groups' },
-            { key: 'channels', label: 'Channels' }
-          ].map(t => (
+            { key: 'chats', label: 'Chats', icon: <MessageSquare size={14} /> },
+            { key: 'teammates', label: 'Teammates', icon: <Users2 size={14} /> },
+            { key: 'bookmarks', label: 'Bookmarks', icon: <Pin size={14} /> }
+          ].map(tab => (
             <button
-              key={t.key}
-              onClick={() => setActiveFilter(t.key as any)}
-              className={`${styles.filterPill} ${activeFilter === t.key ? styles.filterPillActive : ''}`}
+              key={tab.key}
+              onClick={() => {
+                setActiveMainTab(tab.key as any);
+                if (tab.key === 'chats') {
+                  setActiveFilter('all');
+                }
+              }}
+              style={{
+                flex: 1,
+                padding: '12px 6px',
+                fontSize: '12px',
+                fontWeight: 700,
+                color: activeMainTab === tab.key ? 'var(--wa-accent)' : 'var(--wa-text-secondary)',
+                borderBottom: activeMainTab === tab.key ? '3px solid var(--wa-accent)' : '3px solid transparent',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                transition: 'all 0.15s ease'
+              }}
             >
-              {t.label}
+              {tab.icon}
+              <span>{tab.label}</span>
             </button>
           ))}
-        </DraggableRow>
+        </div>
 
-        {/* Tab Filters Split Row 2 */}
-        <DraggableRow className={styles.filterScrollContainer} style={{ paddingTop: '0px' }}>
-          {[
-            { key: 'online', label: 'Online' },
-            { key: 'teammates', label: 'Contacts' },
-            { key: 'bookmarks', label: 'Bookmarks' }
-          ].map(t => (
-            <button
-              key={t.key}
-              onClick={() => setActiveFilter(t.key as any)}
-              className={`${styles.filterPill} ${activeFilter === t.key ? styles.filterPillActive : ''}`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </DraggableRow>
+        {/* Tab Filters Single Draggable Row (Only for Chats tab) */}
+        {activeMainTab === 'chats' && (
+          <DraggableRow className={styles.filterScrollContainer}>
+            {[
+              { key: 'all', label: 'All' },
+              { key: 'dms', label: 'DMs' },
+              { key: 'groups', label: 'Groups' },
+              { key: 'channels', label: 'Channels' },
+              { key: 'online', label: 'Online' }
+            ].map(t => (
+              <button
+                key={t.key}
+                onClick={() => setActiveFilter(t.key as any)}
+                className={`${styles.filterPill} ${activeFilter === t.key ? styles.filterPillActive : ''}`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </DraggableRow>
+        )}
 
-        {/* Scrollable Wrapper for all sidebar sections to prevent overflow/hiding */}
+        {/* Scrollable Wrapper for the active sidebar section */}
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          {/* Active Conversations Section */}
-          {activeFilter !== 'teammates' && activeFilter !== 'bookmarks' && (
-            <div className={`${styles.sidebarSection} ${styles.activeConversationsSection}`} style={{ flex: 'none', minHeight: 'auto' }}>
-              <div className={styles.convList} style={{ overflowY: 'visible', flex: 'none', height: 'auto' }}>
-                {sortedFilteredConvs.map((conv: any) => (
-                  <div
-                    key={conv.id}
-                    className={`${styles.convItem} ${conv.id === conversationId ? styles.active : ''}`}
-                    onClick={() => navigate(`/chat/${conv.id}`)}
-                    style={{
-                      borderRadius: '8px', margin: '4px 8px', padding: '8px 12px',
-                      borderLeft: conv.id === conversationId ? '4px solid #6366f1' : '4px solid transparent'
-                    }}
-                  >
-                    <div className={`${styles.convAvatar} ${conv.type === 'group' || conv.type === 'department' ? styles.groupAvatar : ''}`} style={{ background: 'var(--gradient-brand)' }}>
-                      {conv.type === 'group' || conv.type === 'department' ? <Hash size={16} /> : (conv.name?.charAt(0).toUpperCase() || 'U')}
-                    </div>
-                    <div className={styles.convMeta}>
-                      <div className={styles.convName}>
-                        <span style={{ fontWeight: 600 }}>{conv.name || 'Secure DM'}</span>
-                      </div>
-                      <div className={styles.convPreview}>
-                        <span>{conv.last_message_preview || 'Ready to resonance.'}</span>
-                      </div>
-                    </div>
+          {activeMainTab === 'chats' && (
+            <div className={`${styles.sidebarSection} ${styles.activeConversationsSection}`} style={{ flex: '1', display: 'flex', flexDirection: 'column', minHeight: 0, borderBottom: 'none', padding: '4px 0' }}>
+              <div className={styles.convList} style={{ overflowY: 'auto', flex: 1 }}>
+                {deduplicatedSortedConvs.length === 0 ? (
+                  <div className={styles.emptyConvs}>
+                    <MessageSquare size={36} />
+                    <p>No active conversations matching filter</p>
                   </div>
-                ))}
+                ) : (
+                  deduplicatedSortedConvs.map((conv: any) => (
+                    <div
+                      key={conv.id}
+                      className={`${styles.convItem} ${conv.id === conversationId ? styles.active : ''}`}
+                      onClick={() => navigate(`/chat/${conv.id}`)}
+                      style={{
+                        borderRadius: '8px', margin: '4px 8px', padding: '8px 12px',
+                        borderLeft: conv.id === conversationId ? '4px solid #6366f1' : '4px solid transparent'
+                      }}
+                    >
+                      <div className={`${styles.convAvatar} ${conv.type === 'group' || conv.type === 'department' ? styles.groupAvatar : ''}`} style={{ background: 'var(--gradient-brand)' }}>
+                        {conv.type === 'group' || conv.type === 'department' ? <Hash size={16} /> : (conv.name?.charAt(0).toUpperCase() || 'U')}
+                      </div>
+                      <div className={styles.convMeta}>
+                        <div className={styles.convName}>
+                          <span style={{ fontWeight: 600 }}>{conv.name || 'Secure DM'}</span>
+                        </div>
+                        <div className={styles.convPreview}>
+                          <span>{conv.last_message_preview || 'Ready to resonance.'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}
 
-          {/* Teammates Directory Section */}
-          {(activeFilter === 'all' || activeFilter === 'dms' || activeFilter === 'teammates') && (
-            <div className={`${styles.sidebarSection} ${styles.teammatesSection}`} style={{ flex: 'none', minHeight: 'auto' }}>
+          {activeMainTab === 'teammates' && (
+            <div className={`${styles.sidebarSection} ${styles.teammatesSection}`} style={{ flex: '1', display: 'flex', flexDirection: 'column', minHeight: 0, borderBottom: 'none', padding: '4px 0' }}>
               <div className={styles.sectionHeader}>
                 👥 Teammate Directories DMs
               </div>
-              <div className={styles.sectionList} style={{ overflowY: 'visible', flex: 'none', height: 'auto' }}>
-                {displayedTeammates.map((u: any) => (
-                  <div
-                    key={u.id}
-                    onClick={() => startDM(u)}
-                    className={styles.teammateRow}
-                  >
-                    <div className={styles.teammateAvatar}>
-                      {initials(u.fullName)}
-                      {u.isOnline && (
-                        <span className={styles.statusDot} />
-                      )}
+              <div className={styles.sectionList} style={{ overflowY: 'auto', flex: 1, padding: '0 8px' }}>
+                {displayedTeammates.length === 0 ? (
+                  <div style={{ fontSize: '12px', color: 'var(--wa-text-secondary)', padding: '16px', textAlign: 'center' }}>No teammates matching search</div>
+                ) : (
+                  displayedTeammates.map((u: any) => (
+                    <div
+                      key={u.id}
+                      onClick={() => startDM(u)}
+                      className={styles.teammateRow}
+                    >
+                      <div className={styles.teammateAvatar}>
+                        {initials(u.fullName)}
+                        {u.isOnline && (
+                          <span className={styles.statusDot} />
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                        <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.fullName}</span>
+                        <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{u.isOnline ? 'Online' : 'Offline'}</span>
+                      </div>
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                      <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.fullName}</span>
-                      <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{u.isOnline ? 'Online' : 'Offline'}</span>
-                    </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
           )}
 
-          {/* Bookmarks Section */}
-          {(activeFilter === 'all' || activeFilter === 'bookmarks') && (
-            <div className={`${styles.sidebarSection} ${styles.bookmarksSection}`} style={{ flex: 'none', minHeight: 'auto', borderBottom: 'none' }}>
+          {activeMainTab === 'bookmarks' && (
+            <div className={`${styles.sidebarSection} ${styles.bookmarksSection}`} style={{ flex: '1', display: 'flex', flexDirection: 'column', minHeight: 0, borderBottom: 'none', padding: '4px 0' }}>
               <div className={styles.sectionHeader}>
                 <span>🔖 Bookmarked Files</span>
                 <span className="badge badge-primary" style={{ fontSize: '9px', padding: '1px 4px' }}>{bookmarks.length}</span>
               </div>
-              <div className={styles.sectionList} style={{ overflowY: 'visible', flex: 'none', height: 'auto' }}>
+              <div className={styles.sectionList} style={{ overflowY: 'auto', flex: 1, padding: '0 8px' }}>
                 {displayedBookmarks.length === 0 ? (
-                  <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', padding: '4px 12px' }}>No bookmarked files matching search</div>
+                  <div style={{ fontSize: '12px', color: 'var(--wa-text-secondary)', padding: '16px', textAlign: 'center' }}>No bookmarked files matching search</div>
                 ) : (
                   displayedBookmarks.map((b: any) => (
                     <div key={b.id} className={styles.bookmarkRow}>

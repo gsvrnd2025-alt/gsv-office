@@ -1,9 +1,90 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 @Injectable()
-export class ChatService {
+export class ChatService implements OnModuleInit {
   constructor(private dataSource: DataSource) {}
+
+  async onModuleInit() {
+    try {
+      await this.mergeDuplicateConversations();
+    } catch (err) {
+      console.error('Error in onModuleInit duplicate conversation merge:', err);
+    }
+  }
+
+  async mergeDuplicateConversations() {
+    try {
+      console.log('[ChatService] Checking for duplicate private conversations to merge...');
+      const duplicates = await this.dataSource.query(`
+        WITH member_pairs AS (
+          SELECT conversation_id, array_agg(user_id ORDER BY user_id) as member_ids
+          FROM conversation_members
+          GROUP BY conversation_id
+        ),
+        duplicates AS (
+          SELECT mp.member_ids, array_agg(mp.conversation_id ORDER BY mp.conversation_id ASC) as conv_ids
+          FROM member_pairs mp
+          JOIN conversations c ON c.id = mp.conversation_id
+          WHERE c.type = 'private' AND cardinality(mp.member_ids) = 2
+          GROUP BY mp.member_ids
+          HAVING count(mp.conversation_id) > 1
+        )
+        SELECT member_ids, conv_ids FROM duplicates;
+      `);
+
+      if (!duplicates || duplicates.length === 0) {
+        console.log('[ChatService] No duplicate conversations found.');
+        return;
+      }
+
+      console.log(`[ChatService] Found ${duplicates.length} duplicate groups of conversations.`);
+
+      for (const row of duplicates) {
+        const convIds = row.conv_ids;
+        const primaryId = convIds[0];
+        const dupIds = convIds.slice(1);
+        
+        console.log(`[ChatService] Merging conversations: ${dupIds.join(', ')} into primary: ${primaryId}`);
+
+        await this.dataSource.transaction(async (manager) => {
+          // 1. Move all messages from duplicates to primary
+          await manager.query(
+            `UPDATE messages SET conversation_id = $1 WHERE conversation_id = ANY($2)`,
+            [primaryId, dupIds]
+          );
+
+          // 2. Delete membership entries for duplicate conversations
+          await manager.query(
+            `DELETE FROM conversation_members WHERE conversation_id = ANY($1)`,
+            [dupIds]
+          );
+
+          // 3. Delete duplicate conversation records
+          await manager.query(
+            `DELETE FROM conversations WHERE id = ANY($1)`,
+            [dupIds]
+          );
+
+          // 4. Reset the last message preview and time for the primary conversation
+          const latestMsg = await manager.query(
+            `SELECT content, created_at FROM messages WHERE conversation_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1`,
+            [primaryId]
+          );
+
+          if (latestMsg.length > 0) {
+            await manager.query(
+              `UPDATE conversations SET last_message_at = $1, last_message_preview = $2 WHERE id = $3`,
+              [latestMsg[0].created_at, latestMsg[0].content?.substring(0, 100) || '', primaryId]
+            );
+          }
+        });
+      }
+      console.log('[ChatService] Duplicate conversation merge complete.');
+    } catch (error) {
+      console.error('[ChatService] Error merging duplicate conversations:', error);
+    }
+  }
 
   async getConversations(userId: string, page = 1, limit = 20) {
     return this.dataSource.query(`
