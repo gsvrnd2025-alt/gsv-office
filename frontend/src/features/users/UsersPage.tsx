@@ -547,7 +547,10 @@ function UserModal({ user, roles, departments, existingUsers, onClose, onSuccess
     e.preventDefault();
     setLoading(true);
     try {
-      if (user) { await usersApi.update(user.id, form); }
+      if (user) { 
+        const { password, ...updateForm } = form;
+        await usersApi.update(user.id, updateForm); 
+      }
       else { await usersApi.create(form); }
       onSuccess();
     } catch (err: any) {

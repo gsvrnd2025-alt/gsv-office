@@ -165,6 +165,11 @@ export class UsersService implements OnApplicationBootstrap {
     const old = { ...user };
     const cleanDto = this.cleanPayload(dto);
 
+    if (cleanDto.password && cleanDto.password.trim() !== '') {
+      user.passwordHash = await bcrypt.hash(cleanDto.password, 12);
+    }
+    delete cleanDto.password;
+
     Object.assign(user, cleanDto);
     const saved = await this.usersRepo.save(user);
 

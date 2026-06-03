@@ -8,7 +8,7 @@ import { AuthService } from './auth.service';
 import { LocalAuthGuard, JwtAuthGuard } from './guards/jwt-auth.guard';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/public.decorator';
-import { LoginDto, ChangePasswordDto, RefreshTokenDto } from './dto/login.dto';
+import { LoginDto, ChangePasswordDto, RefreshTokenDto, ForgotPasswordResetDto } from './dto/login.dto';
 import { Throttle } from '@nestjs/throttler';
 
 @ApiTags('Auth')
@@ -125,7 +125,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reset password and log in once approved' })
   async forgotPasswordReset(
-    @Body() body: { identifier: string; newPassword: string },
+    @Body() body: ForgotPasswordResetDto,
     @Ip() ip: string,
     @Headers('user-agent') userAgent: string,
     @Res({ passthrough: true }) res: Response,
