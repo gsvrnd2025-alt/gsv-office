@@ -1698,8 +1698,9 @@ export default function RemoteDesktopPage() {
   };
 
   // Host Action: Reject Request
-  const rejectRequest = (reason?: string) => {
+  const rejectRequest = (reason?: any) => {
     setShowIncomingRequest(false);
+    const reasonStr = typeof reason === 'string' ? reason : undefined;
     if (incomingRequestData) {
       addConnectionHistory({
         peerName: incomingRequestData.callerName,
@@ -1711,7 +1712,7 @@ export default function RemoteDesktopPage() {
       socket?.emit('remote:response', {
         targetUserId: incomingRequestData.callerId,
         status: 'rejected',
-        reason: reason
+        reason: reasonStr
       });
     }
     setIncomingRequestData(null);
