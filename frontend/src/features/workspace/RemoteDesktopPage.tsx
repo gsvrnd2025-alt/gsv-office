@@ -1069,6 +1069,27 @@ export default function RemoteDesktopPage() {
     fileTransfer: true,
   });
   const [sessionDuration, setSessionDuration] = useState('1h');
+  const [desktopSources, setDesktopSources] = useState<any[]>([]);
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
+  const [shareType, setShareType] = useState<'screen' | 'window'>('screen');
+
+  useEffect(() => {
+    if (showIncomingRequest && (window as any).gsvDesktop) {
+      addLog('Fetching desktop sources for screen share picker...');
+      (window as any).gsvDesktop.getSources().then((sources: any[]) => {
+        setDesktopSources(sources);
+        // Default to the first screen source if available
+        const screenSource = sources.find(s => s.id.startsWith('screen:'));
+        if (screenSource) {
+          setSelectedSourceId(screenSource.id);
+        } else if (sources.length > 0) {
+          setSelectedSourceId(sources[0].id);
+        }
+      }).catch(err => {
+        console.error('Failed to get desktop sources:', err);
+      });
+    }
+  }, [showIncomingRequest]);
 
   // Viewport / WebRTC simulation objects
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -1547,7 +1568,22 @@ export default function RemoteDesktopPage() {
     try {
       addLog('Acquiring display share capture...');
       let stream: MediaStream;
-      if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
+      if ((window as any).gsvDesktop && selectedSourceId) {
+        addLog(`Acquiring native desktop capture for source: ${selectedSourceId}`);
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: selectedSourceId,
+              minWidth: 1280,
+              maxWidth: 1920,
+              minHeight: 720,
+              maxHeight: 1080
+            }
+          } as any
+        });
+      } else if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
         try {
           stream = await navigator.mediaDevices.getDisplayMedia({
             video: {
@@ -1559,7 +1595,7 @@ export default function RemoteDesktopPage() {
           });
         } catch (err) {
           console.warn('Real screen share blocked:', err);
-          toast.error('Screen capture permission denied.');
+          toast.error('Screen share permission denied or cancelled.');
           rejectRequest();
           return;
         }
@@ -2152,7 +2188,7 @@ export default function RemoteDesktopPage() {
             {/* Handshake authorization request pop-up on host side */}
             {showIncomingRequest && incomingRequestData && (
               <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style={{ background: 'rgba(0, 0, 0, 0.75)', zIndex: 100 }}>
-                <div className="card p-4 animate-scale-in" style={{ width: '380px', background: 'var(--bg-card)', border: '2px solid var(--brand-primary)', color: 'var(--text-primary)', borderRadius: '16px' }}>
+                <div className="card p-4 animate-scale-in" style={{ width: (window as any).gsvDesktop ? '600px' : '380px', maxHeight: '90vh', overflowY: 'auto', background: 'var(--bg-card)', border: '2px solid var(--brand-primary)', color: 'var(--text-primary)', borderRadius: '16px' }}>
                   <div className="d-flex align-items-center gap-2 mb-3 text-warning">
                     <ShieldAlert size={28} />
                     <strong style={{ fontSize: '15px', fontWeight: 800 }}>Incoming Connection Request</strong>
@@ -2160,7 +2196,98 @@ export default function RemoteDesktopPage() {
                   <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: 1.4 }}>
                     User <strong>{incomingRequestData.callerName}</strong> ({formatPhoneId(incomingRequestData.callerPhone)}) requests control access to this desktop.
                   </p>
-                  
+
+                  {/* Share Content Selection (Only if running in Electron) */}
+                  {(window as any).gsvDesktop && (
+                    <div className="mb-3 p-3 rounded" style={{ background: 'var(--bg-secondary)', fontSize: '12px', border: '1px solid var(--border-color)' }}>
+                      <div style={{ fontWeight: 800, marginBottom: '8px', color: 'var(--text-primary)' }}>Select Sharing Mode:</div>
+                      
+                      <div className="d-flex gap-4 mb-3">
+                        <label className="d-flex align-items-center gap-2 cursor-pointer">
+                          <input 
+                            type="radio" 
+                            name="shareType"
+                            checked={shareType === 'screen'}
+                            onChange={() => {
+                              setShareType('screen');
+                              const screenSrc = desktopSources.find(s => s.id.startsWith('screen:'));
+                              if (screenSrc) setSelectedSourceId(screenSrc.id);
+                            }}
+                            style={{ cursor: 'pointer' }}
+                          />
+                          <span style={{ fontWeight: 600 }}>Share Entire Screen</span>
+                        </label>
+                        <label className="d-flex align-items-center gap-2 cursor-pointer">
+                          <input 
+                            type="radio" 
+                            name="shareType"
+                            checked={shareType === 'window'}
+                            onChange={() => {
+                              setShareType('window');
+                              const winSrc = desktopSources.find(s => s.id.startsWith('window:'));
+                              if (winSrc) setSelectedSourceId(winSrc.id);
+                            }}
+                            style={{ cursor: 'pointer' }}
+                          />
+                          <span style={{ fontWeight: 600 }}>Share Specific App Window</span>
+                        </label>
+                      </div>
+
+                      {/* Sources Grid */}
+                      <div style={{ 
+                        display: 'grid', 
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', 
+                        gap: '10px', 
+                        maxHeight: '180px', 
+                        overflowY: 'auto',
+                        padding: '4px',
+                        background: 'rgba(0,0,0,0.2)',
+                        borderRadius: '6px'
+                      }}>
+                        {desktopSources
+                          .filter(src => shareType === 'screen' ? src.id.startsWith('screen:') : src.id.startsWith('window:'))
+                          .map(src => (
+                            <div 
+                              key={src.id}
+                              onClick={() => setSelectedSourceId(src.id)}
+                              style={{
+                                border: `2px solid ${selectedSourceId === src.id ? 'var(--brand-primary)' : 'transparent'}`,
+                                background: selectedSourceId === src.id ? 'rgba(99, 102, 241, 0.1)' : 'var(--bg-card)',
+                                borderRadius: '6px',
+                                padding: '6px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '4px',
+                                position: 'relative',
+                                overflow: 'hidden',
+                                transition: 'all 0.15s'
+                              }}
+                            >
+                              <div style={{ width: '100%', height: '70px', background: '#000', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                                {src.thumbnail ? (
+                                  <img src={src.thumbnail} alt={src.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                                ) : (
+                                  <span style={{ fontSize: '20px' }}>🖥️</span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }} title={src.name}>
+                                {src.name}
+                              </div>
+                              {src.appIcon && (
+                                <img src={src.appIcon} alt="" style={{ position: 'absolute', top: '4px', right: '4px', width: '14px', height: '14px', background: 'rgba(0,0,0,0.6)', borderRadius: '2px', padding: '1px' }} />
+                              )}
+                            </div>
+                          ))}
+                        {desktopSources.filter(src => shareType === 'screen' ? src.id.startsWith('screen:') : src.id.startsWith('window:')).length === 0 && (
+                          <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '20px', color: 'var(--text-tertiary)' }}>
+                            No sources available.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Permissions checkboxes */}
                   <div className="mb-3 p-3 rounded" style={{ background: 'var(--bg-secondary)', fontSize: '12px', border: '1px solid var(--border-color)' }}>
                     <div style={{ fontWeight: 800, marginBottom: '8px', color: 'var(--text-primary)' }}>Permissions Scope:</div>
@@ -2168,12 +2295,42 @@ export default function RemoteDesktopPage() {
                       <input 
                         type="checkbox" 
                         checked={grantedPermissions.fullControl} 
-                        onChange={e => setGrantedPermissions(p => ({ ...p, fullControl: e.target.checked }))} 
+                        onChange={e => setGrantedPermissions(p => ({ 
+                          ...p, 
+                          fullControl: e.target.checked,
+                          keyboard: e.target.checked,
+                          mouse: e.target.checked
+                        }))} 
                         style={{ cursor: 'pointer' }}
                       />
-                      <span style={{ fontWeight: 600 }}>Full Remote Control</span>
+                      <span style={{ fontWeight: 700 }}>Enable Keyboard & Mouse Control (Full Access)</span>
                     </label>
-                    <label className="d-flex align-items-center gap-2 mb-1 cursor-pointer">
+
+                    {/* Custom Nested Checkboxes */}
+                    <div style={{ paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px', borderLeft: '2px solid var(--border-color)' }}>
+                      <label className="d-flex align-items-center gap-2 cursor-pointer">
+                        <input 
+                          type="checkbox" 
+                          checked={grantedPermissions.keyboard} 
+                          disabled={grantedPermissions.fullControl}
+                          onChange={e => setGrantedPermissions(p => ({ ...p, keyboard: e.target.checked }))} 
+                          style={{ cursor: 'pointer' }}
+                        />
+                        <span style={{ fontWeight: 600 }}>Allow Remote Keyboard Presses</span>
+                      </label>
+                      <label className="d-flex align-items-center gap-2 cursor-pointer">
+                        <input 
+                          type="checkbox" 
+                          checked={grantedPermissions.mouse} 
+                          disabled={grantedPermissions.fullControl}
+                          onChange={e => setGrantedPermissions(p => ({ ...p, mouse: e.target.checked }))} 
+                          style={{ cursor: 'pointer' }}
+                        />
+                        <span style={{ fontWeight: 600 }}>Allow Remote Mouse Pointer Overrides</span>
+                      </label>
+                    </div>
+
+                    <label className="d-flex align-items-center gap-2 mt-3 cursor-pointer">
                       <input 
                         type="checkbox" 
                         checked={grantedPermissions.fileTransfer} 

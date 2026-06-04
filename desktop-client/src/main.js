@@ -238,6 +238,21 @@ function createMainWindow() {
     shell.openExternal(url);
     return { action: 'deny' };
   });
+
+  // Enable getDisplayMedia support in Electron
+  mainWindow.webContents.session.setDisplayMediaRequestHandler((request, callback) => {
+    const { desktopCapturer } = require('electron');
+    desktopCapturer.getSources({ types: ['screen', 'window'] }).then((sources) => {
+      if (sources.length > 0) {
+        callback({ video: sources[0], audio: 'loopback' });
+      } else {
+        callback({});
+      }
+    }).catch(err => {
+      console.error('Error in DisplayMediaRequest handler:', err);
+      callback({});
+    });
+  });
 }
 
 // ─── Open or focus main window ────────────────────────────────────────────────
@@ -412,6 +427,27 @@ ipcMain.handle('remote-input', async (event, payload) => {
     console.error('Error handling remote input IPC:', err);
   }
   return { success: false };
+});
+
+ipcMain.handle('get-sources', async () => {
+  const { desktopCapturer } = require('electron');
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen', 'window'],
+      thumbnailSize: { width: 300, height: 200 },
+      fetchWindowIcons: true
+    });
+    
+    return sources.map(source => ({
+      id: source.id,
+      name: source.name,
+      thumbnail: source.thumbnail.toDataURL(),
+      appIcon: source.appIcon ? source.appIcon.toDataURL() : null
+    }));
+  } catch (err) {
+    console.error('Failed to get sources in main process:', err);
+    return [];
+  }
 });
 
 ipcMain.handle('get-config', () => config);

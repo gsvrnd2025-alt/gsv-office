@@ -5,5 +5,6 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('gsvDesktop', {
   isDesktop: true,
   platform: process.platform,
-  remoteInput: (event) => ipcRenderer.invoke('remote-input', event)
+  remoteInput: (event) => ipcRenderer.invoke('remote-input', event),
+  getSources: () => ipcRenderer.invoke('get-sources')
 });
