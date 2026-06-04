@@ -1175,9 +1175,10 @@ export default function RemoteDesktopPage() {
 
     s.on('remote:request', (data: any) => {
       addLog(`Incoming remote connection request from ${data.callerName} (${data.callerPhone})`);
-      SoundManager.playRemoteRequestRing();
+      // User must explicitly accept to allow real screen sharing.
       setIncomingRequestData(data);
       setShowIncomingRequest(true);
+      SoundManager.playNotification();
     });
 
     s.on('remote:response', async (data: any) => {
@@ -1557,18 +1558,16 @@ export default function RemoteDesktopPage() {
             audio: config.audio
           });
         } catch (err) {
-          console.warn('Real screen share blocked, using canvas fallback:', err);
-          if (!desktopStateRef.current) {
-            desktopStateRef.current = new MockDesktopState();
-          }
-          stream = createMockStream(desktopStateRef.current);
+          console.warn('Real screen share blocked:', err);
+          toast.error('Screen capture permission denied.');
+          rejectRequest();
+          return;
         }
       } else {
-        console.warn('Display Media not supported, using canvas fallback.');
-        if (!desktopStateRef.current) {
-          desktopStateRef.current = new MockDesktopState();
-        }
-        stream = createMockStream(desktopStateRef.current);
+        console.warn('Display Media not supported.');
+        toast.error('Your browser does not support screen sharing.');
+        rejectRequest();
+        return;
       }
 
       localStreamRef.current = stream;
@@ -1644,18 +1643,14 @@ export default function RemoteDesktopPage() {
             audio: true
           });
         } catch (err) {
-          console.warn('Manual capture failed, using canvas fallback:', err);
-          if (!desktopStateRef.current) {
-            desktopStateRef.current = new MockDesktopState();
-          }
-          stream = createMockStream(desktopStateRef.current);
+          console.warn('Manual capture failed:', err);
+          toast.error('Screen capture permission denied.');
+          return;
         }
       } else {
-        console.warn('Display Media not supported, using canvas fallback');
-        if (!desktopStateRef.current) {
-          desktopStateRef.current = new MockDesktopState();
-        }
-        stream = createMockStream(desktopStateRef.current);
+        console.warn('Display Media not supported');
+        toast.error('Your browser does not support screen sharing.');
+        return;
       }
       localStreamRef.current = stream;
       setLocalStream(stream);
@@ -2262,10 +2257,8 @@ export default function RemoteDesktopPage() {
           <div className="card p-3 d-flex flex-column gap-2" style={{ background: 'var(--bg-card)', border: '2.5px solid var(--border-color)', borderRadius: '12px', boxShadow: '0 4px 10px rgba(0,0,0,0.15)' }}>
             <strong style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 800 }}>Connect to Partner</strong>
             <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>Enter the Remote ID of the target PC</div>
-            <input 
-              type="text" 
-              className="form-control form-control-sm text-primary" 
-              placeholder="e.g. 909-261-0415" 
+            <select 
+              className="form-select form-select-sm text-primary" 
               value={targetPhone}
               onChange={(e) => setTargetPhone(e.target.value)}
               disabled={isConnecting || isConnected || isHosting}
@@ -2275,11 +2268,15 @@ export default function RemoteDesktopPage() {
                 color: 'var(--text-primary)', 
                 fontWeight: 800, 
                 fontSize: '15px',
-                fontFamily: 'monospace',
                 height: '40px',
                 borderRadius: '8px'
               }}
-            />
+            >
+              <option value="" disabled>Select a User to Connect...</option>
+              {teammates.map((t) => (
+                <option key={t.id} value={t.phone || t.loginId}>{t.fullName} ({t.phone || t.loginId})</option>
+              ))}
+            </select>
             <button 
               className="btn w-100 d-flex align-items-center justify-content-center gap-2"
               disabled={!targetPhone || isConnecting || isHosting}

@@ -1175,22 +1175,53 @@ export default function FloatingStickyNotes() {
       <button 
         onMouseDown={handleFabMouseDown}
         onClick={handleFabClick}
-        className="d-flex align-items-center justify-content-center border-0 rounded-circle text-white gsv-glow-fab"
+        className="d-flex align-items-center justify-content-center border-0 gsv-glow-fab"
         style={{ 
           position: 'fixed',
           left: `${fabPosition.x}px`,
           top: `${fabPosition.y}px`,
-          width: '60px', 
-          height: '60px', 
-          background: 'linear-gradient(135deg, #fb7185 0%, #f59e0b 50%, #eab308 100%)',
-          boxShadow: '0 0 25px rgba(245, 158, 11, 0.5), 0 5px 15px rgba(0,0,0,0.3)',
+          width: '75px', 
+          height: '75px', 
+          background: 'linear-gradient(145deg, #fef08a 0%, #facc15 100%)',
+          boxShadow: '4px 8px 15px rgba(0,0,0,0.2), inset -2px -2px 5px rgba(0,0,0,0.1), inset 2px 2px 5px rgba(255,255,255,0.7)',
           cursor: isDraggingFab ? 'grabbing' : 'grab',
           userSelect: 'none',
-          touchAction: 'none'
+          touchAction: 'none',
+          borderRadius: '4px 20px 4px 4px',
+          border: '1px solid #eab308',
+          display: 'flex',
+          flexDirection: 'column'
         }}
         title="GSV Sticky Notes (Drag to move)"
       >
-        <StickyNote size={28} style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.25))' }} />
+        {/* Realistic Folded Corner */}
+        <div style={{
+          position: 'absolute',
+          top: '-1px', right: '-1px',
+          width: '20px', height: '20px',
+          background: 'linear-gradient(225deg, transparent 50%, rgba(255,255,255,0.6) 50%, #ca8a04 100%)',
+          borderRadius: '0 0 0 6px',
+          boxShadow: '-2px 2px 5px rgba(0,0,0,0.15)'
+        }}></div>
+        
+        {/* Red Push Pin */}
+        <div style={{
+          position: 'absolute',
+          top: '6px',
+          width: '100%',
+          display: 'flex',
+          justifyContent: 'center',
+          pointerEvents: 'none'
+        }}>
+           <div style={{ 
+             width: '12px', height: '12px', 
+             background: 'radial-gradient(circle at 3px 3px, #fca5a5, #ef4444 60%, #b91c1c)', 
+             borderRadius: '50%', 
+             boxShadow: '0 3px 5px rgba(0,0,0,0.4), inset -1px -1px 2px rgba(0,0,0,0.3)' 
+           }}></div>
+        </div>
+
+        <StickyNote size={30} color="#854d0e" style={{ opacity: 0.8, marginTop: '8px', filter: 'drop-shadow(0 1px 1px rgba(255,255,255,0.5))' }} />
       </button>
 
       {/* Main Centered Popup Page */}

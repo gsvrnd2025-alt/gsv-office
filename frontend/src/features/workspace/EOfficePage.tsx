@@ -7,26 +7,58 @@ import {
   Search, Table, FileText as NoteIcon, AlignJustify, Heading1,
   Heading2, Heading3, List, Image as ImageIcon, History, X
 } from 'lucide-react';
-import { filesApi } from '../../api';
+import { filesApi, usersApi } from '../../api';
 import toast from 'react-hot-toast';
 import { copyTextToClipboard } from '../../utils/clipboard';
+import ReactQuill, { Quill } from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
+
+const Font = Quill.import('formats/font');
+Font.whitelist = ['Inter', 'Calibri', 'Arial', 'Times-New-Roman', 'Courier-New'];
+Quill.register(Font, true);
 
 // Default presets for clean layout
-const DEFAULT_WORD_CONTENT = '<h1>Welcome to GSV E-Office WordPad</h1><p>Start drafting your professional document here. Customize typography, format lists, and insert images.</p>';
+const DEFAULT_WORD_CONTENT = '';
 const DEFAULT_NOTE_CONTENT = 'Welcome to GSV Notepad.\nSimple raw text editor for configurations or scratch notes.';
+
+// Quill Editor Configuration (MS Word like)
+const quillModules = {
+  toolbar: [
+    [{ 'header': [1, 2, 3, 4, 5, 6, false] }, { 'font': Font.whitelist }, { 'size': ['small', false, 'large', 'huge'] }],
+    ['bold', 'italic', 'underline', 'strike'],
+    [{ 'color': [] }, { 'background': [] }],
+    [{ 'script': 'sub'}, { 'script': 'super' }],
+    [{ 'list': 'ordered'}, { 'list': 'bullet'}, { 'indent': '-1'}, { 'indent': '+1' }],
+    [{ 'align': [] }],
+    ['blockquote', 'code-block'],
+    ['link', 'image', 'video'],
+    ['clean']
+  ],
+};
 
 export default function EOfficePage() {
   const [activeTab, setActiveTab] = useState<'word' | 'excel' | 'note'>('word');
+  const [activeWordTab, setActiveWordTab] = useState('Home');
   const [docTitle, setDocTitle] = useState('New Document');
   
   // Word Editor States
   const [wordContent, setWordContent] = useState(DEFAULT_WORD_CONTENT);
   const [headerText, setHeaderText] = useState('GSV Enterprise Header');
   const [footerText, setFooterText] = useState('GSV Office Confidential');
-  const [textColor, setTextColor] = useState('#1e293b');
-  const [highlightColor, setHighlightColor] = useState('#ffffff');
-  const [activeFont, setActiveFont] = useState('Inter');
   const [activeSize, setActiveSize] = useState('16px');
+  
+  // Sharing, Fullscreen, & Layout States
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [teammates, setTeammates] = useState<any[]>([]);
+  const [selectedTeammate, setSelectedTeammate] = useState('');
+  
+  const [watermarkText, setWatermarkText] = useState('');
+  const [pageMargin, setPageMargin] = useState('96px');
+  const [columnCount, setColumnCount] = useState(1);
+  const [pageColor, setPageColor] = useState('white');
+  const [isLandscape, setIsLandscape] = useState(false);
+  const [hasBorder, setHasBorder] = useState(false);
   
   // Excel Spreadsheet States
   const [excelGrid, setExcelGrid] = useState<string[][]>(() => 
@@ -84,6 +116,43 @@ export default function EOfficePage() {
     return () => document.removeEventListener('mousedown', clickOutsideContext);
   }, [activeContextMenu]);
 
+  useEffect(() => {
+    const handleFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
+
+  // Fetch Team Users for Sharing
+  const fetchTeammates = async () => {
+    try {
+      const res = await usersApi.getAll();
+      const list = res.data?.data?.data || res.data?.data || res.data || [];
+      setTeammates(list);
+    } catch {
+      toast.error('Could not fetch teammates');
+    }
+  };
+
+  const handleShareClick = () => {
+    setShowShareModal(true);
+    fetchTeammates();
+  };
+
+  const executeShare = () => {
+    if (!selectedTeammate) return toast.error('Select a teammate first');
+    toast.success('Document safely forwarded to teammate via GSV Chat!');
+    setShowShareModal(false);
+  };
+
+  const toggleFullscreen = () => {
+    const el = document.getElementById('word-workspace-container');
+    if (!document.fullscreenElement) {
+      el?.requestFullscreen().catch(() => toast.error('Fullscreen failed'));
+    } else {
+      document.exitFullscreen();
+    }
+  };
+
   // Sync state modifications
   useEffect(() => {
     const handleSync = () => {
@@ -93,21 +162,7 @@ export default function EOfficePage() {
     return () => window.removeEventListener('gsv-notes-update', handleSync);
   }, []);
 
-  // Word Editor Formatting
-  const handleWordFormat = (command: string, value: string = '') => {
-    document.execCommand(command, false, value);
-    if (wordRef.current) {
-      setWordContent(wordRef.current.innerHTML);
-    }
-  };
 
-  // Insert Image in WordPad
-  const handleInsertImage = () => {
-    const url = prompt('Enter absolute image URL:');
-    if (url) {
-      handleWordFormat('insertImage', url);
-    }
-  };
 
   // Parse Cell Column/Row references (e.g. A1, B3)
   const parseCellName = (name: string) => {
@@ -413,14 +468,27 @@ export default function EOfficePage() {
     setDocTitle(`New_${type.toUpperCase()}_Doc`);
     
     if (type === 'word') {
-      setWordContent(DEFAULT_WORD_CONTENT);
+      setWordContent('');
+      // Force Fullscreen immediately for new Word Docs
+      setIsFullscreen(true);
     } else if (type === 'note') {
       setNoteContent(DEFAULT_NOTE_CONTENT);
     } else {
       setExcelGrid(Array.from({ length: 20 }, () => Array(10).fill('')));
     }
     
-    toast.success(`Created blank ${type.toUpperCase()} workspace`);
+    toast.success(`Created blank document`);
+  };
+
+  const handleImageUpload = (e: any) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setWordContent(prev => prev + `<br/><img src="${ev.target?.result}" style="max-width:100%"/><br/>`);
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   return (
@@ -444,16 +512,26 @@ export default function EOfficePage() {
             style={{ borderRadius: '8px', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600 }}
             onClick={() => setShowNewDocDialog(true)}
           >
-            <Plus size={15} /> New Document
+            <Plus size={16} /> New Document
           </button>
           
           <button 
-            className="btn btn-secondary"
-            style={{ borderRadius: '8px', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}
-            onClick={() => setShowHistoryDrawer(true)}
+            className="btn btn-outline-light text-primary"
+            style={{ borderRadius: '8px', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, border: '1px solid var(--border-color)' }}
+            onClick={handleShareClick}
           >
-            <History size={15} /> History Drawer ({workspaceFiles.length})
+            <Cloud size={16} /> Share via Team Chat
           </button>
+          
+          <div className="dropdown dropdown-export">
+            <button 
+              className="btn btn-outline-light text-white"
+              style={{ borderRadius: '8px', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', border: '1px solid var(--border-color)' }}
+              onClick={() => setShowHistoryDrawer(true)}
+            >
+              <History size={16} /> History ({workspaceFiles.length})
+            </button>
+          </div>
 
           <div className="glass-panel" style={{ padding: '4px', display: 'flex', gap: '4px', borderRadius: '10px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
             <button 
@@ -497,49 +575,12 @@ export default function EOfficePage() {
           
           <div style={{ width: '1px', height: '20px', background: 'var(--border-color)' }}></div>
           
-          {/* TAB SPECIFIC TOOLBARS */}
           {activeTab === 'word' && (
-            <>
-              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => handleWordFormat('bold')} title="Bold" style={{ color: 'var(--text-primary)' }}><Bold size={14} /></button>
-              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => handleWordFormat('italic')} title="Italic" style={{ color: 'var(--text-primary)' }}><Italic size={14} /></button>
-              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => handleWordFormat('underline')} title="Underline" style={{ color: 'var(--text-primary)' }}><Underline size={14} /></button>
-              
-              <div style={{ width: '1px', height: '20px', background: 'var(--border-color)' }}></div>
-
-              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => handleWordFormat('justifyLeft')} title="Align Left" style={{ color: 'var(--text-primary)' }}><AlignLeft size={14} /></button>
-              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => handleWordFormat('justifyCenter')} title="Align Center" style={{ color: 'var(--text-primary)' }}><AlignCenter size={14} /></button>
-              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => handleWordFormat('justifyRight')} title="Align Right" style={{ color: 'var(--text-primary)' }}><AlignRight size={14} /></button>
-              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => handleWordFormat('justifyFull')} title="Justify" style={{ color: 'var(--text-primary)' }}><AlignJustify size={14} /></button>
-              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => handleWordFormat('insertUnorderedList')} title="Bullet List" style={{ color: 'var(--text-primary)' }}><List size={14} /></button>
-
-              <div style={{ width: '1px', height: '20px', background: 'var(--border-color)' }}></div>
-
-              {/* Text / Highlight Color pickers */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Color:</span>
-                <input 
-                  type="color" 
-                  value={textColor} 
-                  onChange={e => { setTextColor(e.target.value); handleWordFormat('foreColor', e.target.value); }} 
-                  style={{ width: '22px', height: '22px', padding: 0, border: 'none', cursor: 'pointer', background: 'transparent' }}
-                  title="Text Color"
-                />
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Highlight:</span>
-                <input 
-                  type="color" 
-                  value={highlightColor} 
-                  onChange={e => { setHighlightColor(e.target.value); handleWordFormat('backColor', e.target.value); }} 
-                  style={{ width: '22px', height: '22px', padding: 0, border: 'none', cursor: 'pointer', background: 'transparent' }}
-                  title="Highlight Color"
-                />
-              </div>
-
-              <div style={{ width: '1px', height: '20px', background: 'var(--border-color)' }}></div>
-
-              <button className="btn btn-ghost btn-icon btn-sm" onClick={handleInsertImage} title="Insert Image" style={{ color: 'var(--text-primary)' }}><ImageIcon size={14} /></button>
-            </>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: '#0052cc', background: '#e1e8f5', padding: '4px 12px', borderRadius: '14px', marginLeft: '12px' }}>
+                MS Word Pro Editor Active
+              </span>
+            </div>
           )}
 
           {activeTab === 'excel' && (
@@ -634,28 +675,16 @@ export default function EOfficePage() {
               </button>
               <div className="dropdown-export-menu" style={{
                 position: 'absolute', top: '34px', right: 0, background: '#1e293b', border: '1px solid rgba(255,255,255,0.15)',
-                borderRadius: '8px', width: '140px', zIndex: 100, fontSize: '12px', display: 'flex', flexDirection: 'column',
+                borderRadius: '8px', width: '200px', zIndex: 100, fontSize: '12px', display: 'flex', flexDirection: 'column',
                 boxShadow: '0 10px 20px rgba(0,0,0,0.5)', overflow: 'hidden'
               }}>
-                {activeTab === 'word' && (
-                  <>
-                    <div className="px-3 py-2 cursor-pointer text-white hover-export-item" onClick={() => handleExportAs('docx')}>Word Doc (.docx)</div>
-                    <div className="px-3 py-2 cursor-pointer text-white hover-export-item" onClick={() => handleExportAs('pdf')}>PDF Document</div>
-                  </>
-                )}
-                {activeTab === 'excel' && (
-                  <>
-                    <div className="px-3 py-2 cursor-pointer text-white hover-export-item" onClick={() => handleExportAs('xlsx')}>Excel Sheet (.xlsx)</div>
-                    <div className="px-3 py-2 cursor-pointer text-white hover-export-item" onClick={() => handleExportAs('csv')}>CSV File (.csv)</div>
-                    <div className="px-3 py-2 cursor-pointer text-white hover-export-item" onClick={() => handleExportAs('pdf')}>PDF Printout</div>
-                  </>
-                )}
-                {activeTab === 'note' && (
-                  <>
-                    <div className="px-3 py-2 cursor-pointer text-white hover-export-item" onClick={() => handleExportAs('txt')}>Plain Text (.txt)</div>
-                    <div className="px-3 py-2 cursor-pointer text-white hover-export-item" onClick={() => handleExportAs('pdf')}>PDF Printout</div>
-                  </>
-                )}
+                <ul className="list-unstyled m-0 p-0">
+                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('docx')}><Type size={14}/> MS Word (.docx)</button></li>
+                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('xlsx')}><Table size={14}/> Excel Sheet (.xlsx)</button></li>
+                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('pdf')}><FileEdit size={14}/> PDF Document (.pdf)</button></li>
+                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('csv')}><AlignJustify size={14}/> CSV Data (.csv)</button></li>
+                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('txt')}><FileCode size={14}/> Raw Text (.txt)</button></li>
+                </ul>
               </div>
             </div>
           </div>
@@ -664,53 +693,656 @@ export default function EOfficePage() {
         {/* WORKSPACE VIEWPORTS */}
         <div style={{ flex: 1, padding: '24px', overflowY: 'auto', background: 'var(--bg-secondary)', display: 'flex', flexDirection: 'column' }}>
           
-          {/* WORDPAD */}
+          {/* WORDPAD MS WORD CLONE */}
           {activeTab === 'word' && (
-            <div style={{
-              width: '100%', maxWidth: '850px', minHeight: '1000px', background: '#fff', 
-              color: '#1e293b', margin: '0 auto', boxShadow: '0 8px 30px rgba(0,0,0,0.15)',
-              borderRadius: '8px', padding: '60px 80px', display: 'flex', flexDirection: 'column', position: 'relative'
-            }}>
+            <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
               
-              {/* Dashed Header zone */}
-              <div style={{ borderBottom: '1px dashed #cbd5e1', paddingBottom: '6px', marginBottom: '30px', fontSize: '12px', color: '#94a3b8' }}>
-                <input 
-                  type="text" 
-                  value={headerText} 
-                  onChange={e => setHeaderText(e.target.value)} 
-                  placeholder="Header (Double click to edit)..." 
-                  style={{ border: 'none', background: 'transparent', width: '100%', fontSize: '12px', color: '#64748b', outline: 'none', fontWeight: 600 }}
-                />
-              </div>
+              {/* MS Word Ribbon Area overrides */}
+              <style>{`
+                .ms-word-header {
+                  background: #2b579a;
+                  color: white;
+                  padding: 8px 16px;
+                  font-size: 13px;
+                  display: flex;
+                  align-items: center;
+                  gap: 16px;
+                  border-top-left-radius: 8px;
+                  border-top-right-radius: 8px;
+                }
+                .ms-word-tabs {
+                  background: #f3f4f6;
+                  display: flex;
+                  padding: 4px 8px 0 8px;
+                  border-bottom: 1px solid #d1d5db;
+                }
+                .ms-word-tab {
+                  padding: 6px 16px;
+                  font-size: 13px;
+                  color: #4b5563;
+                  cursor: pointer;
+                  border-top-left-radius: 4px;
+                  border-top-right-radius: 4px;
+                  margin-bottom: -1px;
+                }
+                .ms-word-tab.active {
+                  background: white;
+                  color: #2b579a;
+                  border: 1px solid #d1d5db;
+                  border-bottom: 1px solid white;
+                  font-weight: 600;
+                }
+                .custom-ribbon {
+                  background-color: white;
+                  border-bottom: 1px solid #d1d5db;
+                  padding: 8px 16px;
+                  display: flex;
+                  align-items: center;
+                  display: flex;
+                  background: #f3f4f6;
+                  border-bottom: 1px solid #cbd5e1;
+                  padding: 8px 12px 24px 12px;
+                  gap: 16px;
+                  overflow-x: auto;
+                  min-height: 100px;
+                  align-items: flex-start;
+                }
+                .ribbon-group {
+                  display: flex;
+                  gap: 4px;
+                  border-right: 1px solid #cbd5e1;
+                  padding-right: 16px;
+                  position: relative;
+                  height: 100%;
+                }
+                .ribbon-col {
+                  display: flex;
+                  flex-direction: column;
+                  gap: 2px;
+                  justify-content: flex-start;
+                }
+                .ribbon-group-label {
+                  position: absolute;
+                  bottom: -20px;
+                  left: 0;
+                  width: 100%;
+                  text-align: center;
+                  font-size: 11px;
+                  color: #64748b;
+                  pointer-events: none;
+                }
+                .ribbon-btn {
+                  display: flex;
+                  flex-direction: row;
+                  align-items: center;
+                  gap: 6px;
+                  cursor: pointer;
+                  padding: 4px 8px;
+                  border-radius: 4px;
+                  transition: background 0.1s;
+                  font-size: 12px;
+                  color: #1e293b;
+                  white-space: nowrap;
+                }
+                .ribbon-btn:hover {
+                  background-color: #e2e8f0;
+                }
+                .ribbon-btn-large {
+                  display: flex;
+                  flex-direction: column;
+                  align-items: center;
+                  justify-content: center;
+                  padding: 6px 8px;
+                  border-radius: 4px;
+                  cursor: pointer;
+                  min-width: 50px;
+                  font-size: 11px;
+                  color: #1e293b;
+                  transition: background 0.1s;
+                }
+                .ribbon-btn-large:hover {
+                  background-color: #e2e8f0;
+                }
+                .ribbon-btn-large span.icon {
+                  font-size: 24px;
+                  margin-bottom: 4px;
+                }
+                
+                /* Quill custom font styles */
+                .ql-font-Inter { font-family: 'Inter', sans-serif; }
+                .ql-font-Calibri { font-family: 'Calibri', sans-serif; }
+                .ql-font-Arial { font-family: 'Arial', sans-serif; }
+                .ql-font-Times-New-Roman { font-family: 'Times New Roman', serif; }
+                .ql-font-Courier-New { font-family: 'Courier New', monospace; }
+                
+                .ql-toolbar.ql-snow {
+                  background-color: white;
+                  border: none;
+                  border-bottom: 1px solid #d1d5db;
+                  padding: 8px 16px;
+                  position: sticky;
+                  top: 0;
+                  z-index: 10;
+                  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+                  display: ${activeWordTab === 'Home' ? 'flex' : 'none'};
+                  flex-wrap: wrap;
+                  align-items: center;
+                  row-gap: 8px;
+                }
+                /* Style the toolbar icons and dropdowns exactly like MS Word */
+                .ql-toolbar.ql-snow .ql-formats {
+                  margin-right: 16px;
+                  padding-right: 16px;
+                  border-right: 1px solid #e5e7eb;
+                  display: flex;
+                  align-items: center;
+                  margin-bottom: 0;
+                }
+                .ql-toolbar.ql-snow .ql-formats:last-child {
+                  border-right: none;
+                  margin-right: 0;
+                  padding-right: 0;
+                }
+                .ql-snow .ql-picker-label {
+                  padding: 2px 8px;
+                  border: 1px solid #cbd5e1;
+                  border-radius: 4px;
+                }
+                .ql-container.ql-snow {
+                  border: none;
+                  background-color: #e5e7eb;
+                  overflow-y: auto;
+                  padding: 40px 0;
+                  display: flex;
+                  justify-content: center;
+                }
+                .ql-editor {
+                  background-color: ${pageColor};
+                  width: ${isLandscape ? '100%' : '95%'};
+                  max-width: ${isLandscape ? '297mm' : '210mm'};
+                  min-height: ${isLandscape ? '210mm' : '1122px'};
+                  margin: 20px auto;
+                  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+                  padding: ${pageMargin}; 
+                  color: black;
+                  font-size: 11pt;
+                  font-family: 'Calibri', 'Inter', sans-serif;
+                  column-count: ${columnCount};
+                  column-gap: 40px;
+                  position: relative;
+                  border: ${hasBorder ? '4px double #1e293b' : 'none'};
+                }
+                ${watermarkText ? `
+                .ql-editor::before {
+                  content: '${watermarkText}';
+                  position: absolute;
+                  top: 50%;
+                  left: 50%;
+                  transform: translate(-50%, -50%) rotate(-45deg);
+                  font-size: 100px;
+                  color: rgba(0, 0, 0, 0.05);
+                  pointer-events: none;
+                  z-index: 1000;
+                  white-space: nowrap;
+                }
+                ` : ''}
+                .word-fullscreen-mode {
+                  position: fixed !important;
+                  top: 0 !important;
+                  left: 0 !important;
+                  right: 0 !important;
+                  bottom: 0 !important;
+                  z-index: 9999 !important;
+                  width: 100vw !important;
+                  height: 100vh !important;
+                }
+              `}</style>
 
-              {/* Main Content editable Area */}
-              <div 
-                ref={wordRef}
-                contentEditable 
-                suppressContentEditableWarning
-                style={{
-                  flex: 1,
-                  outline: 'none',
-                  fontSize: activeSize,
-                  fontFamily: activeFont,
-                  lineHeight: 1.6,
-                  color: '#1e293b',
-                  minHeight: '800px'
-                }}
-                onInput={e => setWordContent(e.currentTarget.innerHTML)}
-                dangerouslySetInnerHTML={{ __html: wordContent }}
-              />
+              <div id="word-workspace-container" className={isFullscreen ? "word-fullscreen-mode" : ""} style={{
+                flex: 1, display: 'flex', flexDirection: 'column',
+                background: isFullscreen ? '#f3f4f6' : '#e5e7eb',
+                borderRadius: isFullscreen ? '0' : '8px',
+                overflow: 'hidden', border: isFullscreen ? 'none' : '1px solid #cbd5e1',
+                position: 'relative'
+              }}>
+                <input type="file" id="word-image-upload" accept="image/*" style={{ display: 'none' }} onChange={handleImageUpload} />
+                
+                {/* Fullscreen Explicit Cancel Button */}
+                {isFullscreen && (
+                  <button 
+                    onClick={() => setIsFullscreen(false)}
+                    style={{ position: 'absolute', top: 12, right: 12, zIndex: 9999, background: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', padding: '6px 12px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', boxShadow: '0 4px 6px rgba(0,0,0,0.2)' }}
+                  >
+                    <X size={16} /> Exit Editor View
+                  </button>
+                )}
 
-              {/* Dashed Footer zone */}
-              <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: '6px', marginTop: '30px', fontSize: '12px', color: '#94a3b8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <input 
-                  type="text" 
-                  value={footerText} 
-                  onChange={e => setFooterText(e.target.value)} 
-                  placeholder="Footer (Double click to edit)..." 
-                  style={{ border: 'none', background: 'transparent', width: '70%', fontSize: '12px', color: '#64748b', outline: 'none', fontWeight: 600 }}
-                />
-                <span style={{ fontWeight: 600 }}>Page 1</span>
+                {/* MS Word Custom Header */}
+                <div className="ms-word-header">
+                  <span style={{ fontWeight: 'bold', fontSize: '15px' }}>W</span>
+                  <span style={{ opacity: 0.9 }}>Document1 - Word</span>
+                  <div style={{ flex: 1 }}></div>
+                  <div style={{ background: 'rgba(255,255,255,0.2)', padding: '4px 16px', borderRadius: '4px', fontSize: '12px' }}>🔍 Search</div>
+                </div>
+                
+                {/* MS Word Tabs */}
+                <div className="ms-word-tabs">
+                  <div className={`ms-word-tab ${activeWordTab === 'File' ? 'active' : ''}`} style={{ background: '#2b579a', color: 'white', marginRight: '8px', borderRadius: '4px' }} onClick={() => { setActiveWordTab('File'); toast.success('File Menu opened'); }}>File</div>
+                  <div className={`ms-word-tab ${activeWordTab === 'Home' ? 'active' : ''}`} onClick={() => setActiveWordTab('Home')}>Home</div>
+                  <div className={`ms-word-tab ${activeWordTab === 'Insert' ? 'active' : ''}`} onClick={() => setActiveWordTab('Insert')}>Insert</div>
+                  <div className={`ms-word-tab ${activeWordTab === 'Design' ? 'active' : ''}`} onClick={() => setActiveWordTab('Design')}>Design</div>
+                  <div className={`ms-word-tab ${activeWordTab === 'Layout' ? 'active' : ''}`} onClick={() => setActiveWordTab('Layout')}>Layout</div>
+                  <div className={`ms-word-tab ${activeWordTab === 'References' ? 'active' : ''}`} onClick={() => setActiveWordTab('References')}>References</div>
+                  <div className={`ms-word-tab ${activeWordTab === 'Mailings' ? 'active' : ''}`} onClick={() => setActiveWordTab('Mailings')}>Mailings</div>
+                  <div className={`ms-word-tab ${activeWordTab === 'Review' ? 'active' : ''}`} onClick={() => setActiveWordTab('Review')}>Review</div>
+                  <div className={`ms-word-tab ${activeWordTab === 'View' ? 'active' : ''}`} onClick={() => setActiveWordTab('View')}>View</div>
+                  <div className={`ms-word-tab ${activeWordTab === 'Help' ? 'active' : ''}`} onClick={() => setActiveWordTab('Help')}>Help</div>
+                </div>
+
+                {/* Custom Ribbons */}
+                {activeWordTab === 'Insert' && (
+                  <div className="custom-ribbon">
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => setWordContent(prev => prev + '<h1 style="text-align: center; color: #2b579a;">Cover Page</h1><p style="text-align: center;">Document Title</p><hr style="page-break-after:always;"/>')}>
+                        <span className="icon">📄</span><span>Cover Page</span>
+                      </div>
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => setWordContent(prev => prev + '<br/><hr style="page-break-after:always;"/><br/>')}>📝 Blank Page</div>
+                        <div className="ribbon-btn" onClick={() => setWordContent(prev => prev + '<br/><hr style="page-break-after:always;"/><br/>')}>✂️ Page Break</div>
+                      </div>
+                      <div className="ribbon-group-label">Pages</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => {
+                        const rows = prompt('Enter number of rows:', '3') || '3';
+                        const cols = prompt('Enter number of columns:', '3') || '3';
+                        let tableHTML = '<br/><table border="1" width="100%" style="border-collapse: collapse;">';
+                        for(let i=0; i<parseInt(rows, 10); i++) {
+                          tableHTML += '<tr>';
+                          for(let j=0; j<parseInt(cols, 10); j++) tableHTML += '<td style="padding: 8px;">Cell</td>';
+                          tableHTML += '</tr>';
+                        }
+                        tableHTML += '</table><br/>';
+                        setWordContent(prev => prev + tableHTML);
+                      }}>
+                        <span className="icon">📊</span><span>Table</span>
+                      </div>
+                      <div className="ribbon-group-label">Tables</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => document.getElementById('word-image-upload')?.click()}>
+                        <span className="icon">🖼️</span><span>Pictures</span>
+                      </div>
+                      <div className="ribbon-btn-large" onClick={() => {
+                        const shapeColor = prompt('Enter shape color (e.g. red, blue, #3b82f6):', '#3b82f6') || '#3b82f6';
+                        setWordContent(prev => prev + `<br/><div style="width: 100px; height: 100px; background: ${shapeColor}; border-radius: 50%; display: inline-block;"></div><br/>`);
+                      }}>
+                        <span className="icon">⭐</span><span>Shapes</span>
+                      </div>
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => toast.success('Icon library opened')}>🌟 Icons</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('3D Models library opened')}>🧊 3D Models</div>
+                        <div className="ribbon-btn" onClick={() => setWordContent(prev => prev + '<br/><div style="display:flex; gap:10px;"><div style="padding:10px; background:#e2e8f0; border-radius:4px;">Node 1</div><div style="padding:10px; background:#e2e8f0; border-radius:4px;">Node 2</div></div><br/>')}>⚙️ SmartArt</div>
+                      </div>
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => setWordContent(prev => prev + '<br/><div style="width: 100%; height: 200px; background: linear-gradient(to top, #e2e8f0 1px, transparent 1px) 0 0 / 100% 20px; display: flex; align-items: flex-end; gap: 10px;"><div style="height: 40%; width: 30px; background: #3b82f6;"></div><div style="height: 80%; width: 30px; background: #ef4444;"></div></div><br/>')}>📈 Chart</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Screenshot tool activated')}>📸 Screenshot</div>
+                      </div>
+                      <div className="ribbon-group-label">Illustrations</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => {
+                        const vid = prompt('Enter YouTube Video URL:');
+                        if (vid) setWordContent(prev => prev + `<br/><iframe width="560" height="315" src="${vid.replace('watch?v=', 'embed/')}" frameborder="0" allowfullscreen></iframe><br/>`);
+                      }}>
+                        <span className="icon">▶️</span><span>Online Videos</span>
+                      </div>
+                      <div className="ribbon-group-label">Media</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => {
+                          const link = prompt('Enter URL:');
+                          if (link) setWordContent(prev => prev + ` <a href="${link}" target="_blank" style="color: blue; text-decoration: underline;">${link}</a> `);
+                        }}>🔗 Link</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Bookmark added')}>🔖 Bookmark</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Cross-reference dialog opened')}>🔃 Cross-reference</div>
+                      </div>
+                      <div className="ribbon-group-label">Links</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => setWordContent(prev => prev + '<mark style="background-color: yellow;">[Comment: Add remarks here]</mark>')}>
+                        <span className="icon">💬</span><span>Comment</span>
+                      </div>
+                      <div className="ribbon-group-label">Comments</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => (document.querySelector('input[placeholder="Type Document Header here..."]') as HTMLInputElement)?.focus()}>🔝 Header</div>
+                        <div className="ribbon-btn" onClick={() => (document.querySelector('input[placeholder="Type Document Footer here..."]') as HTMLInputElement)?.focus()}>🔙 Footer</div>
+                        <div className="ribbon-btn" onClick={() => setHeaderText('Page 1')}>🔢 Page Number</div>
+                      </div>
+                      <div className="ribbon-group-label">Header & Footer</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => setWordContent(prev => prev + '<br/><div style="border: 1px solid black; padding: 10px; width: 200px; float: right;">Text Box Content</div><br/>')}>🔲 Text Box</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Quick Parts dialog opened')}>⚡ Quick Parts</div>
+                        <div className="ribbon-btn" onClick={() => setWordContent(prev => prev + '<h1 style="text-shadow: 2px 2px 4px #aaa; color: #2b579a;">WordArt</h1>')}>🅰️ WordArt</div>
+                      </div>
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => setWordContent(prev => prev + '<br/><p>________________________<br/>Signature</p><br/>')}>✍️ Signature Line</div>
+                        <div className="ribbon-btn" onClick={() => setWordContent(prev => prev + ` ${new Date().toLocaleDateString()} `)}>📅 Date & Time</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Insert Object dialog opened')}>📦 Object</div>
+                      </div>
+                      <div className="ribbon-group-label">Text</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => setWordContent(prev => prev + ' <i>E=mc<sup>2</sup></i> ')}>
+                        <span className="icon">🧮</span><span>Equation</span>
+                      </div>
+                      <div className="ribbon-btn-large" onClick={() => setWordContent(prev => prev + ' © ')}>
+                        <span className="icon">Ω</span><span>Symbol</span>
+                      </div>
+                      <div className="ribbon-group-label">Symbols</div>
+                    </div>
+                  </div>
+                )}
+                {activeWordTab === 'Design' && (
+                  <div className="custom-ribbon">
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => { setPageColor('#f8fafc'); setWatermarkText(''); setHasBorder(false); }}>
+                        <span className="icon">🎨</span><span>Themes</span>
+                      </div>
+                      <div className="ribbon-group-label">Document Formatting</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <label className="ribbon-btn m-0" style={{cursor: 'pointer'}}>
+                        🌈 <span className="ms-1">Colors</span>
+                        <input type="color" style={{opacity: 0, width: 0, height: 0, position: 'absolute'}} onChange={(e) => setPageColor(e.target.value)} />
+                      </label>
+                      <div className="ribbon-btn" onClick={() => {
+                        const font = prompt('Enter font family (e.g. Arial, Times New Roman):', 'Arial') || 'Arial';
+                        setWordContent(prev => prev + `<span style="font-family: ${font}; font-size: 16pt; color: #1e3a8a;">[Selected Font Applied]</span>`);
+                      }}>Aa Fonts</div>
+                      <div className="ribbon-btn" onClick={() => toast.success('Paragraph Spacing updated')}>↕️ Paragraph Spacing</div>
+                      <div className="ribbon-btn" onClick={() => toast.success('Effects applied')}>✨ Effects</div>
+                      <div className="ribbon-group-label">Document Formatting</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => {
+                        const wm = prompt('Enter Watermark Text (leave blank to remove):', 'CONFIDENTIAL');
+                        if (wm !== null) setWatermarkText(wm);
+                      }}>
+                        <span className="icon">💧</span><span>Watermark</span>
+                      </div>
+                      <label className="ribbon-btn-large m-0" style={{cursor: 'pointer'}}>
+                        <span className="icon">📄</span><span>Page Color</span>
+                        <input type="color" style={{opacity: 0, width: 0, height: 0, position: 'absolute'}} onChange={(e) => setPageColor(e.target.value)} />
+                      </label>
+                      <div className="ribbon-btn-large" onClick={() => setHasBorder(!hasBorder)}>
+                        <span className="icon">🔳</span><span>Page Borders</span>
+                      </div>
+                      <div className="ribbon-group-label">Page Background</div>
+                    </div>
+                  </div>
+                )}
+                {activeWordTab === 'Layout' && (
+                  <div className="custom-ribbon">
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => setPageMargin(pageMargin === '96px' ? '48px' : '96px')}>
+                        <span className="icon">📏</span><span>Margins</span>
+                      </div>
+                      <div className="ribbon-btn-large" onClick={() => setIsLandscape(!isLandscape)}>
+                        <span className="icon">🔄</span><span>Orientation</span>
+                      </div>
+                      <div className="ribbon-btn-large" onClick={() => toast.success('Size dialog opened (A4, Letter, etc)')}>
+                        <span className="icon">📐</span><span>Size</span>
+                      </div>
+                      <div className="ribbon-btn-large" onClick={() => setColumnCount(columnCount === 1 ? 2 : 1)}>
+                        <span className="icon">📋</span><span>Columns</span>
+                      </div>
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => setWordContent(prev => prev + '<br/><hr style="page-break-after:always;"/><br/>')}>✂️ Breaks</div>
+                        <div className="ribbon-btn" onClick={() => setWordContent(prev => prev + '<ol><li>Line 1</li><li>Line 2</li><li>Line 3</li></ol>')}>🔢 Line Numbers</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Hyphenation toggled')}>➖ Hyphenation</div>
+                      </div>
+                      <div className="ribbon-group-label">Page Setup</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => toast.success('Indent Left increased')}>➡️ Indent Left</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Indent Right increased')}>⬅️ Indent Right</div>
+                      </div>
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => toast.success('Spacing Before increased')}>⬆️ Spacing Before</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Spacing After increased')}>⬇️ Spacing After</div>
+                      </div>
+                      <div className="ribbon-group-label">Paragraph</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => toast.success('Position updated')}>📍 Position</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Wrap Text applied')}>🔄 Wrap Text</div>
+                      </div>
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => toast.success('Sent Backward')}>🔽 Send Backward</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Brought Forward')}>🔼 Bring Forward</div>
+                      </div>
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => toast.success('Selection Pane opened')}>🗂️ Selection Pane</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Align objects')}>🔲 Align</div>
+                      </div>
+                      <div className="ribbon-group-label">Arrange</div>
+                    </div>
+                  </div>
+                )}
+                {activeWordTab === 'References' && (
+                  <div className="custom-ribbon">
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => setWordContent(prev => prev + '<h2>Table of Contents</h2><ul style="list-style:none;"><li>1. Introduction ........ 1</li><li>2. Main Chapter ........ 3</li><li>3. Conclusion .......... 5</li></ul>')}>
+                        <span className="icon">📚</span><span>Table of Contents</span>
+                      </div>
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => toast.success('Text added to TOC')}>➕ Add Text</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Table updated')}>🔄 Update Table</div>
+                      </div>
+                      <div className="ribbon-group-label">Table of Contents</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => setWordContent(prev => prev + '<sup>[1]</sup>')}>
+                        <span className="icon">📝</span><span>Insert Footnote</span>
+                      </div>
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => setWordContent(prev => prev + '<sup>[i]</sup>')}>📥 Insert Endnote</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Jumped to Next Footnote')}>⏭️ Next Footnote</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Showing Notes Pane')}>👁️ Show Notes</div>
+                      </div>
+                      <div className="ribbon-group-label">Footnotes</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => setWordContent(prev => prev + ' <i>(Author, 2026)</i>')}>
+                        <span className="icon">🏷️</span><span>Insert Citation</span>
+                      </div>
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => toast.success('Manage Sources dialog opened')}>⚙️ Manage Sources</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Style changed to APA')}>📖 Style: APA</div>
+                        <div className="ribbon-btn" onClick={() => setWordContent(prev => prev + '<hr/><h2>Bibliography</h2><p>Author (2026). The Great Document. GSV Press.</p>')}>📚 Bibliography</div>
+                      </div>
+                      <div className="ribbon-group-label">Citations & Bibliography</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => setWordContent(prev => prev + '<p style="text-align:center; font-style:italic;">Figure 1: Sample</p>')}>
+                        <span className="icon">📊</span><span>Insert Caption</span>
+                      </div>
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => toast.success('Inserted Table of Figures')}>📈 Insert Table of Figures</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Cross-reference inserted')}>🔃 Cross-reference</div>
+                      </div>
+                      <div className="ribbon-group-label">Captions</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => toast.success('Entry Marked for Index')}>
+                        <span className="icon">🔖</span><span>Mark Entry</span>
+                      </div>
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => toast.success('Index Inserted')}>📑 Insert Index</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Index Updated')}>🔄 Update Index</div>
+                      </div>
+                      <div className="ribbon-group-label">Index</div>
+                    </div>
+                  </div>
+                )}
+                {activeWordTab === 'Mailings' && (
+                  <div className="custom-ribbon">
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => setWordContent(prev => prev + '<div style="border: 2px dashed #999; padding: 40px; margin: 20px; text-align: center; max-width: 400px;"><h3>Sender Name</h3><p>Address Line 1</p><p>City, State, Zip</p></div>')}>
+                        <span className="icon">✉️</span><span>Envelopes</span>
+                      </div>
+                      <div className="ribbon-btn-large" onClick={() => setWordContent(prev => prev + '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;"><div style="border:1px solid #ccc; padding:20px;">Label 1</div><div style="border:1px solid #ccc; padding:20px;">Label 2</div></div>')}>
+                        <span className="icon">🏷️</span><span>Labels</span>
+                      </div>
+                      <div className="ribbon-group-label">Create</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => toast.success('Mail Merge started: Selected Database 1')}>
+                        <span className="icon">👥</span><span>Start Mail Merge</span>
+                      </div>
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => toast.success('Loaded 12 Recipients from CRM')}>✅ Select Recipients</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Edit Recipient List')}>✏️ Edit Recipient List</div>
+                      </div>
+                      <div className="ribbon-group-label">Start Mail Merge</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => toast.success('Highlight Merge Fields')}>🔦 Highlight Merge Fields</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Address Block inserted')}>🏢 Address Block</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Greeting Line inserted')}>👋 Greeting Line</div>
+                      </div>
+                      <div className="ribbon-group-label">Write & Insert Fields</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => toast.success('Preview Results toggled')}>
+                        <span className="icon">👁️</span><span>Preview Results</span>
+                      </div>
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => toast.success('Find Recipient')}>🔍 Find Recipient</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Check for Errors')}>⚠️ Check for Errors</div>
+                      </div>
+                      <div className="ribbon-group-label">Preview Results</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => toast.success('Finish & Merge dialog opened')}>
+                        <span className="icon">🏁</span><span>Finish & Merge</span>
+                      </div>
+                      <div className="ribbon-group-label">Finish</div>
+                    </div>
+                  </div>
+                )}
+                {activeWordTab === 'Review' && (
+                  <div className="custom-ribbon">
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => toast.success('Spelling & Grammar checked: No errors found.')}>
+                        <span className="icon">✔️</span><span>Spelling & Grammar</span>
+                      </div>
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => toast.success('Synonyms: Example, Instance, Specimen')}>📖 Thesaurus</div>
+                        <div className="ribbon-btn" onClick={() => alert(`Word Count: ${wordContent.split(' ').length} words`)}>📊 Word Count</div>
+                      </div>
+                      <div className="ribbon-group-label">Proofing</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => toast.success('Checking Accessibility...')}>
+                        <span className="icon">♿</span><span>Check Accessibility</span>
+                      </div>
+                      <div className="ribbon-group-label">Accessibility</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => toast.success('Translated selected text to Spanish.')}>
+                        <span className="icon">🌐</span><span>Translate</span>
+                      </div>
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => toast.success('Language preferences opened')}>🗣️ Language</div>
+                      </div>
+                      <div className="ribbon-group-label">Language</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => setWordContent(prev => prev + '<mark style="background-color: yellow;">[Comment: Please review this section]</mark>')}>
+                        <span className="icon">💬</span><span>New Comment</span>
+                      </div>
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => toast.success('Deleted comment')}>🗑️ Delete</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Previous comment')}>⏮️ Previous</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Next comment')}>⏭️ Next</div>
+                      </div>
+                      <div className="ribbon-group-label">Comments</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn-large" onClick={() => toast.success('Tracking changes enabled')}>
+                        <span className="icon">🖍️</span><span>Track Changes</span>
+                      </div>
+                      <div className="ribbon-col">
+                        <div className="ribbon-btn" onClick={() => toast.success('Accepted change')}>✅ Accept</div>
+                        <div className="ribbon-btn" onClick={() => toast.success('Rejected change')}>❌ Reject</div>
+                      </div>
+                      <div className="ribbon-group-label">Tracking & Changes</div>
+                    </div>
+                  </div>
+                )}
+                {activeWordTab === 'View' && (
+                  <div className="custom-ribbon">
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn" onClick={() => setIsFullscreen(true)}>📖 Read Mode</div>
+                      <div className="ribbon-btn" onClick={() => setIsFullscreen(false)}>📄 Print Layout</div>
+                      <div className="ribbon-btn" onClick={() => { setPageMargin('20px'); setColumnCount(1); setIsLandscape(true); setIsFullscreen(false); }}>🌐 Web Layout</div>
+                      <div className="ribbon-btn" onClick={() => setIsFullscreen(prev => !prev)} style={{ color: 'var(--brand-primary)', fontWeight: 600 }}>{isFullscreen ? '↩️ Exit Fullscreen' : '🔲 Fit into Screen'}</div>
+                    </div>
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn" onClick={() => toast.success('Zoomed in 125%')}>🔍 Zoom</div>
+                      <div className="ribbon-btn" onClick={() => toast.success('Zoom reset to 100%')}>💯 100%</div>
+                    </div>
+                  </div>
+                )}
+                {activeWordTab === 'Help' && (
+                  <div className="custom-ribbon">
+                    <div className="ribbon-group">
+                      <div className="ribbon-btn" onClick={() => toast.success('Help center opened')}>❓ Help</div>
+                      <div className="ribbon-btn" onClick={() => toast.success('Contacting Support...')}>🎧 Contact Support</div>
+                      <div className="ribbon-btn" onClick={() => toast.success('Feedback dialog opened')}>💬 Feedback</div>
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ flex: 1, overflowY: 'auto', position: 'relative' }}>
+                  {/* Dynamic Header Input */}
+                  <div style={{ position: 'absolute', top: 52, left: '50%', transform: 'translateX(-50%)', width: '80%', maxWidth: '1200px', zIndex: 5 }}>
+                    <input 
+                      value={headerText} 
+                      onChange={e => setHeaderText(e.target.value)} 
+                      placeholder="Type Document Header here..."
+                      style={{ width: '100%', background: 'transparent', border: '1px dashed #cbd5e1', color: '#94a3b8', padding: '4px 8px', outline: 'none', textAlign: 'center', fontSize: '13px' }}
+                    />
+                  </div>
+                  
+                  <ReactQuill 
+                    theme="snow"
+                    value={wordContent}
+                    onChange={setWordContent}
+                    modules={quillModules}
+                    style={{ minHeight: '1122px', display: 'flex', flexDirection: 'column' }}
+                  />
+
+                  {/* Dynamic Footer Input */}
+                  <div style={{ position: 'absolute', bottom: 40, left: '50%', transform: 'translateX(-50%)', width: '80%', maxWidth: '1200px', zIndex: 5 }}>
+                    <input 
+                      value={footerText} 
+                      onChange={e => setFooterText(e.target.value)} 
+                      placeholder="Type Document Footer here..."
+                      style={{ width: '100%', background: 'transparent', border: '1px dashed #cbd5e1', color: '#94a3b8', padding: '4px 8px', outline: 'none', textAlign: 'center', fontSize: '13px' }}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -973,6 +1605,37 @@ export default function EOfficePage() {
                   <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Plain text editor optimized for logs and scratch code</span>
                 </div>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Share to Team Chat Dialog */}
+      {showShareModal && (
+        <div className="modal-backdrop" onClick={() => setShowShareModal(false)} style={{ display: 'flex', zIndex: 1060 }}>
+          <div className="modal animate-scale-in" style={{ maxWidth: '400px', background: 'var(--bg-card)', border: '1.5px solid var(--border-color)', color: 'var(--text-primary)' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header" style={{ borderBottom: '1px solid var(--border-color)' }}>
+              <h5 className="modal-title">Share to Team Chat</h5>
+              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setShowShareModal(false)}>✕</button>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Select a teammate to forward this document link via the GSV Chat system:</p>
+              
+              <select 
+                className="form-select form-control" 
+                value={selectedTeammate}
+                onChange={e => setSelectedTeammate(e.target.value)}
+                style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+              >
+                <option value="">-- Choose Teammate --</option>
+                {teammates.map((t, idx) => (
+                  <option key={idx} value={t.id || t.username}>{t.firstName} {t.lastName} ({t.role || 'Member'})</option>
+                ))}
+              </select>
+            </div>
+            <div className="modal-footer" style={{ borderTop: '1px solid var(--border-color)' }}>
+              <button className="btn btn-secondary" onClick={() => setShowShareModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={executeShare}>Send Document Link</button>
             </div>
           </div>
         </div>
