@@ -1,7 +1,7 @@
 import os
 import zipfile
 
-logo_path = 'C:/Users/GSVPC_F2/.gemini/antigravity/brain/416f0a4a-184e-4c37-a4ad-7a087b6c31d7/gsv_office_icon_1780533757908.png'
+logo_path = 'c:/Users/GSVPC_F2/Documents/A gsv office plugin/frontend/src/assets/gsvlogo.png'
 ico_path = 'c:/Users/GSVPC_F2/Documents/A gsv office plugin/desktop-client/assets/icon.ico'
 readme_content = """GSV Office Client Platform v1.0.0
 =================================
