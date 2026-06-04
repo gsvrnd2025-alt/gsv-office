@@ -5,7 +5,7 @@ import { DataSource } from 'typeorm';
 export class NotificationsService {
   constructor(private ds: DataSource) {}
   async getForUser(userId: string, unreadOnly = false) {
-    const where = unreadOnly ? 'AND n.is_read = false' : '';
+    const where = unreadOnly ? 'AND is_read = false' : '';
     return this.ds.query(`SELECT * FROM notifications WHERE user_id = $1 ${where} ORDER BY created_at DESC LIMIT 50`, [userId]);
   }
   async create(dto: { userId: string; type: string; title: string; body: string; data?: any; actionUrl?: string }) {

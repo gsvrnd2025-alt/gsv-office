@@ -77,17 +77,7 @@ export class EmailService implements OnModuleInit {
       }));
     }
 
-    // 2. Send email via transporter
-    await this.transporter.sendMail({
-      from: this.config.get('mail.from') || `admin@gsv.local`,
-      to: dto.to.join(','),
-      cc: dto.cc && dto.cc.length > 0 ? dto.cc.join(',') : undefined,
-      subject: dto.subject,
-      [dto.isHtml ? 'html' : 'text']: dto.body,
-      attachments,
-    });
-
-    // 3. Save email into emails table (fixing the user_id / account_id column mapping)
+    // 2. Save email into sender's 'sent' folder
     const [insertedEmail] = await this.ds.query(
       `INSERT INTO emails (account_id, user_id, folder, subject, to_addresses, cc_addresses, body_html, body_text, sent_at, is_read)
        SELECT id, user_id, 'sent', $1, $2, $3, $4, $5, NOW(), true
@@ -104,7 +94,7 @@ export class EmailService implements OnModuleInit {
       ]
     );
 
-    // 4. Save email attachments link into email_attachments table
+    // 3. Save email attachments link into email_attachments table
     if (insertedEmail && dto.attachmentIds && dto.attachmentIds.length > 0) {
       const files = await this.ds.query(
         `SELECT id, original_name, size FROM files WHERE id = ANY($1)`,
@@ -119,7 +109,7 @@ export class EmailService implements OnModuleInit {
       }
     }
 
-    // 5. Local delivery bypass: check if any of the target recipients exist locally on this platform
+    // 4. Local delivery bypass: deliver directly into DB inbox for any local @gsv.local recipients
     const allRecipients = [...dto.to, ...(dto.cc || [])];
     if (allRecipients.length > 0) {
       try {
@@ -162,6 +152,20 @@ export class EmailService implements OnModuleInit {
       } catch (localErr) {
         console.error('[EmailService] Error in local delivery bypass:', localErr);
       }
+    }
+
+    // 5. Attempt SMTP relay (non-blocking — local delivery already completed above)
+    try {
+      await this.transporter.sendMail({
+        from: this.config.get('mail.from') || `admin@gsv.local`,
+        to: dto.to.join(','),
+        cc: dto.cc && dto.cc.length > 0 ? dto.cc.join(',') : undefined,
+        subject: dto.subject,
+        [dto.isHtml ? 'html' : 'text']: dto.body,
+        attachments,
+      });
+    } catch (smtpErr) {
+      console.warn('[EmailService] SMTP relay failed (local delivery still succeeded):', smtpErr.message);
     }
 
     return { sent: true };
