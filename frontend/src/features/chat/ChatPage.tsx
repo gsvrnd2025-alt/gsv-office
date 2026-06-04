@@ -3197,14 +3197,15 @@ export default function ChatPage() {
             </div>
             
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.6, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <p>The application could not access your microphone. To enable secure voice note recordings, please follow these steps:</p>
-              <ol style={{ paddingLeft: '20px', margin: 0, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <li>Look at the top-left of your browser window (near the URL address bar).</li>
-                <li>Click on the <strong>Lock icon (🔒)</strong> or <strong>Site Settings icon</strong>.</li>
-                <li>Find <strong>Microphone</strong> in the settings dropdown.</li>
-                <li>Toggle the switch to <strong>Allow</strong>.</li>
-                <li>Reload the page to apply the settings and start recording!</li>
-              </ol>
+              <p>The application could not access your microphone. If you are using an IP address (HTTP), browsers block microphone access by default. To enable secure voice note recordings, please follow these steps:</p>
+              <div style={{ background: 'rgba(239, 68, 68, 0.1)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+                <strong style={{ color: 'var(--brand-danger)' }}>🌐 Using Local Network IP (e.g. 192.168.x.x)?</strong><br/>
+                Chrome blocks microphones on non-HTTPS sites. To fix this:<br/>
+                1. Open a new tab and go to <code style={{ userSelect: 'all', background: 'rgba(0,0,0,0.2)', padding: '2px 4px', borderRadius: '4px' }}>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code><br/>
+                2. Enter <code style={{ userSelect: 'all', background: 'rgba(0,0,0,0.2)', padding: '2px 4px', borderRadius: '4px' }}>{window.location.origin}</code> in the box.<br/>
+                3. Change the dropdown to <strong>Enabled</strong> and click <strong>Relaunch</strong>.
+              </div>
+              <p>Otherwise (if using HTTPS), ensure you clicked "Allow" in the URL bar.</p>
             </div>
             
             <div style={{ display: 'flex', gap: '12px', marginTop: '8px', justifyContent: 'flex-end' }}>

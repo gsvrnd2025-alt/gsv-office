@@ -56,7 +56,7 @@ export class FilesService implements OnModuleInit {
     return this.dataSource.query(
       `SELECT f.*, u.full_name AS owner_name FROM folders f
        LEFT JOIN users u ON u.id = f.owner_id
-       WHERE f.owner_id = $1 AND f.deleted_at IS NULL
+       WHERE f.deleted_at IS NULL
        AND (f.metadata->>'is_user_private' IS NULL OR f.metadata->>'is_user_private' != 'true')
        AND ($2::uuid IS NULL AND f.parent_id IS NULL OR f.parent_id = $2::uuid)
        ORDER BY f.name ASC`,

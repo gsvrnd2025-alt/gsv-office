@@ -422,6 +422,7 @@ export default function FilesPage() {
   }, []);
 
   const pendingRequests = accessRequests.filter((r: any) => r.ownerId === user?.id && r.status === 'pending');
+  const mySentRequests = accessRequests.filter((r: any) => r.requesterId === user?.id);
 
   // Perform category-based file filtering
   const filteredFiles = files.filter((file: any) => {
@@ -1140,16 +1141,19 @@ export default function FilesPage() {
           )}
         </>
       ) : (
-        /* Requests reviewer layout */
+        /* Requests layout */
         <div className="card">
           <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <h3 style={{ fontSize: '15px', fontWeight: 700 }}>Pending Access Review Inbox</h3>
-              <p style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>Manage access requests submitted by other team members for your folders</p>
+              <h3 style={{ fontSize: '15px', fontWeight: 700 }}>Access Requests</h3>
+              <p style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>Manage incoming requests and view your sent requests</p>
             </div>
             <button className="btn btn-ghost btn-icon btn-sm" onClick={() => refetchRequests()} title="Reload"><RefreshCw size={14} /></button>
           </div>
           <div className="table-container" style={{ border: 'none' }}>
+            <div style={{ padding: '16px', fontWeight: 600, fontSize: '13px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)' }}>
+              📥 Incoming Requests (For Your Folders)
+            </div>
             <table>
               <thead>
                 <tr>
@@ -1161,18 +1165,18 @@ export default function FilesPage() {
                 </tr>
               </thead>
               <tbody>
-                {accessRequests.length === 0 ? (
+                {pendingRequests.length === 0 ? (
                   <tr>
                     <td colSpan={5}>
-                      <div className="empty-state" style={{ padding: '48px' }}>
-                        <ShieldAlert size={40} style={{ opacity: 0.3 }} />
+                      <div className="empty-state" style={{ padding: '24px' }}>
+                        <ShieldAlert size={24} style={{ opacity: 0.3 }} />
                         <h3>No pending share requests</h3>
                         <p>Access requests from your coworkers will populate here</p>
                       </div>
                     </td>
                   </tr>
                 ) : (
-                  accessRequests.map((req: any) => (
+                  pendingRequests.map((req: any) => (
                     <tr key={req.id}>
                       <td style={{ fontWeight: 600, fontSize: '13px' }}>📁 {req.folderName}</td>
                       <td>{req.requesterName}</td>
@@ -1216,6 +1220,44 @@ export default function FilesPage() {
                           <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Reviewed</span>
                         )}
                       </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+            
+            <div style={{ padding: '16px', fontWeight: 600, fontSize: '13px', background: 'var(--bg-secondary)', borderTop: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)' }}>
+              📤 My Sent Requests
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Requested Folder</th>
+                  <th>Submitted At</th>
+                  <th>Status</th>
+                  <th>Permission Granted</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mySentRequests.length === 0 ? (
+                  <tr>
+                    <td colSpan={4}>
+                      <div className="empty-state" style={{ padding: '24px' }}>
+                        <p>You haven't sent any access requests yet.</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  mySentRequests.map((req: any) => (
+                    <tr key={req.id}>
+                      <td style={{ fontWeight: 600, fontSize: '13px' }}>📁 {req.folderName}</td>
+                      <td style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{new Date(req.requestedAt).toLocaleString('en-IN')}</td>
+                      <td>
+                        <span className={`badge badge-${req.status === 'approved' ? 'success' : req.status === 'pending' ? 'warning' : 'danger'}`}>
+                          {req.status}
+                        </span>
+                      </td>
+                      <td>{req.status === 'approved' ? req.permission : '-'}</td>
                     </tr>
                   ))
                 )}

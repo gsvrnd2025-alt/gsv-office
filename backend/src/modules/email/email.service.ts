@@ -44,6 +44,7 @@ export class EmailService implements OnModuleInit {
   }
 
   async getEmails(userId: string, folder: string = 'inbox') {
+    const isTrash = folder === 'trash';
     return this.ds.query(
       `SELECT e.*, ea.email_address,
               COALESCE(
@@ -57,9 +58,9 @@ export class EmailService implements OnModuleInit {
               ) AS attachments
        FROM emails e
        LEFT JOIN email_accounts ea ON ea.id = e.account_id
-       WHERE e.user_id = $1 AND e.folder = $2 AND e.deleted_at IS NULL
+       WHERE e.user_id = $1 AND ${isTrash ? 'e.deleted_at IS NOT NULL' : 'e.folder = $2 AND e.deleted_at IS NULL'}
        ORDER BY COALESCE(e.received_at, e.sent_at) DESC`,
-      [userId, folder]
+      isTrash ? [userId] : [userId, folder]
     );
   }
 

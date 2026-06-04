@@ -1,0 +1,127 @@
+2026-06-04 01:43:57+00:00 INFO  start-mailserver.sh: Welcome to docker-mailserver v15.1.0
+2026-06-04 01:43:57+00:00 INFO  start-mailserver.sh: Checking configuration
+2026-06-04 01:43:57+00:00 INFO  start-mailserver.sh: Configuring mail server
+2026-06-04 01:45:58,548 WARN exited: mailserver (exit status 1; not expected)
+2026-06-04 01:45:58,548 WARN received SIGTERM indicating exit request
+2026-06-04 01:46:00+00:00 INFO  start-mailserver.sh: Welcome to docker-mailserver v15.1.0
+2026-06-04 01:46:00+00:00 INFO  start-mailserver.sh: Checking configuration
+2026-06-04 01:46:00+00:00 INFO  start-mailserver.sh: Configuring mail server
+2026-06-04 01:43:57+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (120s left for account creation before shutdown)
+2026-06-04 01:44:07+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (110s left for account creation before shutdown)
+2026-06-04 01:44:17+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (100s left for account creation before shutdown)
+2026-06-04 01:44:27+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (90s left for account creation before shutdown)
+2026-06-04 01:44:37+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (80s left for account creation before shutdown)
+2026-06-04 01:44:47+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (70s left for account creation before shutdown)
+2026-06-04 01:44:57+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (60s left for account creation before shutdown)
+2026-06-04 01:45:07+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (50s left for account creation before shutdown)
+2026-06-04 01:45:17+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (40s left for account creation before shutdown)
+2026-06-04 01:45:27+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (30s left for account creation before shutdown)
+2026-06-04 01:45:37+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (20s left for account creation before shutdown)
+2026-06-04 01:45:47+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (10s left for account creation before shutdown)
+2026-06-04 01:45:57+00:00 ERROR start-mailserver.sh: Failed to start accounts provisioning because no accounts were provided - Dovecot could not be started!
+2026-06-04 01:45:57+00:00 ERROR start-mailserver.sh: Shutting down
+2026-06-04 01:46:00+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i -e s|include_try /usr/share/dovecot/protocols.d|include_try /etc/dovecot/protocols.d|g /etc/dovecot/dovecot.conf)
+2026-06-04 01:46:00+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i -r -e s|^(\s*)#?(mail_plugins =).*|\1\2 $mail_plugins sieve| -e s|^#?(lda_mailbox_autocreate =).*|\1 yes| -e s|^#?(lda_mailbox_autosubscribe =).*|\1 yes| -e s|^#?(postmaster_address =).*|\1 postmaster@gsv.local| -e s|^#?(hostname =).*|\1 mail.gsv.local| /etc/dovecot/conf.d/15-lda.conf)
+2026-06-04 01:46:00+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i -e s|#ssl = yes|ssl = yes|g /etc/dovecot/conf.d/10-master.conf)
+2026-06-04 01:46:01+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i -e s|#ssl = yes|ssl = required|g /etc/dovecot/conf.d/10-ssl.conf)
+2026-06-04 01:46:01+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i -e s|#port = 993|port = 993|g /etc/dovecot/conf.d/10-master.conf)
+2026-06-04 01:48:02,230 WARN received SIGTERM indicating exit request
+2026-06-04 01:48:02,231 WARN exited: mailserver (exit status 1; not expected)
+2026-06-04 01:48:04+00:00 INFO  start-mailserver.sh: Welcome to docker-mailserver v15.1.0
+2026-06-04 01:48:04+00:00 INFO  start-mailserver.sh: Checking configuration
+2026-06-04 01:48:04+00:00 INFO  start-mailserver.sh: Configuring mail server
+2026-06-04 01:50:06,046 WARN exited: mailserver (exit status 1; not expected)
+2026-06-04 01:50:06,046 WARN received SIGTERM indicating exit request
+2026-06-04 01:50:08+00:00 INFO  start-mailserver.sh: Welcome to docker-mailserver v15.1.0
+2026-06-04 01:50:08+00:00 INFO  start-mailserver.sh: Checking configuration
+2026-06-04 01:50:08+00:00 INFO  start-mailserver.sh: Configuring mail server
+2026-06-04 01:46:01+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i s|quota_max_mail_size =.*|quota_max_mail_size = 10M|g /etc/dovecot/conf.d/90-quota.conf)
+2026-06-04 01:46:01+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i s|quota_rule = \*:storage=.*|quota_rule = *:storage=0|g /etc/dovecot/conf.d/90-quota.conf)
+2026-06-04 01:46:01+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (120s left for account creation before shutdown)
+2026-06-04 01:46:11+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (110s left for account creation before shutdown)
+2026-06-04 01:46:21+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (100s left for account creation before shutdown)
+2026-06-04 01:46:31+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (90s left for account creation before shutdown)
+2026-06-04 01:46:41+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (80s left for account creation before shutdown)
+2026-06-04 01:46:51+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (70s left for account creation before shutdown)
+2026-06-04 01:47:01+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (60s left for account creation before shutdown)
+2026-06-04 01:47:11+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (50s left for account creation before shutdown)
+2026-06-04 01:47:21+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (40s left for account creation before shutdown)
+2026-06-04 01:47:31+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (30s left for account creation before shutdown)
+2026-06-04 01:47:41+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (20s left for account creation before shutdown)
+2026-06-04 01:47:51+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (10s left for account creation before shutdown)
+2026-06-04 01:48:01+00:00 ERROR start-mailserver.sh: Failed to start accounts provisioning because no accounts were provided - Dovecot could not be started!
+2026-06-04 01:48:01+00:00 ERROR start-mailserver.sh: Shutting down
+2026-06-04 01:48:04+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i -e s|include_try /usr/share/dovecot/protocols.d|include_try /etc/dovecot/protocols.d|g /etc/dovecot/dovecot.conf)
+2026-06-04 01:48:04+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i -r -e s|^(\s*)#?(mail_plugins =).*|\1\2 $mail_plugins sieve| -e s|^#?(lda_mailbox_autocreate =).*|\1 yes| -e s|^#?(lda_mailbox_autosubscribe =).*|\1 yes| -e s|^#?(postmaster_address =).*|\1 postmaster@gsv.local| -e s|^#?(hostname =).*|\1 mail.gsv.local| /etc/dovecot/conf.d/15-lda.conf)
+2026-06-04 01:48:04+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i -e s|#ssl = yes|ssl = yes|g /etc/dovecot/conf.d/10-master.conf)
+2026-06-04 01:48:04+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i -e s|#ssl = yes|ssl = required|g /etc/dovecot/conf.d/10-ssl.conf)
+2026-06-04 01:48:04+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i -e s|#port = 993|port = 993|g /etc/dovecot/conf.d/10-master.conf)
+2026-06-04 01:48:04+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i s|quota_max_mail_size =.*|quota_max_mail_size = 10M|g /etc/dovecot/conf.d/90-quota.conf)
+2026-06-04 01:48:04+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i s|quota_rule = \*:storage=.*|quota_rule = *:storage=0|g /etc/dovecot/conf.d/90-quota.conf)
+2026-06-04 01:48:04+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (120s left for account creation before shutdown)
+2026-06-04 01:48:14+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (110s left for account creation before shutdown)
+2026-06-04 01:48:24+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (100s left for account creation before shutdown)
+2026-06-04 01:48:34+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (90s left for account creation before shutdown)
+2026-06-04 01:48:44+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (80s left for account creation before shutdown)
+2026-06-04 01:48:54+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (70s left for account creation before shutdown)
+2026-06-04 01:49:04+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (60s left for account creation before shutdown)
+2026-06-04 01:49:15+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (50s left for account creation before shutdown)
+2026-06-04 01:49:25+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (40s left for account creation before shutdown)
+2026-06-04 01:49:35+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (30s left for account creation before shutdown)
+2026-06-04 01:49:45+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (20s left for account creation before shutdown)
+2026-06-04 01:49:55+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (10s left for account creation before shutdown)
+2026-06-04 01:50:05+00:00 ERROR start-mailserver.sh: Failed to start accounts provisioning because no accounts were provided - Dovecot could not be started!
+2026-06-04 01:50:05+00:00 ERROR start-mailserver.sh: Shutting down
+2026-06-04 01:50:08+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i -e s|include_try /usr/share/dovecot/protocols.d|include_try /etc/dovecot/protocols.d|g /etc/dovecot/dovecot.conf)
+2026-06-04 01:50:08+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i -r -e s|^(\s*)#?(mail_plugins =).*|\1\2 $mail_plugins sieve| -e s|^#?(lda_mailbox_autocreate =).*|\1 yes| -e s|^#?(lda_mailbox_autosubscribe =).*|\1 yes| -e s|^#?(postmaster_address =).*|\1 postmaster@gsv.local| -e s|^#?(hostname =).*|\1 mail.gsv.local| /etc/dovecot/conf.d/15-lda.conf)
+2026-06-04 01:50:08+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i -e s|#ssl = yes|ssl = yes|g /etc/dovecot/conf.d/10-master.conf)
+2026-06-04 01:50:08+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i -e s|#ssl = yes|ssl = required|g /etc/dovecot/conf.d/10-ssl.conf)
+2026-06-04 01:50:08+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i -e s|#port = 993|port = 993|g /etc/dovecot/conf.d/10-master.conf)
+2026-06-04 01:50:08+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i s|quota_max_mail_size =.*|quota_max_mail_size = 10M|g /etc/dovecot/conf.d/90-quota.conf)
+2026-06-04 01:50:08+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i s|quota_rule = \*:storage=.*|quota_rule = *:storage=0|g /etc/dovecot/conf.d/90-quota.conf)
+2026-06-04 01:50:08+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (120s left for account creation before shutdown)
+2026-06-04 01:50:18+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (110s left for account creation before shutdown)
+2026-06-04 01:50:28+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (100s left for account creation before shutdown)
+2026-06-04 01:50:38+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (90s left for account creation before shutdown)
+2026-06-04 01:50:48+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (80s left for account creation before shutdown)
+2026-06-04 01:50:58+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (70s left for account creation before shutdown)
+2026-06-04 01:52:09,761 WARN exited: mailserver (exit status 1; not expected)
+2026-06-04 01:52:09,762 WARN received SIGTERM indicating exit request
+2026-06-04 01:52:12+00:00 INFO  start-mailserver.sh: Welcome to docker-mailserver v15.1.0
+2026-06-04 01:52:12+00:00 INFO  start-mailserver.sh: Checking configuration
+2026-06-04 01:51:08+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (60s left for account creation before shutdown)
+2026-06-04 01:51:18+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (50s left for account creation before shutdown)
+2026-06-04 01:51:28+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (40s left for account creation before shutdown)
+2026-06-04 01:51:38+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (30s left for account creation before shutdown)
+2026-06-04 01:51:48+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (20s left for account creation before shutdown)
+2026-06-04 01:51:58+00:00 WARN  start-mailserver.sh: You need at least one mail account to start Dovecot (10s left for account creation before shutdown)
+2026-06-04 01:52:08+00:00 ERROR start-mailserver.sh: Failed to start accounts provisioning because no accounts were provided - Dovecot could not be started!
+2026-06-04 01:52:08+00:00 ERROR start-mailserver.sh: Shutting down
+2026-06-04 01:52:12+00:00 INFO  start-mailserver.sh: Configuring mail server
+2026-06-04 01:52:14+00:00 INFO  start-mailserver.sh: Starting daemons
+2026-06-04 01:52:16+00:00 INFO  start-mailserver.sh: mail.gsv.local is up and running
+2026-06-04T01:52:14.954532+00:00 mail dovecot: master: Dovecot v2.3.19.1 (9b53102964) starting up for imap, lmtp
+2026-06-04T01:52:15.536274+00:00 mail opendkim[716]: OpenDKIM Filter v2.11.0 starting (args: -f)
+2026-06-04T01:52:15.623384+00:00 mail opendmarc[722]: OpenDMARC Filter v1.4.2 starting (args: -f -p inet:8893@localhost -P /var/run/opendmarc/opendmarc.pid)
+2026-06-04T01:52:15.623483+00:00 mail opendmarc[722]: additional trusted authentication services: mail.gsv.local
+2026-06-04 01:52:12+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i -e s|include_try /usr/share/dovecot/protocols.d|include_try /etc/dovecot/protocols.d|g /etc/dovecot/dovecot.conf)
+2026-06-04 01:52:12+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i -r -e s|^(\s*)#?(mail_plugins =).*|\1\2 $mail_plugins sieve| -e s|^#?(lda_mailbox_autocreate =).*|\1 yes| -e s|^#?(lda_mailbox_autosubscribe =).*|\1 yes| -e s|^#?(postmaster_address =).*|\1 postmaster@gsv.local| -e s|^#?(hostname =).*|\1 mail.gsv.local| /etc/dovecot/conf.d/15-lda.conf)
+2026-06-04 01:52:12+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i -e s|#ssl = yes|ssl = yes|g /etc/dovecot/conf.d/10-master.conf)
+2026-06-04 01:52:12+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i -e s|#ssl = yes|ssl = required|g /etc/dovecot/conf.d/10-ssl.conf)
+2026-06-04 01:52:12+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i -e s|#port = 993|port = 993|g /etc/dovecot/conf.d/10-master.conf)
+2026-06-04 01:52:12+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i s|quota_max_mail_size =.*|quota_max_mail_size = 10M|g /etc/dovecot/conf.d/90-quota.conf)
+2026-06-04 01:52:12+00:00 ERROR sedfile: No difference after call to 'sed' in 'sedfile' (sed -i s|quota_rule = \*:storage=.*|quota_rule = *:storage=0|g /etc/dovecot/conf.d/90-quota.conf)
+2026-06-04 01:52:13+00:00 WARN  start-mailserver.sh: !! INSECURE !! SSL configured with plain text access - DO NOT USE FOR PRODUCTION DEPLOYMENT
+2026-06-04T01:52:16.420414+00:00 mail postfix/postfix-script[860]: starting the Postfix mail system
+2026-06-04T01:52:16.431401+00:00 mail postfix/master[861]: daemon started -- version 3.7.11, configuration /etc/postfix
+2026-06-04T01:52:17.633462+00:00 mail amavis[763]: starting. /usr/sbin/amavisd at mail.gsv.local amavis-2.13.0 (20230106), Unicode aware, LC_CTYPE="C.UTF-8"
+2026-06-04T01:52:17.633506+00:00 mail amavis[763]: perl=5.036000, user=, EUID: 999 (999);  group=(), EGID: 999 999 (999 999)
+2026-06-04T01:52:17.832251+00:00 mail amavis[763]: Net::Server: Group Not Defined.  Defaulting to EGID '999 999'
+2026-06-04T01:52:17.832300+00:00 mail amavis[763]: Net::Server: User Not Defined.  Defaulting to EUID '999'
+2026-06-04T01:52:17.847249+00:00 mail amavis[763]: No ext program for   .zoo, tried: zoo
+2026-06-04T01:52:17.847448+00:00 mail amavis[763]: No ext program for   .doc, tried: ripole
+2026-06-04T01:52:17.848932+00:00 mail amavis[763]: No ext program for   .zst, tried: unzstd
+2026-06-04T01:52:17.848965+00:00 mail amavis[763]: No decoder for       .F   
+2026-06-04T01:52:17.848980+00:00 mail amavis[763]: No decoder for       .doc 
+2026-06-04T01:52:17.848992+00:00 mail amavis[763]: No decoder for       .zoo 
+2026-06-04T01:52:17.849004+00:00 mail amavis[763]: No decoder for       .zst 
