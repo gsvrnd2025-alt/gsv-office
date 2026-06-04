@@ -1217,8 +1217,20 @@ export default function RemoteDesktopPage() {
       if (data.status === 'rejected') {
         setIsConnecting(false);
         setDialingStatus('rejected');
-        toast.error('Remote access request was rejected by host.');
-        addLog(`Host rejected remote access request.`);
+        
+        if (data.reason === 'insecure') {
+          toast.error('Connection failed: Host is blocked by browser insecure context. The host must use HTTPS or the Desktop App.', { duration: 8000 });
+          addLog('Host connection failed due to host insecure HTTP context.');
+        } else if (data.reason === 'permission_denied') {
+          toast.error('Connection failed: Host denied screen share permission.');
+          addLog('Host denied display capture permission.');
+        } else if (data.reason === 'not_supported') {
+          toast.error('Connection failed: Host browser does not support screen sharing.');
+          addLog('Host browser does not support display capture.');
+        } else {
+          toast.error('Remote access request was rejected by host.');
+          addLog('Host rejected remote access request.');
+        }
         
         const targetId = targetPhoneRef.current.replace(/\s+/g, '');
         const target = teammatesRef.current.find(t => t.phone?.replace(/\s+/g, '') === targetId || t.loginId === targetId);
@@ -1593,7 +1605,7 @@ export default function RemoteDesktopPage() {
 
     if (isInsecureContext && !isDesktopApp) {
       toast.error('Insecure Context: Screen sharing is blocked over HTTP. Please access via HTTPS or use the Desktop App.', { duration: 8000 });
-      rejectRequest();
+      rejectRequest('insecure');
       return;
     }
     
@@ -1628,17 +1640,18 @@ export default function RemoteDesktopPage() {
         } catch (err) {
           console.warn('Real screen share blocked:', err);
           toast.error('Screen share permission denied or cancelled.');
-          rejectRequest();
+          rejectRequest('permission_denied');
           return;
         }
       } else {
         console.warn('Display Media not supported.');
         if (isInsecureContext && !isDesktopApp) {
           toast.error('Insecure Context: Screen sharing is blocked over HTTP. Please access via HTTPS or use the Desktop App.', { duration: 8000 });
+          rejectRequest('insecure');
         } else {
           toast.error('Your browser does not support screen sharing.');
+          rejectRequest('not_supported');
         }
-        rejectRequest();
         return;
       }
 
@@ -1685,7 +1698,7 @@ export default function RemoteDesktopPage() {
   };
 
   // Host Action: Reject Request
-  const rejectRequest = () => {
+  const rejectRequest = (reason?: string) => {
     setShowIncomingRequest(false);
     if (incomingRequestData) {
       addConnectionHistory({
@@ -1697,7 +1710,8 @@ export default function RemoteDesktopPage() {
 
       socket?.emit('remote:response', {
         targetUserId: incomingRequestData.callerId,
-        status: 'rejected'
+        status: 'rejected',
+        reason: reason
       });
     }
     setIncomingRequestData(null);
