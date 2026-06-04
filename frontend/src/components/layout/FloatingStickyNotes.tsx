@@ -134,6 +134,11 @@ export default function FloatingStickyNotes() {
   const fabPosStartRef = useRef({ x: 0, y: 0 });
   const dragDistanceRef = useRef(0);
 
+  // Popup Window Drag Position (null = centered)
+  const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
+  const [isDraggingPopup, setIsDraggingPopup] = useState(false);
+  const popupDragStartRef = useRef({ mouseX: 0, mouseY: 0, popupX: 0, popupY: 0 });
+
   const editorContentRef = useRef<HTMLDivElement>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -281,6 +286,46 @@ export default function FloatingStickyNotes() {
       window.removeEventListener('mouseup', handleMouseUp);
     };
   }, [isDraggingFab]);
+
+  // Popup drag mouse events
+  const handlePopupHeaderMouseDown = (e: React.MouseEvent) => {
+    // Only drag from header, not from buttons
+    if ((e.target as HTMLElement).closest('button')) return;
+    if (isMaximized) return;
+    e.preventDefault();
+    const popupW = 900;
+    const popupH = 600;
+    const startX = popupPosition ? popupPosition.x : (window.innerWidth - popupW) / 2;
+    const startY = popupPosition ? popupPosition.y : (window.innerHeight - popupH) / 2;
+    popupDragStartRef.current = { mouseX: e.clientX, mouseY: e.clientY, popupX: startX, popupY: startY };
+    setIsDraggingPopup(true);
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDraggingPopup) {
+        const popupW = isMaximized ? window.innerWidth : 900;
+        const popupH = isMaximized ? window.innerHeight : 600;
+        const dx = e.clientX - popupDragStartRef.current.mouseX;
+        const dy = e.clientY - popupDragStartRef.current.mouseY;
+        setPopupPosition({
+          x: Math.max(0, Math.min(window.innerWidth - popupW, popupDragStartRef.current.popupX + dx)),
+          y: Math.max(0, Math.min(window.innerHeight - popupH, popupDragStartRef.current.popupY + dy))
+        });
+      }
+    };
+    const handleMouseUp = () => {
+      setIsDraggingPopup(false);
+    };
+    if (isDraggingPopup) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDraggingPopup, isMaximized]);
 
   const handleFabClick = () => {
     if (dragDistanceRef.current < 5) {
@@ -1151,29 +1196,33 @@ export default function FloatingStickyNotes() {
       {/* Main Centered Popup Page */}
       {isPopupOpen && (
         <div 
-          className="animate-scale-in"
+          className={isDraggingPopup ? '' : 'animate-scale-in'}
           style={{
             position: 'fixed',
-            left: isMaximized ? 0 : '50%',
-            top: isMaximized ? 0 : '50%',
+            left: isMaximized ? 0 : (popupPosition ? `${popupPosition.x}px` : '50%'),
+            top: isMaximized ? 0 : (popupPosition ? `${popupPosition.y}px` : '50%'),
             width: isMaximized ? '100vw' : '900px',
             height: isMaximized ? '100vh' : '600px',
-            transform: isMaximized ? 'none' : 'translate(-50%, -50%)',
+            transform: isMaximized ? 'none' : (popupPosition ? 'none' : 'translate(-50%, -50%)'),
             background: 'rgba(15, 23, 42, 0.95)',
             backdropFilter: 'blur(20px)',
             border: '2px solid rgba(255, 255, 255, 0.1)',
             borderRadius: isMaximized ? 0 : '20px',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.75)',
+            boxShadow: isDraggingPopup ? '0 35px 70px -12px rgba(0, 0, 0, 0.9)' : '0 25px 50px -12px rgba(0, 0, 0, 0.75)',
             color: '#F8FAFC',
             zIndex: 10000,
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
-            fontFamily: "'Inter', system-ui, sans-serif"
+            fontFamily: "'Inter', system-ui, sans-serif",
+            cursor: isDraggingPopup ? 'grabbing' : 'default',
+            userSelect: isDraggingPopup ? 'none' : 'auto',
+            transition: isDraggingPopup ? 'none' : 'box-shadow 0.2s ease'
           }}
         >
-          {/* Header Row */}
+          {/* Header Row - Drag handle */}
           <div 
+            onMouseDown={handlePopupHeaderMouseDown}
             style={{
               padding: '16px 24px',
               background: 'rgba(30, 41, 59, 0.5)',
@@ -1181,7 +1230,8 @@ export default function FloatingStickyNotes() {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              gap: '16px'
+              gap: '16px',
+              cursor: isMaximized ? 'default' : (isDraggingPopup ? 'grabbing' : 'grab')
             }}
           >
             {/* Logo and User Name */}
@@ -1220,9 +1270,12 @@ export default function FloatingStickyNotes() {
 
             {/* Window Action Buttons */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {/* Maximize */}
+              {/* Maximize / Restore */}
               <button 
-                onClick={() => setIsMaximized(!isMaximized)} 
+                onClick={() => {
+                  setIsMaximized(!isMaximized);
+                  if (!isMaximized) setPopupPosition(null); // reset position on maximize
+                }} 
                 className="btn" 
                 style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.06)', border: 'none', color: '#fff', borderRadius: '6px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                 title={isMaximized ? "Restore Window" : "Maximize Window"}
