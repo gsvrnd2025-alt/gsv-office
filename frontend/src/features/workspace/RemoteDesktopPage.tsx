@@ -1085,7 +1085,7 @@ export default function RemoteDesktopPage() {
         } else if (sources.length > 0) {
           setSelectedSourceId(sources[0].id);
         }
-      }).catch(err => {
+      }).catch((err: any) => {
         console.error('Failed to get desktop sources:', err);
       });
     }
