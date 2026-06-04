@@ -1564,6 +1564,15 @@ export default function RemoteDesktopPage() {
   const acceptRequest = async () => {
     if (!incomingRequestData) return;
     setShowIncomingRequest(false);
+
+    const isInsecureContext = typeof window !== 'undefined' && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+    const isDesktopApp = !!(window as any).gsvDesktop || localAgentActive;
+
+    if (isInsecureContext && !isDesktopApp) {
+      toast.error('Insecure Context: Screen sharing is blocked over HTTP. Please access via HTTPS or use the Desktop App.', { duration: 8000 });
+      rejectRequest();
+      return;
+    }
     
     try {
       addLog('Acquiring display share capture...');
@@ -1601,7 +1610,11 @@ export default function RemoteDesktopPage() {
         }
       } else {
         console.warn('Display Media not supported.');
-        toast.error('Your browser does not support screen sharing.');
+        if (isInsecureContext && !isDesktopApp) {
+          toast.error('Insecure Context: Screen sharing is blocked over HTTP. Please access via HTTPS or use the Desktop App.', { duration: 8000 });
+        } else {
+          toast.error('Your browser does not support screen sharing.');
+        }
         rejectRequest();
         return;
       }
@@ -1669,6 +1682,14 @@ export default function RemoteDesktopPage() {
 
   // Start Hosting screen manually
   const startHostingManually = async () => {
+    const isInsecureContext = typeof window !== 'undefined' && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+    const isDesktopApp = !!(window as any).gsvDesktop || localAgentActive;
+
+    if (isInsecureContext && !isDesktopApp) {
+      toast.error('Insecure Context: Screen sharing is blocked over HTTP. Please access via HTTPS or use the Desktop App.', { duration: 8000 });
+      return;
+    }
+
     try {
       addLog('Acquiring manual screen capture...');
       let stream: MediaStream;
@@ -1685,7 +1706,11 @@ export default function RemoteDesktopPage() {
         }
       } else {
         console.warn('Display Media not supported');
-        toast.error('Your browser does not support screen sharing.');
+        if (isInsecureContext && !isDesktopApp) {
+          toast.error('Insecure Context: Screen sharing is blocked over HTTP. Please access via HTTPS or use the Desktop App.', { duration: 8000 });
+        } else {
+          toast.error('Your browser does not support screen sharing.');
+        }
         return;
       }
       localStreamRef.current = stream;
@@ -1856,9 +1881,93 @@ export default function RemoteDesktopPage() {
 
   const onlinePeers = teammates.filter(t => t.isOnline);
 
+  const isInsecureContext = typeof window !== 'undefined' && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+  const isDesktopApp = !!(window as any).gsvDesktop || localAgentActive;
+  const showInsecureAlert = isInsecureContext && !isDesktopApp;
+
   return (
     <div className="page-enter" style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '20px', color: 'var(--text-primary)', padding: '4px' }}>
       
+      {/* Insecure Context Warning Banner */}
+      {showInsecureAlert && (
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(220, 38, 38, 0.25) 100%)',
+          backdropFilter: 'blur(12px)',
+          border: '2px solid rgba(239, 68, 68, 0.4)',
+          borderRadius: '16px',
+          padding: '20px 24px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '12px',
+          boxShadow: '0 8px 32px rgba(239, 68, 68, 0.15)',
+          animation: 'fadeInDown 0.5s ease-out',
+          color: '#fca5a5'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{
+              background: '#ef4444',
+              borderRadius: '50%',
+              width: '36px',
+              height: '36px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#fff',
+              fontWeight: 'bold',
+              fontSize: '18px',
+              boxShadow: '0 0 15px rgba(239, 68, 68, 0.6)'
+            }} className="animate-pulse">
+              ⚠️
+            </div>
+            <div>
+              <h4 style={{ margin: 0, fontWeight: 800, fontSize: '16px', color: '#fff', letterSpacing: '-0.3px' }}>
+                Insecure HTTP Browser Context Detected / பாதுகாப்பு எச்சரிக்கை
+              </h4>
+              <p style={{ margin: '2px 0 0 0', fontSize: '13px', color: '#fecaca', fontWeight: 500 }}>
+                Screen sharing is strictly blocked by modern browsers over insecure HTTP. / Browser-கள் பாதுகாப்பு காரணங்களுக்காக HTTP-யில் screen sharing-ஐ அனுமதிக்காது.
+              </p>
+            </div>
+          </div>
+          
+          <div style={{ 
+            background: 'rgba(0, 0, 0, 0.25)', 
+            borderRadius: '8px', 
+            padding: '12px 16px', 
+            fontSize: '13px', 
+            lineHeight: '1.6', 
+            color: '#e2e8f0',
+            borderLeft: '4px solid #ef4444'
+          }}>
+            <div style={{ fontWeight: 700, color: '#fff', marginBottom: '6px' }}>How to resolve this issue: / இந்த சிக்கலை எவ்வாறு சரி செய்வது:</div>
+            <ul style={{ margin: 0, paddingLeft: '20px' }}>
+              <li>
+                <strong>Option 1 (Recommended):</strong> Access the secure HTTPS URL instead at{' '}
+                <a 
+                  href={`https://${window.location.hostname}:8443/remote-desktop`} 
+                  style={{ color: '#60a5fa', textDecoration: 'underline', fontWeight: 700 }}
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                >
+                  https://{window.location.hostname}:8443/remote-desktop
+                </a>{' '}
+                to enable browser screen share.
+                <br />
+                <span style={{ fontSize: '12px', color: '#cbd5e1' }}>
+                  (HTTPS-ஐ பயன்படுத்தி இணைக்கவும் - 8443 போர்ட் வழியாக)
+                </span>
+              </li>
+              <li style={{ marginTop: '8px' }}>
+                <strong>Option 2:</strong> Open the compiled <strong>GSV Office Desktop App</strong> which bypasses browser sandbox limitations.
+                <br />
+                <span style={{ fontSize: '12px', color: '#cbd5e1' }}>
+                  (GSV Office Desktop Client அல்லது Portable App-ஐ பயன்படுத்தவும்)
+                </span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      )}
+
       {/* Upper header */}
       <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div>
@@ -2825,6 +2934,16 @@ export default function RemoteDesktopPage() {
           0% { border-color: var(--brand-primary); }
           50% { border-color: #ef4444; }
           100% { border-color: var(--brand-primary); }
+        }
+        @keyframes fadeInDown {
+          from {
+            opacity: 0;
+            transform: translateY(-20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
         }
       `}</style>
 
