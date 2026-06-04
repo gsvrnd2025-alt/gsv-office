@@ -262,10 +262,12 @@ function openMainWindow() {
       type: 'warning',
       title: 'GSV Office',
       message: 'Server is offline',
-      detail: `Cannot connect to:\n${config.serverUrl}\n\nPlease check your network or server status.`,
-      buttons: ['Open Anyway', 'Cancel']
+      detail: `Cannot connect to:\n${config.serverUrl}\n\nPlease check your network or configure the server IP in Settings.`,
+      buttons: ['Configure Settings', 'Open Anyway', 'Cancel']
     }).then(({ response }) => {
       if (response === 0) {
+        openSettingsWindow();
+      } else if (response === 1) {
         if (mainWindow) {
           mainWindow.show();
           mainWindow.focus();
@@ -451,6 +453,11 @@ ipcMain.handle('get-sources', async () => {
 });
 
 ipcMain.handle('get-config', () => config);
+
+ipcMain.handle('open-settings', () => {
+  openSettingsWindow();
+  return { success: true };
+});
 
 ipcMain.handle('save-config', (event, newConfig) => {
   const oldUrl = config.serverUrl;

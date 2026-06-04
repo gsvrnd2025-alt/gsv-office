@@ -92,9 +92,17 @@ export default function LoginPage() {
 
   return (
     <div style={{ animation: 'slideUp 0.4s ease' }}>
-      {/* Logo */}
       <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-        <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '64px', height: '64px', borderRadius: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', marginBottom: '16px', boxShadow: '0 8px 24px rgba(255,255,255,0.05)', overflow: 'hidden' }}>
+        <div 
+          onDoubleClick={() => {
+            if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.openSettings === 'function') {
+              (window as any).gsvDesktop.openSettings();
+              toast.success('Opening Desktop Client settings...');
+            }
+          }}
+          style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '64px', height: '64px', borderRadius: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', marginBottom: '16px', boxShadow: '0 8px 24px rgba(255,255,255,0.05)', overflow: 'hidden', cursor: (window as any).gsvDesktop ? 'pointer' : 'default' }}
+          title={(window as any).gsvDesktop ? 'Double click to open Settings' : undefined}
+        >
           <img src={logoImg} alt="GSV Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
         </div>
         <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: '28px', fontWeight: 800, color: '#fff', marginBottom: '6px', letterSpacing: '-0.5px' }}>

@@ -984,6 +984,7 @@ export default function RemoteDesktopPage() {
     stunServer: 'stun:stun.l.google.com:19302',
     bandwidthLimit: 'unlimited',
   });
+  const [googleSheetId, setGoogleSheetId] = useState(() => localStorage.getItem('gsv-google-sheet-id') || '');
 
   // Interlock Method state
   const [isControlLocked, setIsControlLocked] = useState(false);
@@ -997,12 +998,21 @@ export default function RemoteDesktopPage() {
 
   // Installer simulation states
   const [showInstallerModal, setShowInstallerModal] = useState(false);
-  const [installerStep, setInstallerStep] = useState<'idle' | 'detecting' | 'error_sandbox' | 'installing' | 'success'>('idle');
+  const [installerStep, setInstallerStep] = useState<'idle' | 'detecting' | 'error_sandbox' | 'terms_conditions' | 'permissions_select' | 'installing' | 'success'>('idle');
   const [installerProgress, setInstallerProgress] = useState(0);
   const [installerLog, setInstallerLog] = useState<string>('');
   const [selectedInstallerOS, setSelectedInstallerOS] = useState<'Windows' | 'Android' | 'macOS' | 'iOS'>('Windows');
   const [localAgentActive, setLocalAgentActive] = useState(() => {
     return localStorage.getItem('gsv-local-agent-active') === 'true';
+  });
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [requestedPerms, setRequestedPerms] = useState({
+    screen: true,
+    keyboard: true,
+    mouse: true,
+    file: true,
+    clipboard: true,
+    printer: true
   });
 
   useEffect(() => {
@@ -1366,13 +1376,26 @@ export default function RemoteDesktopPage() {
           addLog('🚨 Emergency escape keys detected.');
           terminateSession(false);
           toast.error('Emergency Exit: Remote connection killed instantly.', { icon: '🚨' });
+        } else {
+          // Single ESC press: Exit full screen if active, otherwise toggle video scale fit
+          if (document.fullscreenElement || (document as any).webkitFullscreenElement) {
+            if (document.exitFullscreen) {
+              document.exitFullscreen();
+            } else if ((document as any).webkitExitFullscreen) {
+              (document as any).webkitExitFullscreen();
+            }
+            toast.success('Exiting full screen view.');
+          } else {
+            setVideoFit(prev => prev === 'contain' ? 'fill' : prev === 'fill' ? 'cover' : 'contain');
+            toast.success('Toggled remote screen frame scale.');
+          }
         }
         lastEscPressTime.current = now;
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isConnected, isHosting, activePartnerId, activePartnerName]);
+  }, [isConnected, isHosting, activePartnerId, activePartnerName, videoFit]);
 
   // Host local input tracking for Interlock mechanism
   useEffect(() => {
@@ -2768,10 +2791,24 @@ export default function RemoteDesktopPage() {
                   style={{ background: 'var(--bg-secondary)', border: '1.5px solid var(--border-color)', color: 'var(--text-primary)', fontFamily: 'monospace', padding: '6px' }}
                 />
               </div>
+              <div className="form-group">
+                <label className="form-label" style={{ fontWeight: 700 }}>Google Sheets Directory Sync ID</label>
+                <input 
+                  type="text" 
+                  className="form-control" 
+                  placeholder="e.g. 1a2b3c4d5e6f..."
+                  value={googleSheetId} 
+                  onChange={e => setGoogleSheetId(e.target.value)}
+                  style={{ background: 'var(--bg-secondary)', border: '1.5px solid var(--border-color)', color: 'var(--text-primary)', fontFamily: 'monospace', padding: '6px' }}
+                />
+                <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
+                  Syncs your offline active directory to google sheets in real-time.
+                </span>
+              </div>
             </div>
             <div className="modal-footer" style={{ borderTop: '1.5px solid var(--border-color)' }}>
               <button className="btn btn-secondary btn-sm" onClick={() => setShowConfigModal(false)}>Cancel</button>
-              <button className="btn btn-primary btn-sm" onClick={() => { setShowConfigModal(false); toast.success('STUN details saved.'); }}>Save Settings</button>
+              <button className="btn btn-primary btn-sm" onClick={() => { localStorage.setItem('gsv-google-sheet-id', googleSheetId); setShowConfigModal(false); toast.success('STUN details and Google Sheets sync ID saved.'); }}>Save Settings</button>
             </div>
           </div>
         </div>
@@ -2862,11 +2899,111 @@ export default function RemoteDesktopPage() {
                         toast.success('PWA instructions shown. Follow the iOS steps.');
                         setShowInstallerModal(false);
                       } else {
-                        setInstallerStep('installing');
-                        setInstallerProgress(0);
+                        setInstallerStep('terms_conditions');
                       }
                     }}>
                       Download & Install Agent
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {installerStep === 'terms_conditions' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                    End User License Agreement & Terms of Service
+                  </div>
+                  
+                  <div style={{
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '8px',
+                    padding: '12px',
+                    maxHeight: '160px',
+                    overflowY: 'auto',
+                    fontSize: '11px',
+                    color: 'var(--text-secondary)',
+                    lineHeight: 1.5
+                  }}>
+                    <strong>1. Scope of Agreement</strong>
+                    <br />
+                    This license governs your use of the GSV Office Remote Desktop Agent. It enables screen mirroring, peripheral inputs, clipboard sync, and file transfer functionality between authenticated workstations.
+                    <br /><br />
+                    <strong>2. Security & Authorized Use</strong>
+                    <br />
+                    Connections are protected via P2P WebRTC tunnels. Uninvited control override requires host authorization confirmation. You agree to use this client solely for business administration and remote technical overrides.
+                    <br /><br />
+                    <strong>3. Local Area Discoverability</strong>
+                    <br />
+                    By enabling discoverability, your machine registers with the local subnet router to allow colleagues on the same LAN network to ping and query remote control requests.
+                  </div>
+
+                  <label className="d-flex align-items-center gap-2 cursor-pointer" style={{ fontSize: '13px', margin: '6px 0' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={termsAccepted} 
+                      onChange={e => setTermsAccepted(e.target.checked)} 
+                      style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                    />
+                    <span style={{ fontWeight: 600 }}>I accept the terms and conditions</span>
+                  </label>
+
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setInstallerStep('error_sandbox')}>Back</button>
+                    <button 
+                      className="btn btn-primary btn-sm" 
+                      disabled={!termsAccepted}
+                      onClick={() => setInstallerStep('permissions_select')}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {installerStep === 'permissions_select' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                    Configure Remote Access Permissions
+                  </div>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>
+                    Select which capabilities will be permitted. Users connecting to your ID will request these permissions:
+                  </p>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'var(--bg-secondary)', padding: '14px', borderRadius: '8px', border: '1px solid var(--border-color)', maxHeight: '200px', overflowY: 'auto' }}>
+                    {[
+                      { key: 'screen', title: 'Desktop Screen Recording', desc: 'Allows capture and streaming of local display' },
+                      { key: 'keyboard', title: 'Remote Keyboard Keystrokes', desc: 'Allows typing keystroke overrides' },
+                      { key: 'mouse', title: 'Remote Mouse Pointer Control', desc: 'Allows pointer overrides and clicking actions' },
+                      { key: 'file', title: 'File Access & File Transfer', desc: 'Allows transferring files to/from current workstation' },
+                      { key: 'clipboard', title: 'Clipboard Synchronization', desc: 'Allows synchronization of copy/paste buffers' },
+                      { key: 'printer', title: 'Printer Requests & Peripherals', desc: 'Allows remote print job requests and peripheral querying' },
+                    ].map(perm => (
+                      <label key={perm.key} className="d-flex align-items-start gap-3 cursor-pointer" style={{ fontSize: '12px' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={(requestedPerms as any)[perm.key]} 
+                          onChange={e => setRequestedPerms(p => ({ ...p, [perm.key]: e.target.checked }))}
+                          style={{ cursor: 'pointer', width: '16px', height: '16px', marginTop: '2px' }}
+                        />
+                        <div>
+                          <strong style={{ display: 'block', color: 'var(--text-primary)', fontWeight: 700 }}>{perm.title}</strong>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '10px' }}>{perm.desc}</span>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setInstallerStep('terms_conditions')}>Back</button>
+                    <button 
+                      className="btn btn-success btn-sm"
+                      onClick={() => {
+                        setInstallerStep('installing');
+                        setInstallerProgress(0);
+                      }}
+                    >
+                      Install & Configure
                     </button>
                   </div>
                 </div>
