@@ -191,3 +191,7 @@ export const storageApi = {
 export const securityApi = {
   getLogs: () => api.get('/server/security-logs'),
 };
+
+export const webrtcApi = {
+  getConfig: () => api.get('/webrtc/config'),
+};

@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../../store/auth.store';
-import { usersApi } from '../../api';
+import { usersApi, webrtcApi } from '../../api';
 import { useThemeStore } from '../../store/theme.store';
 import { io, Socket } from 'socket.io-client';
 import { SoundManager } from '../../utils/sound';
@@ -974,6 +974,10 @@ export default function RemoteDesktopPage() {
 
   // Layout View constraints
   const [videoFit, setVideoFit] = useState<'contain' | 'cover' | 'fill'>('contain');
+  const [isExpandedView, setIsExpandedView] = useState(false);
+  const [iceServers, setIceServers] = useState<any[]>([
+    { urls: 'stun:stun.l.google.com:19302' }
+  ]);
 
   // Settings
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -1168,7 +1172,8 @@ export default function RemoteDesktopPage() {
       if (isConnected && remoteStream) {
         videoRef.current.srcObject = remoteStream;
       } else if (isHosting && localStream) {
-        videoRef.current.srcObject = localStream;
+        // Do NOT attach local stream to local video element to prevent infinite feedback mirroring!
+        videoRef.current.srcObject = null;
       } else {
         videoRef.current.srcObject = null;
       }
@@ -1198,6 +1203,23 @@ export default function RemoteDesktopPage() {
 
     s.on('connect', () => {
       addLog('Secure signaling socket tunnel online.');
+    });
+
+    s.on('connect_error', async (err) => {
+      addLog(`Socket connection error: ${err.message}. Attempting to refresh token...`);
+      try {
+        // Trigger a simple authenticated API call to trigger Axios interceptor token refresh
+        await usersApi.getDirectory();
+        const freshToken = useAuthStore.getState().accessToken;
+        if (freshToken && freshToken !== (s.auth as any).token) {
+          (s.auth as any).token = freshToken;
+          s.connect();
+          addLog('Token refreshed. Socket reconnected successfully.');
+        }
+      } catch (refreshErr) {
+        addLog('Token refresh failed. Reconnect will retry.');
+        console.error('Failed to auto-refresh token for webrtc socket:', refreshErr);
+      }
     });
 
     s.on('disconnect', (reason: string) => {
@@ -1374,10 +1396,22 @@ export default function RemoteDesktopPage() {
 
   useEffect(() => {
     fetchTeammates();
-    // 30s interval — fast enough to detect online/offline changes without spamming state updates
-    const interval = setInterval(fetchTeammates, 30000);
+    // 15s interval — balances snappy online/offline updates with rate limits
+    const interval = setInterval(fetchTeammates, 15000);
     return () => clearInterval(interval);
   }, [user]);
+
+  // Load COTURN configuration from backend
+  useEffect(() => {
+    webrtcApi.getConfig().then((res: any) => {
+      if (res.data?.iceServers) {
+        setIceServers(res.data.iceServers);
+        addLog('COTURN local TURN server parameters loaded successfully.');
+      }
+    }).catch((err: any) => {
+      console.warn('Failed to load local COTURN configuration, using public STUN fallback:', err);
+    });
+  }, []);
 
   // Emergency double Escape press listener
   useEffect(() => {
@@ -1409,7 +1443,7 @@ export default function RemoteDesktopPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isConnected, isHosting, activePartnerId, activePartnerName, videoFit]);
 
-  // Host local input tracking for Interlock mechanism
+  // Host local input tracking for Interlock mechanism (Keyboard only to prevent simulated mouse movement self-lockouts)
   useEffect(() => {
     const handleLocalInput = () => {
       if (isHosting && isHostControlled && socket && activePartnerId && !isControlLocked) {
@@ -1419,12 +1453,10 @@ export default function RemoteDesktopPage() {
     };
 
     if (isHosting && isHostControlled) {
-      window.addEventListener('mousemove', handleLocalInput);
       window.addEventListener('keydown', handleLocalInput);
     }
 
     return () => {
-      window.removeEventListener('mousemove', handleLocalInput);
       window.removeEventListener('keydown', handleLocalInput);
     };
   }, [isHosting, isHostControlled, socket, activePartnerId, isControlLocked]);
@@ -1433,7 +1465,7 @@ export default function RemoteDesktopPage() {
   const setupWebRTC = async (isHost: boolean, partnerId: string) => {
     try {
       const configuration = {
-        iceServers: [{ urls: config.stunServer }]
+        iceServers: iceServers
       };
 
       const pc = new RTCPeerConnection(configuration);
@@ -1442,6 +1474,20 @@ export default function RemoteDesktopPage() {
       pc.onicecandidate = (event) => {
         if (event.candidate && socket) {
           socket.emit('remote:ice-candidate', { targetUserId: partnerId, candidate: event.candidate });
+        }
+      };
+
+      pc.ontrack = (event) => {
+        if (event.streams[0]) {
+          setRemoteStream(event.streams[0]);
+          if (!isHost) {
+            setIsConnected(true);
+            setIsConnecting(false);
+            setDialingStatus('accepted');
+            addLog('WebRTC Screen mirror feed attached.');
+          } else {
+            addLog('WebRTC remote voice chat track attached.');
+          }
         }
       };
 
@@ -1459,16 +1505,6 @@ export default function RemoteDesktopPage() {
         socket?.emit('remote:signal', { targetUserId: partnerId, signal: offer });
         addLog('Signaling offer dispatched.');
       } else {
-        pc.ontrack = (event) => {
-          if (event.streams[0]) {
-            setRemoteStream(event.streams[0]);
-            setIsConnected(true);
-            setIsConnecting(false);
-            setDialingStatus('accepted');
-            addLog('WebRTC Screen mirror feed attached.');
-          }
-        };
-
         pc.ondatachannel = (event) => {
           dataChannelRef.current = event.channel;
           setupDataChannel(event.channel);
@@ -1614,18 +1650,13 @@ export default function RemoteDesktopPage() {
       let stream: MediaStream;
       if ((window as any).gsvDesktop && selectedSourceId) {
         addLog(`Acquiring native desktop capture for source: ${selectedSourceId}`);
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: {
-            mandatory: {
-              chromeMediaSource: 'desktop',
-              chromeMediaSourceId: selectedSourceId,
-              minWidth: 1280,
-              maxWidth: 1920,
-              minHeight: 720,
-              maxHeight: 1080
-            }
-          } as any
+        // Notify Electron main process about the selected source ID
+        await (window as any).gsvDesktop.selectSource(selectedSourceId);
+        
+        // Trigger getDisplayMedia which runs web session DisplayMediaRequest handler in Electron
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: false
         });
       } else if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
         try {
@@ -1683,6 +1714,10 @@ export default function RemoteDesktopPage() {
 
       await setupWebRTC(true, incomingRequestData.callerId);
       toast.success(`Sharing screen and control permissions!`);
+
+      if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.minimizeWindow === 'function') {
+        (window as any).gsvDesktop.minimizeWindow();
+      }
       
       const durationMs = sessionDuration === '1h' ? 3600000 : sessionDuration === '3h' ? 10800000 : 0;
       if (durationMs > 0) {
@@ -1755,6 +1790,10 @@ export default function RemoteDesktopPage() {
       setLocalStream(stream);
       setIsHosting(true);
       toast.success('Started sharing screen! Waiting for remote connections.');
+
+      if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.minimizeWindow === 'function') {
+        (window as any).gsvDesktop.minimizeWindow();
+      }
     } catch (e) {
       toast.error('Screen capture permission denied.');
     }
@@ -1768,14 +1807,31 @@ export default function RemoteDesktopPage() {
     }
   };
 
-  // Voice chat toggle
   const toggleVoiceCall = async () => {
     try {
       if (isVoiceChatEnabled) {
+        // Remove track from peer connection
+        if (peerConnectionRef.current) {
+          const senders = peerConnectionRef.current.getSenders();
+          const sender = senders.find(s => s.track && s.track.kind === 'audio');
+          if (sender) {
+            peerConnectionRef.current.removeTrack(sender);
+            addLog('WebRTC microphone track detached.');
+          }
+        }
+
         localAudioStream?.getTracks().forEach(t => t.stop());
         setLocalAudioStream(null);
         setIsVoiceChatEnabled(false);
         addLog('Voice meeting audio stopped.');
+
+        // Trigger WebRTC offer-answer renegotiation
+        if (socket && activePartnerId && peerConnectionRef.current) {
+          const offer = await peerConnectionRef.current.createOffer();
+          await peerConnectionRef.current.setLocalDescription(offer);
+          socket.emit('remote:signal', { targetUserId: activePartnerId, signal: offer });
+          addLog('WebRTC renegotiation offer sent (removed audio).');
+        }
       } else {
         addLog('Acquiring mic access for voice chat...');
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1783,8 +1839,25 @@ export default function RemoteDesktopPage() {
         setIsVoiceChatEnabled(true);
         addLog('Voice chat online.');
         toast.success('Mic connected! Voice meeting active.');
+
+        // Add track to peer connection
+        if (peerConnectionRef.current) {
+          stream.getTracks().forEach(track => {
+            peerConnectionRef.current!.addTrack(track, stream);
+          });
+          addLog('WebRTC microphone track attached.');
+          
+          // Trigger WebRTC offer-answer renegotiation
+          if (socket && activePartnerId) {
+            const offer = await peerConnectionRef.current.createOffer();
+            await peerConnectionRef.current.setLocalDescription(offer);
+            socket.emit('remote:signal', { targetUserId: activePartnerId, signal: offer });
+            addLog('WebRTC renegotiation offer sent (added audio).');
+          }
+        }
       }
     } catch (e) {
+      console.error('Failed to toggle voice call:', e);
       toast.error('Failed to get microphone permissions.');
     }
   };
@@ -1829,6 +1902,7 @@ export default function RemoteDesktopPage() {
     setIsControlLocked(false);
     setLocalStream(null);
     setRemoteStream(null);
+    setIsExpandedView(false);
     iceCandidatesQueueRef.current = [];
 
     addLog('Remote Desk connection closed.');
@@ -2120,7 +2194,20 @@ export default function RemoteDesktopPage() {
             onKeyDown={handleViewportKeyPress}
             tabIndex={0}
             className="card p-0 overflow-hidden bg-black position-relative d-flex align-items-center justify-content-center flex-grow-1" 
-            style={{ 
+            style={isExpandedView ? {
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: '100vw',
+              height: '100vh',
+              zIndex: 9999,
+              background: '#090d16',
+              cursor: isConnected ? (isControlLocked ? 'not-allowed' : 'crosshair') : 'default',
+              outline: 'none',
+              borderRadius: 0,
+              border: 'none',
+              boxShadow: 'none'
+            } : { 
               minHeight: '480px', 
               border: '3px solid ' + (isHostControlled ? '#ef4444' : isConnected ? 'var(--brand-primary)' : 'var(--border-color)'),
               background: '#090d16',
@@ -2132,10 +2219,8 @@ export default function RemoteDesktopPage() {
           >
             {/* Hosting Screen Capture Feed */}
             {isHosting && (
-              <div className="w-100 h-100 position-relative">
-                <video ref={videoRef} autoPlay playsInline muted className="w-100 h-100" style={{ objectFit: videoFit }} />
-                
-                <div className="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center" style={{ background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)', zIndex: 5, padding: '24px' }}>
+              <div className="w-100 h-100 position-relative" style={{ background: '#090d16' }}>
+                <div className="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center" style={{ background: '#090d16', zIndex: 5, padding: '24px' }}>
                   <div className="card p-4 text-center animate-scale-in" style={{ maxWidth: '460px', border: '3px solid #ef4444', background: '#111827', color: '#f9fafb', borderRadius: '16px' }}>
                     <AlertCircle size={48} className="text-danger mx-auto mb-3 animate-pulse" />
                     <h3 style={{ fontWeight: 800, color: '#ef4444', fontSize: '18px', margin: '0 0 10px 0' }}>Remote Sync Active</h3>
@@ -2149,7 +2234,7 @@ export default function RemoteDesktopPage() {
                       </div>
                     ) : (
                       <div className="alert alert-warning py-2 px-3 text-start mb-3" style={{ fontSize: '12px', fontWeight: 600 }}>
-                        🔑 Remote control active. Move mouse or press any key to interlock controls and lock out the client.
+                        🔑 Remote control active. Press any key on your keyboard to interlock controls and lock out the client.
                       </div>
                     )}
 
@@ -2212,6 +2297,13 @@ export default function RemoteDesktopPage() {
                         style={{ fontSize: '11px', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '4px' }}
                       >
                         <Maximize size={12} /> Full Screen
+                      </button>
+                      <button 
+                        className={`btn btn-xs ${isExpandedView ? 'btn-primary' : 'btn-ghost'}`}
+                        onClick={() => setIsExpandedView(!isExpandedView)}
+                        style={{ fontSize: '11px', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '4px' }}
+                      >
+                        <Maximize size={12} /> {isExpandedView ? 'Exit Window Fit' : 'Fit to Window'}
                       </button>
                     </div>
 
@@ -2530,6 +2622,16 @@ export default function RemoteDesktopPage() {
                   🚨 DISCONNECT (DOUBLE ESC)
                 </button>
               </div>
+            )}
+            {/* Hidden Audio Player for WebRTC dynamic Voice Calls */}
+            {remoteStream && (
+              <audio
+                ref={(el) => {
+                  if (el) el.srcObject = remoteStream;
+                }}
+                autoPlay
+                style={{ display: 'none' }}
+              />
             )}
           </div>
         </div>

@@ -95,13 +95,14 @@ export class WebrtcGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('remote:response')
-  handleRemoteResponse(@ConnectedSocket() client: Socket, @MessageBody() data: { targetUserId: string; status: 'accepted' | 'rejected'; permissions?: any; duration?: string }) {
+  handleRemoteResponse(@ConnectedSocket() client: Socket, @MessageBody() data: { targetUserId: string; status: 'accepted' | 'rejected'; permissions?: any; duration?: string; isDesktopAgent?: boolean }) {
     this.logger.log(`Remote response from ${client.data.userId} to ${data.targetUserId} status ${data.status}`);
     this.server.to(`user:${data.targetUserId}`).emit('remote:response', {
       hostId: client.data.userId,
       status: data.status,
       permissions: data.permissions,
       duration: data.duration,
+      isDesktopAgent: data.isDesktopAgent,
     });
   }
 

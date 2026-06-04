@@ -7,5 +7,7 @@ contextBridge.exposeInMainWorld('gsvDesktop', {
   platform: process.platform,
   remoteInput: (event) => ipcRenderer.invoke('remote-input', event),
   getSources: () => ipcRenderer.invoke('get-sources'),
-  openSettings: () => ipcRenderer.invoke('open-settings')
+  selectSource: (sourceId) => ipcRenderer.invoke('select-source', sourceId),
+  openSettings: () => ipcRenderer.invoke('open-settings'),
+  minimizeWindow: () => ipcRenderer.invoke('minimize-window')
 });

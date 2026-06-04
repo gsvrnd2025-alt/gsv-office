@@ -53,12 +53,23 @@ function saveConfig(config) {
 
 let config = loadConfig();
 
+// ─── Treat Server URL as Secure Origin ────────────────────────────────────────
+if (config.serverUrl) {
+  try {
+    const origin = new URL(config.serverUrl).origin;
+    app.commandLine.appendSwitch('unsafely-treat-insecure-origin-as-secure', origin);
+  } catch (e) {
+    console.error('Failed to append secure origin switch:', e);
+  }
+}
+
 // ─── App State ────────────────────────────────────────────────────────────────
 let mainWindow = null;
 let tray = null;
 let settingsWindow = null;
 let isServerOnline = false;
 let checkInterval = null;
+let selectedSourceId = null; // Stored source ID for WebRTC capture selection
 
 // ─── Get asset path ──────────────────────────────────────────────────────────
 function assetPath(name) {
@@ -243,9 +254,19 @@ function createMainWindow() {
   mainWindow.webContents.session.setDisplayMediaRequestHandler((request, callback) => {
     const { desktopCapturer } = require('electron');
     desktopCapturer.getSources({ types: ['screen', 'window'] }).then((sources) => {
-      if (sources.length > 0) {
-        callback({ video: sources[0], audio: 'loopback' });
+      let selectedSource = null;
+      if (selectedSourceId) {
+        selectedSource = sources.find(s => s.id === selectedSourceId);
+      }
+      if (!selectedSource && sources.length > 0) {
+        selectedSource = sources[0]; // fallback
+      }
+
+      if (selectedSource) {
+        console.log('Serving media stream capture for source:', selectedSource.id, selectedSource.name);
+        callback({ video: selectedSource, audio: 'loopback' });
       } else {
+        console.warn('No media capture source found.');
         callback({});
       }
     }).catch(err => {
@@ -397,6 +418,20 @@ function mapKeyToSendKeys(key) {
 }
 
 // ─── IPC Handlers ────────────────────────────────────────────────────────────
+ipcMain.handle('select-source', async (event, sourceId) => {
+  selectedSourceId = sourceId;
+  console.log('Electron target capture source selected:', selectedSourceId);
+  return { success: true };
+});
+
+ipcMain.handle('minimize-window', async () => {
+  if (mainWindow) {
+    mainWindow.minimize();
+    return { success: true };
+  }
+  return { success: false };
+});
+
 ipcMain.handle('remote-input', async (event, payload) => {
   if (process.platform !== 'win32') return { success: false, reason: 'Not Windows' };
   

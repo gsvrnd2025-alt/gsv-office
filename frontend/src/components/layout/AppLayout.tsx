@@ -25,6 +25,22 @@ export function AppLayout() {
       auth: { token: accessToken },
       transports: ['websocket', 'polling']
     });
+
+    socket.on('connect_error', async (err) => {
+      console.warn('Presence socket connection error, attempting token refresh:', err.message);
+      try {
+        // Trigger a simple authenticated API call to trigger Axios interceptor token refresh
+        await chatApi.getConversations();
+        const freshToken = useAuthStore.getState().accessToken;
+        if (freshToken && freshToken !== (socket.auth as any).token) {
+          (socket.auth as any).token = freshToken;
+          socket.connect();
+        }
+      } catch (refreshErr) {
+        console.error('Failed to auto-refresh token for presence socket:', refreshErr);
+      }
+    });
+
     return () => {
       socket.disconnect();
     };

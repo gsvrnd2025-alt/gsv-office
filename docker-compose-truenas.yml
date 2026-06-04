@@ -103,8 +103,8 @@ services:
       # Security & Default Admin
       BCRYPT_ROUNDS: 12
       SESSION_SECRET: "gsv_office_session_secret_very_long_string_2026"
-      RATE_LIMIT_TTL: 900
-      RATE_LIMIT_MAX: 100
+      RATE_LIMIT_TTL: 60
+      RATE_LIMIT_MAX: 300
       ADMIN_EMAIL: "admin@gsv.local"
       ADMIN_PASSWORD: "Admin@GSV2024"
       ADMIN_NAME: "System Administrator"
