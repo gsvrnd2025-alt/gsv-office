@@ -1121,6 +1121,8 @@ export default function RemoteDesktopPage() {
   const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
 
   const lastEscPressTime = useRef<number>(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const lastMouseMoveTime = useRef<number>(0);
 
   const addLog = (msg: string) => {
     setTerminalLogs(prev => [...prev.slice(-15), `[${new Date().toLocaleTimeString()}] ${msg}`]);
@@ -1179,6 +1181,17 @@ export default function RemoteDesktopPage() {
       }
     }
   }, [videoRef.current, isConnected, remoteStream, isHosting, localStream]);
+
+  // Bind audio element to remote stream for clean playing of sound
+  useEffect(() => {
+    if (audioRef.current) {
+      if (remoteStream) {
+        audioRef.current.srcObject = remoteStream;
+      } else {
+        audioRef.current.srcObject = null;
+      }
+    }
+  }, [audioRef.current, remoteStream]);
 
   // Stable refs for socket event handlers (avoids socket reconnect on every state change)
   const teammatesRef = useRef<any[]>([]);
@@ -1478,8 +1491,10 @@ export default function RemoteDesktopPage() {
       };
 
       pc.ontrack = (event) => {
+        console.log('WebRTC ontrack event:', event.track.kind);
         if (event.streams[0]) {
-          setRemoteStream(event.streams[0]);
+          const newStream = new MediaStream(pc.getReceivers().map(r => r.track).filter(Boolean));
+          setRemoteStream(newStream);
           if (!isHost) {
             setIsConnected(true);
             setIsConnecting(false);
@@ -1928,14 +1943,122 @@ export default function RemoteDesktopPage() {
     return clean;
   };
 
-  const handleViewportClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const getRelativeCoordinates = (e: React.MouseEvent<HTMLVideoElement>) => {
+    const video = videoRef.current;
+    if (!video) return null;
+
+    const rect = video.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+
+    // Use dynamic video width or fallback to 1920x1080
+    const videoWidth = video.videoWidth || 1920;
+    const videoHeight = video.videoHeight || 1080;
+
+    const elementWidth = rect.width;
+    const elementHeight = rect.height;
+
+    const videoRatio = videoWidth / videoHeight;
+    const elementRatio = elementWidth / elementHeight;
+
+    let actualVideoWidth = elementWidth;
+    let actualVideoHeight = elementHeight;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    // Accounts for aspect ratio constraints matching object-fit: contain
+    if (videoFit === 'contain') {
+      if (elementRatio > videoRatio) {
+        // Pillarbox
+        actualVideoWidth = elementHeight * videoRatio;
+        offsetX = (elementWidth - actualVideoWidth) / 2;
+      } else {
+        // Letterbox
+        actualVideoHeight = elementWidth / videoRatio;
+        offsetY = (elementHeight - actualVideoHeight) / 2;
+      }
+    }
+
+    const relativeX = clickX - offsetX;
+    const relativeY = clickY - offsetY;
+
+    const x = Math.round((relativeX / actualVideoWidth) * 1920);
+    const y = Math.round((relativeY / actualVideoHeight) * 1080);
+
+    const clampedX = Math.max(0, Math.min(1920, x));
+    const clampedY = Math.max(0, Math.min(1080, y));
+
+    return { x: clampedX, y: clampedY };
+  };
+
+  const handleViewportMouseMove = (e: React.MouseEvent<HTMLVideoElement>) => {
     if (!isConnected || isControlLocked || !dataChannelRef.current) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = Math.round(((e.clientX - rect.left) / rect.width) * 1920);
-    const y = Math.round(((e.clientY - rect.top) / rect.height) * 1080);
+
+    // Throttle mousemove coordinate transmissions to 40ms to avoid WebRTC stream congestion
+    const now = Date.now();
+    if (now - lastMouseMoveTime.current < 40) return;
+    lastMouseMoveTime.current = now;
+
+    const coords = getRelativeCoordinates(e);
+    if (!coords) return;
+
+    dataChannelRef.current.send(JSON.stringify({
+      type: 'mouse',
+      action: 'move',
+      x: coords.x,
+      y: coords.y
+    }));
+  };
+
+  const handleViewportMouseDown = (e: React.MouseEvent<HTMLVideoElement>) => {
+    if (!isConnected || isControlLocked || !dataChannelRef.current) return;
     
-    dataChannelRef.current.send(JSON.stringify({ type: 'mouse', x, y }));
-    addLog(`Click coordinate dispatched: (${x}, ${y})`);
+    // Direct focus to the parent card so keyboard keys are immediately captured
+    if (viewportRef.current) {
+      viewportRef.current.focus();
+    }
+
+    const coords = getRelativeCoordinates(e);
+    if (!coords) return;
+
+    let action = 'leftdown';
+    if (e.button === 2) {
+      action = 'rightdown';
+    }
+
+    dataChannelRef.current.send(JSON.stringify({
+      type: 'mouse',
+      action: action,
+      x: coords.x,
+      y: coords.y
+    }));
+    
+    addLog(`Mouse down (${action}) dispatched: (${coords.x}, ${coords.y})`);
+  };
+
+  const handleViewportMouseUp = (e: React.MouseEvent<HTMLVideoElement>) => {
+    if (!isConnected || isControlLocked || !dataChannelRef.current) return;
+
+    const coords = getRelativeCoordinates(e);
+    if (!coords) return;
+
+    let action = 'leftup';
+    if (e.button === 2) {
+      action = 'rightup';
+    }
+
+    dataChannelRef.current.send(JSON.stringify({
+      type: 'mouse',
+      action: action,
+      x: coords.x,
+      y: coords.y
+    }));
+    
+    addLog(`Mouse up (${action}) dispatched: (${coords.x}, ${coords.y})`);
+  };
+
+  const handleViewportContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault(); // Stop standard browser context menu on right clicks
   };
 
   const handleViewportKeyPress = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -2190,7 +2313,6 @@ export default function RemoteDesktopPage() {
         <div className="col-lg-8 col-xl-9 d-flex flex-column">
           <div 
             ref={viewportRef}
-            onClick={handleViewportClick}
             onKeyDown={handleViewportKeyPress}
             tabIndex={0}
             className="card p-0 overflow-hidden bg-black position-relative d-flex align-items-center justify-content-center flex-grow-1" 
@@ -2321,7 +2443,11 @@ export default function RemoteDesktopPage() {
                     autoPlay 
                     playsInline 
                     className="w-100 h-100" 
-                    style={{ objectFit: videoFit, background: '#000' }} 
+                    style={{ objectFit: videoFit, background: '#000', cursor: isControlLocked ? 'not-allowed' : 'crosshair' }} 
+                    onMouseMove={handleViewportMouseMove}
+                    onMouseDown={handleViewportMouseDown}
+                    onMouseUp={handleViewportMouseUp}
+                    onContextMenu={handleViewportContextMenu}
                   />
                   
                   {explorerOpen && (
@@ -2626,9 +2752,7 @@ export default function RemoteDesktopPage() {
             {/* Hidden Audio Player for WebRTC dynamic Voice Calls */}
             {remoteStream && (
               <audio
-                ref={(el) => {
-                  if (el) el.srcObject = remoteStream;
-                }}
+                ref={audioRef}
                 autoPlay
                 style={{ display: 'none' }}
               />

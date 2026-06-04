@@ -444,9 +444,25 @@ ipcMain.handle('remote-input', async (event, payload) => {
       const nativeX = Math.round((payload.x / 1920) * width);
       const nativeY = Math.round((payload.y / 1080) * height);
       
-      const cmd = `[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${nativeX}, ${nativeY})
-[Win32Input]::mouse_event(0x0002, 0, 0, 0, 0)
-[Win32Input]::mouse_event(0x0004, 0, 0, 0, 0)`;
+      let cmd = `[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${nativeX}, ${nativeY})`;
+      
+      if (payload.action === 'move') {
+        // Just move the cursor, no click
+      } else if (payload.action === 'leftdown') {
+        cmd += `\n[Win32Input]::mouse_event(0x0002, 0, 0, 0, 0)`;
+      } else if (payload.action === 'leftup') {
+        cmd += `\n[Win32Input]::mouse_event(0x0004, 0, 0, 0, 0)`;
+      } else if (payload.action === 'rightdown') {
+        cmd += `\n[Win32Input]::mouse_event(0x0008, 0, 0, 0, 0)`;
+      } else if (payload.action === 'rightup') {
+        cmd += `\n[Win32Input]::mouse_event(0x0010, 0, 0, 0, 0)`;
+      } else if (payload.action === 'rightclick') {
+        cmd += `\n[Win32Input]::mouse_event(0x0008, 0, 0, 0, 0)\n[Win32Input]::mouse_event(0x0010, 0, 0, 0, 0)`;
+      } else {
+        // Fallback for older clients: move + click
+        cmd += `\n[Win32Input]::mouse_event(0x0002, 0, 0, 0, 0)\n[Win32Input]::mouse_event(0x0004, 0, 0, 0, 0)`;
+      }
+      
       runPSCommand(cmd);
       return { success: true };
     } 
