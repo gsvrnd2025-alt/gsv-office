@@ -31,6 +31,8 @@ export function AppLayout() {
   }, [accessToken]);
 
   const isChatPage = location.pathname.startsWith('/chat');
+  const pathParts = location.pathname.split('/');
+  const activeConversationId = (isChatPage && pathParts[2]) ? pathParts[2] : null;
 
   // Background polling for unread chat sum across all conversations (polls every 5s)
   const { data: conversations = [] } = useQuery({
@@ -40,7 +42,10 @@ export function AppLayout() {
   });
 
   const prevUnreadCountSumRef = useRef(0);
-  const unreadSum = conversations.reduce((acc: number, c: any) => acc + (Number(c.unread_count) || 0), 0);
+  const unreadSum = conversations.reduce((acc: number, c: any) => {
+    if (activeConversationId && c.id === activeConversationId) return acc;
+    return acc + (Number(c.unread_count) || 0);
+  }, 0);
   const flashIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Tab Title Notification Flashing
@@ -49,7 +54,7 @@ export function AppLayout() {
 
     if (unreadSum > 0) {
       if (unreadSum > prevUnreadCountSumRef.current) {
-        SoundManager.playNotification();
+        SoundManager.playMessageRing();
       }
       let toggle = false;
       flashIntervalRef.current = setInterval(() => {

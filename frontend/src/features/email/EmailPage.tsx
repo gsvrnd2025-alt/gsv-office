@@ -7,7 +7,7 @@ import {
   Clock, ArrowLeft, RefreshCw, Paperclip, Minimize2, Maximize2, X,
   AlertCircle, Tag, Users, Bell
 } from 'lucide-react';
-import { emailApi, usersApi } from '../../api';
+import { emailApi, usersApi, filesApi } from '../../api';
 import toast from 'react-hot-toast';
 
 export default function EmailPage() {
@@ -44,6 +44,8 @@ export default function EmailPage() {
   const [cc, setCc] = useState('');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
+  const [attachments, setAttachments] = useState<any[]>([]);
+  const [uploading, setUploading] = useState(false);
 
   // Auto-complete recipient selection states
   const [activeSearchInput, setActiveSearchInput] = useState<'to' | 'cc' | null>(null);
@@ -71,6 +73,7 @@ export default function EmailPage() {
       setCc('');
       setSubject('');
       setBody('');
+      setAttachments([]);
       qc.invalidateQueries({ queryKey: ['emails', 'sent'] });
     },
     onError: () => {
@@ -128,8 +131,38 @@ export default function EmailPage() {
       cc: ccList,
       subject,
       body,
-      isHtml: false
+      isHtml: false,
+      attachmentIds: attachments.map(a => a.id)
     });
+  };
+
+  const handleFileAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    
+    setUploading(true);
+    const toastId = toast.loading('Uploading attachment...');
+    try {
+      const uploadedList = [...attachments];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fd = new FormData();
+        fd.append('file', file);
+        
+        const res = await filesApi.upload(fd);
+        const data = res.data?.data || res.data;
+        if (data && data.id) {
+          uploadedList.push(data);
+        }
+      }
+      setAttachments(uploadedList);
+      toast.success('Attachment uploaded! 📎', { id: toastId });
+    } catch (err) {
+      toast.error('Failed to upload attachment', { id: toastId });
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
   };
 
   const handleSelectRecipient = (emailAddress: string) => {
@@ -264,11 +297,42 @@ export default function EmailPage() {
               </div>
             </div>
             {/* Body */}
-            <div className="card-body" style={{ flex: 1, overflowY: 'auto', padding: '24px', background: 'var(--bg-secondary)' }}>
+            <div className="card-body" style={{ flex: 1, overflowY: 'auto', padding: '24px', background: 'var(--bg-secondary)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div 
                 style={{ fontSize: '14px', lineHeight: 1.7, color: 'var(--text-primary)', whiteSpace: 'pre-wrap', padding: '20px', background: 'var(--bg-card)', borderRadius: '8px', border: '1px solid var(--border-color)', minHeight: '300px' }} 
                 dangerouslySetInnerHTML={{ __html: selected.body_html || selected.body_text || 'No content' }} 
               />
+              {selected.attachments && Array.isArray(selected.attachments) && selected.attachments.length > 0 && (
+                <div style={{ padding: '16px', background: 'var(--bg-card)', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Paperclip size={14} style={{ color: 'var(--brand-primary)' }} />
+                    <span>Attachments ({selected.attachments.length})</span>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                    {selected.attachments.map((att: any) => (
+                      <a
+                        key={att.id}
+                        href={att.storageUrl}
+                        download={att.filename}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '8px',
+                          padding: '8px 12px', background: 'rgba(255,255,255,0.03)',
+                          borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)',
+                          textDecoration: 'none', transition: 'all 0.2s', color: 'inherit'
+                        }}
+                        className="hover-glass"
+                      >
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>{att.filename}</span>
+                          <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{(att.size / 1024).toFixed(1)} KB</span>
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -505,13 +569,59 @@ export default function EmailPage() {
                 />
               </div>
 
+              {/* Attachments List */}
+              {attachments.length > 0 && (
+                <div style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.03)', borderTop: '1px solid var(--border-color)', display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '80px', overflowY: 'auto' }}>
+                  {attachments.map((file, idx) => (
+                    <div 
+                      key={file.id || idx} 
+                      style={{ 
+                        display: 'flex', alignItems: 'center', gap: '6px', 
+                        background: 'rgba(255,255,255,0.05)', padding: '4px 10px', 
+                        borderRadius: '16px', fontSize: '11px', border: '1px solid rgba(255,255,255,0.1)' 
+                      }}
+                    >
+                      <Paperclip size={10} style={{ color: 'var(--brand-primary)' }} />
+                      <span style={{ color: 'var(--text-primary)', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={file.originalName || file.name}>
+                        {file.originalName || file.name}
+                      </span>
+                      <span style={{ color: 'var(--text-tertiary)', fontSize: '9px' }}>
+                        ({(file.size / 1024).toFixed(1)} KB)
+                      </span>
+                      <button 
+                        type="button" 
+                        onClick={() => setAttachments(attachments.filter((_, i) => i !== idx))}
+                        style={{ background: 'none', border: 'none', color: 'var(--brand-danger)', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {/* Send controls footer */}
               <div style={{ borderTop: '1px solid var(--border-color)', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <button type="submit" className="btn btn-primary btn-sm" style={{ padding: '6px 18px', borderRadius: '18px' }} disabled={sendEmailMutation.isPending}>
+                  <button type="submit" className="btn btn-primary btn-sm" style={{ padding: '6px 18px', borderRadius: '18px' }} disabled={sendEmailMutation.isPending || uploading}>
                     {sendEmailMutation.isPending ? 'Sending...' : 'Send'}
                   </button>
-                  <button type="button" className="btn btn-ghost btn-icon btn-sm" title="Attach file"><Paperclip size={14} /></button>
+                  <input 
+                    type="file" 
+                    multiple 
+                    id="email-file-attachment" 
+                    style={{ display: 'none' }} 
+                    onChange={handleFileAttach} 
+                  />
+                  <button 
+                    type="button" 
+                    className="btn btn-ghost btn-icon btn-sm" 
+                    title="Attach file"
+                    onClick={() => document.getElementById('email-file-attachment')?.click()}
+                    disabled={uploading}
+                  >
+                    <Paperclip size={14} />
+                  </button>
                 </div>
                 <button type="button" className="btn btn-ghost btn-icon btn-sm danger" onClick={() => setCompose(false)} title="Discard"><Trash2 size={14} /></button>
               </div>

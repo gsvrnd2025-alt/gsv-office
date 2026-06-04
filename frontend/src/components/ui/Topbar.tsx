@@ -1,4 +1,4 @@
-import { Menu, Bell, Sun, Moon, Search } from 'lucide-react';
+import { Menu, Bell, Sun, Moon, Search, Check, X } from 'lucide-react';
 import { useAuthStore } from '../../store/auth.store';
 import { useThemeStore } from '../../store/theme.store';
 import { useState, useEffect } from 'react';
@@ -27,6 +27,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
   const { data: conversationsData } = useQuery({
     queryKey: ['conversations'],
     queryFn: () => chatApi.getConversations().then(r => r.data?.data || r.data || []),
+    refetchInterval: 5000,
   });
 
   const { data: usersData } = useQuery({
@@ -166,6 +167,20 @@ export function Topbar({ onMenuClick }: TopbarProps) {
       qc.invalidateQueries({ queryKey: ['notifications-count'] });
     }
   });
+
+  const markAllChatsRead = async () => {
+    try {
+      const unread = conversations.filter((c: any) => (Number(c.unread_count) || 0) > 0);
+      if (unread.length === 0) return;
+      
+      await Promise.all(unread.map((c: any) => chatApi.markRead(c.id)));
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+      qc.invalidateQueries({ queryKey: ['global-conversations-unread'] });
+      toast.success('All chats marked as read! 💬');
+    } catch (err) {
+      toast.error('Failed to mark all chats as read');
+    }
+  };
 
 
 
@@ -325,6 +340,19 @@ export function Topbar({ onMenuClick }: TopbarProps) {
                       {/* Chats tab: WhatsApp style grouped unread chats */}
                       {activeNotifTab === 'chats' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '250px', overflowY: 'auto' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '4px', marginBottom: '4px' }}>
+                            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Grouped Chats</span>
+                            {unreadChatSum > 0 && (
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-sm"
+                                style={{ padding: '1px 5px', fontSize: '9px', height: 'auto', border: 0, background: 'transparent', color: 'var(--brand-primary)', cursor: 'pointer' }}
+                                onClick={markAllChatsRead}
+                              >
+                                Mark all read
+                              </button>
+                            )}
+                          </div>
                           {unreadChats.length === 0 ? (
                             <div style={{ padding: '24px 16px', color: 'var(--text-tertiary)', fontSize: '11px', textAlign: 'center' }}>
                               🟢 No unread messages
@@ -359,13 +387,29 @@ export function Topbar({ onMenuClick }: TopbarProps) {
                                     <strong style={{ fontSize: '12px', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                       {c.name || 'Private Chat'}
                                     </strong>
-                                    <span style={{
-                                      background: 'var(--brand-danger)', color: 'white',
-                                      fontSize: '9px', fontWeight: 700, padding: '2px 6px',
-                                      borderRadius: '8px', minWidth: '16px', textAlign: 'center'
-                                    }}>
-                                      {c.unread_count}
-                                    </span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                      <button
+                                        type="button"
+                                        title="Mark read"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          chatApi.markRead(c.id).then(() => {
+                                            qc.invalidateQueries({ queryKey: ['conversations'] });
+                                            qc.invalidateQueries({ queryKey: ['global-conversations-unread'] });
+                                          });
+                                        }}
+                                        style={{ background: 'transparent', border: 'none', padding: '2px', cursor: 'pointer', color: 'var(--brand-success)', display: 'flex', alignItems: 'center' }}
+                                      >
+                                        <Check size={12} />
+                                      </button>
+                                      <span style={{
+                                        background: 'var(--brand-danger)', color: 'white',
+                                        fontSize: '9px', fontWeight: 700, padding: '2px 6px',
+                                        borderRadius: '8px', minWidth: '16px', textAlign: 'center'
+                                      }}>
+                                        {c.unread_count}
+                                      </span>
+                                    </div>
                                   </div>
                                   <p style={{ fontSize: '10px', color: 'var(--text-secondary)', margin: '2px 0 0 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                     {c.last_message_preview || 'No messages yet'}
@@ -411,8 +455,33 @@ export function Topbar({ onMenuClick }: TopbarProps) {
                                 className="hover-glass"
                               >
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#fff' }}>{n.title}</span>
-                                  {!n.isRead && <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--brand-danger)' }} />}
+                                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#fff', flex: 1, marginRight: '8px' }}>{n.title}</span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    {!n.isRead && (
+                                      <button
+                                        type="button"
+                                        title="Mark read"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          markReadMutation.mutate(n.id);
+                                        }}
+                                        style={{ background: 'transparent', border: 'none', padding: '2px', cursor: 'pointer', color: 'var(--brand-success)', display: 'flex', alignItems: 'center' }}
+                                      >
+                                        <Check size={12} />
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      title="Close alert"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        markReadMutation.mutate(n.id);
+                                      }}
+                                      style={{ background: 'transparent', border: 'none', padding: '2px', cursor: 'pointer', color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center' }}
+                                    >
+                                      <X size={12} />
+                                    </button>
+                                  </div>
                                 </div>
                                 <p style={{ fontSize: '10px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>{n.message}</p>
                               </div>

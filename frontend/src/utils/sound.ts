@@ -1,11 +1,59 @@
 // ── Sound Resonance Manager using Web Audio API ───────────────────
-// Synthesizes high-fidelity premium chimes and clicks on-the-fly
+// Synthesizes high-fidelity premium chimes, clicks, and rings on-the-fly
 
 export class SoundManager {
   private static getContext(): AudioContext | null {
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
     if (!AudioContextClass) return null;
     return new AudioContextClass();
+  }
+
+  /**
+   * Play a digital phone-like ring chime sound with a specified duration
+   */
+  static playRing(durationSeconds: number) {
+    if (localStorage.getItem('gsv-sound-notifications') === 'false') return;
+
+    try {
+      const ctx = this.getContext();
+      if (!ctx) return;
+
+      const now = ctx.currentTime;
+      const pulseDuration = 0.35; // duration of a single ring pulse
+      const pulseGap = 0.15; // gap between pulses
+      const cycleTime = pulseDuration + pulseGap; // 0.50s per ring cycle
+
+      const numPulses = Math.ceil(durationSeconds / cycleTime);
+      for (let i = 0; i < numPulses; i++) {
+        const start = now + i * cycleTime;
+        if (i * cycleTime >= durationSeconds) break;
+
+        const playTone = (freq: number, vol: number) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, start);
+          
+          gain.gain.setValueAtTime(0, start);
+          gain.gain.linearRampToValueAtTime(vol, start + 0.03);
+          gain.gain.setValueAtTime(vol, start + pulseDuration - 0.05);
+          gain.gain.exponentialRampToValueAtTime(0.0001, start + pulseDuration);
+          
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          
+          osc.start(start);
+          osc.stop(start + pulseDuration);
+        };
+
+        // Dual-tone digital ringing sound
+        playTone(880, 0.06); // A5
+        playTone(987.77, 0.04); // B5
+      }
+    } catch (e) {
+      console.warn('Ring audio synthesis failed:', e);
+    }
   }
 
   /**
@@ -43,6 +91,14 @@ export class SoundManager {
     } catch (e) {
       console.warn('Audio synthesis failed:', e);
     }
+  }
+
+  static playMessageRing() {
+    this.playRing(2.0);
+  }
+
+  static playRemoteRequestRing() {
+    this.playRing(5.0);
   }
 
   /**

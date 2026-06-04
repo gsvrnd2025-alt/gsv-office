@@ -166,6 +166,40 @@ export default function ChatPage() {
     catch { return []; }
   });
   const [showGroupDetails, setShowGroupDetails] = useState(false);
+  const [deletedFiles, setDeletedFiles] = useState<string[]>([]);
+  const [clearTimestamp, setClearTimestamp] = useState<number | null>(null);
+
+  // Sync deletedFiles and clearTimestamp when user or conversation changes
+  useEffect(() => {
+    if (user && conversationId) {
+      const df = localStorage.getItem(`gsv-deleted-files-${user.id}-${conversationId}`);
+      setDeletedFiles(df ? JSON.parse(df) : []);
+      
+      const ct = localStorage.getItem(`gsv-chat-clear-${user.id}-${conversationId}`);
+      setClearTimestamp(ct ? Number(ct) : null);
+    } else {
+      setDeletedFiles([]);
+      setClearTimestamp(null);
+    }
+  }, [user?.id, conversationId]);
+
+  const handleDeleteFile = (msgId: string) => {
+    const updated = [...deletedFiles, msgId];
+    setDeletedFiles(updated);
+    if (user && conversationId) {
+      localStorage.setItem(`gsv-deleted-files-${user.id}-${conversationId}`, JSON.stringify(updated));
+    }
+    toast.success('File hidden from files list.');
+  };
+
+  const handleClearHistory = () => {
+    const now = Date.now();
+    setClearTimestamp(now);
+    if (user && conversationId) {
+      localStorage.setItem(`gsv-chat-clear-${user.id}-${conversationId}`, String(now));
+    }
+    toast.success('Chat history cleared locally.');
+  };
   const [requestCategory, setRequestCategory] = useState<'pending' | 'approved' | 'rejected'>('pending');
   const [simulatedRequests, setSimulatedRequests] = useState<any[]>(() => {
     try {
@@ -483,16 +517,18 @@ export default function ChatPage() {
     queryKey: ['messages', conversationId],
     queryFn: () => chatApi.getMessages(conversationId!).then(r => {
       const data = r.data?.data || r.data || [];
-      return data.map(normalizeMessage);
+      // Backend returns messages DESC (newest first) — reverse for chronological display
+      return [...data].reverse().map(normalizeMessage);
     }),
     enabled: !!conversationId,
     refetchInterval: 2000,
   });
 
+  // Use /users/directory — no 'users:read' permission required, available to all logged-in users
   const { data: usersData } = useQuery({
-    queryKey: ['users', '', '', 1],
-    queryFn: () => usersApi.getAll().then(r => r.data?.data || r.data || []),
-    refetchInterval: 4000,
+    queryKey: ['users-directory'],
+    queryFn: () => usersApi.getDirectory().then(r => r.data?.data || r.data || []),
+    refetchInterval: 30000, // refresh every 30 seconds (directory changes rarely)
   });
 
   const users = usersData?.data ? usersData.data : (Array.isArray(usersData) ? usersData : []);
@@ -659,7 +695,7 @@ export default function ChatPage() {
     }
   });
 
-  // 1. Play Ding-Dong chime and scroll for new messages in the currently active chat room
+  // 1. Play synthesized message ring and scroll for new messages in the currently active chat room
   const prevMessagesLengthRef = useRef(messages.length);
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -668,21 +704,36 @@ export default function ChatPage() {
       const lastMsg = messages[messages.length - 1];
       // Only play the sound if the message exists and was not sent by the logged-in user
       if (lastMsg && lastMsg.sender_id !== user?.id && lastMsg.sender?.id !== user?.id) {
-        SoundManager.playNotification();
+        SoundManager.playMessageRing();
       }
     }
     prevMessagesLengthRef.current = messages.length;
   }, [messages, user?.id]);
 
-  // 2. Play Ding-Dong chime for new background messages (across all conversations unread sum)
+  // 2. Play synthesized message ring for new background messages (across all conversations unread sum)
   const prevUnreadCountSumRef = useRef(0);
   useEffect(() => {
-    const currentUnreadSum = conversations.reduce((acc: number, c: any) => acc + (Number(c.unread_count) || 0), 0);
+    const currentUnreadSum = conversations.reduce((acc: number, c: any) => {
+      if (conversationId && c.id === conversationId) return acc;
+      return acc + (Number(c.unread_count) || 0);
+    }, 0);
     if (currentUnreadSum > prevUnreadCountSumRef.current) {
-      SoundManager.playNotification();
+      SoundManager.playMessageRing();
     }
     prevUnreadCountSumRef.current = currentUnreadSum;
-  }, [conversations]);
+  }, [conversations, conversationId]);
+
+  // 2.5. Automatically mark the active conversation as read
+  useEffect(() => {
+    if (conversationId) {
+      chatApi.markRead(conversationId)
+        .then(() => {
+          qc.invalidateQueries({ queryKey: ['conversations'] });
+          qc.invalidateQueries({ queryKey: ['global-conversations-unread'] });
+        })
+        .catch(err => console.error('Failed to mark conversation as read:', err));
+    }
+  }, [conversationId, messages.length, qc]);
 
   // 3. Handle global search routing for DM chats
   useEffect(() => {
@@ -1066,12 +1117,17 @@ export default function ChatPage() {
   const partnerName = partner?.fullName || activeConv?.name?.replace('DM with ', '');
   const handshakeRequired = activeConv?.type === 'private' && partner && (partner as any).departmentId !== (user as any)?.departmentId && (partner as any).department_id !== (user as any)?.department_id && !approvedHandshakes.includes((partner as any).id);
   
-  // Sort messages chronologically: oldest first, newest last (WhatsApp style)
   let sortedMessages = [...messages].sort((a: any, b: any) => {
     const timeA = new Date(a.created_at || a.createdAt || 0).getTime();
     const timeB = new Date(b.created_at || b.createdAt || 0).getTime();
     return timeA - timeB;
   });
+  if (clearTimestamp) {
+    sortedMessages = sortedMessages.filter((m: any) => {
+      const msgTime = new Date(m.created_at || m.createdAt || 0).getTime();
+      return msgTime > clearTimestamp;
+    });
+  }
   sortedMessages = sortedMessages.filter((msg: any) => !blockedUsers.includes(msg.sender_id));
   sortedMessages = [...sortedMessages, ...sendingMessages];
   if (fileSearch.trim() || fileCategory !== 'all') {
@@ -1783,14 +1839,14 @@ export default function ChatPage() {
                     {blockedUsers.includes(partner.id) ? "🔓 Unblock" : "🚫 Block"}
                   </button>
                 )}
-                {(activeConv?.type === 'group' || activeConv?.type === 'department') && (
+                {activeConv && (
                   <button
                     className="btn btn-ghost btn-icon"
                     onClick={() => setShowGroupDetails(!showGroupDetails)}
-                    title="Group Info"
+                    title="Conversation Info & Files"
                     style={{ marginRight: '8px' }}
                   >
-                    <Users2 size={18} style={{ color: showGroupDetails ? 'var(--brand-primary)' : 'var(--text-secondary)' }} />
+                    <Info size={18} style={{ color: showGroupDetails ? 'var(--brand-primary)' : 'var(--text-secondary)' }} />
                   </button>
                 )}
                 <button
@@ -2431,8 +2487,8 @@ export default function ChatPage() {
             )}
           </div>
 
-          {/* Group details & pending requests sidebar */}
-          {showGroupDetails && (activeConv.type === 'group' || activeConv.type === 'department') && (
+          {/* Conversation details sidebar */}
+          {showGroupDetails && (
             <div style={{
               width: '320px', borderLeft: '1px solid var(--border-color)', height: '100%',
               background: 'var(--bg-card)', display: 'flex', flexDirection: 'column', flexShrink: 0,
@@ -2440,123 +2496,252 @@ export default function ChatPage() {
             }}>
               {/* Header */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', borderBottom: '1px solid var(--border-color)' }}>
-                <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)' }}>Group Node Resonance</span>
+                <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Info size={16} style={{ color: 'var(--brand-primary)' }} />
+                  Conversation Details
+                </span>
                 <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setShowGroupDetails(false)}>✕</button>
               </div>
 
               {/* Body */}
               <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                
                 {/* Profile block */}
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '8px' }}>
-                  <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: 'linear-gradient(135deg, #00a884, #005c4b)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '28px', fontWeight: 'bold' }}>
-                    {activeConv.name?.charAt(0).toUpperCase() || 'G'}
+                {activeConv.type === 'private' ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
+                    <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: 'var(--gradient-brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '28px', fontWeight: 'bold' }}>
+                      {partnerName?.charAt(0).toUpperCase() || 'U'}
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: '16px', color: 'var(--text-primary)' }}>{partnerName}</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
+                      <div><strong>Login ID:</strong> @{partner?.loginId || 'N/A'}</div>
+                      <div><strong>Department:</strong> {partner?.department?.name || 'Local'}</div>
+                      {partner?.phone && <div><strong>Phone:</strong> {partner.phone}</div>}
+                      {partner?.email && <div><strong>Email:</strong> {partner.email}</div>}
+                      <div style={{ marginTop: '4px' }}>
+                        <span style={{
+                          padding: '2px 8px', borderRadius: '12px', fontSize: '10px', fontWeight: 600,
+                          background: partner?.isOnline ? 'rgba(74, 222, 128, 0.15)' : 'rgba(148, 163, 184, 0.15)',
+                          color: partner?.isOnline ? 'var(--brand-success)' : 'var(--text-secondary)'
+                        }}>
+                          {partner?.isOnline ? '🟢 Online' : '⚪ Offline'}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <div style={{ fontWeight: 700, fontSize: '16px', color: 'var(--text-primary)' }}>{activeConv.name}</div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{activeConv.description || 'Secure group resonance channel'}</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
+                    <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: 'linear-gradient(135deg, #00a884, #005c4b)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '28px', fontWeight: 'bold' }}>
+                      {activeConv.name?.charAt(0).toUpperCase() || 'G'}
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: '16px', color: 'var(--text-primary)' }}>{activeConv.name}</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{activeConv.description || 'Secure group resonance channel'}</div>
+                  </div>
+                )}
+
+                {/* Actions Block */}
+                <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--brand-primary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
+                    ⚙️ Chat Actions
+                  </div>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--brand-danger)', border: '1px solid rgba(239, 68, 68, 0.2)', width: '100%', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    onClick={() => {
+                      setConfirmModal({
+                        title: 'Clear Chat History?',
+                        message: 'This will locally clear all messages in this conversation from your screen. The other participant will still retain their message history.',
+                        iconType: 'trash',
+                        confirmText: 'Clear History',
+                        brandColor: 'var(--brand-danger)',
+                        onConfirm: handleClearHistory
+                      });
+                    }}
+                  >
+                    🗑️ Clear Chat History
+                  </button>
                 </div>
 
-                {/* Simulated Requests Area with Tabs */}
-                <div>
-                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--brand-primary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
-                    📥 Group Access Requests
+                {/* Shared Files List block */}
+                <div style={{ borderBottom: (activeConv.type === 'group' || activeConv.type === 'department') ? '1px solid var(--border-color)' : 'none', paddingBottom: '16px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--brand-primary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>📁 Shared Files ({
+                      sortedMessages.filter(
+                        (m: any) => m.type && m.type !== 'text' && (m.file_url || m.fileUrl) && !deletedFiles.includes(m.id)
+                      ).length
+                    })</span>
                   </div>
                   
-                  {/* Category tabs */}
-                  <div style={{ display: 'flex', gap: '4px', marginBottom: '10px', background: 'var(--bg-secondary)', padding: '2px', borderRadius: '6px' }}>
-                    {[
-                      { key: 'pending', label: 'Pending' },
-                      { key: 'approved', label: 'Approved' },
-                      { key: 'rejected', label: 'Rejected' }
-                    ].map(tab => {
-                      const count = simulatedRequests.filter((r: any) => r.status === tab.key).length;
-                      return (
-                        <button
-                          key={tab.key}
-                          type="button"
-                          className="btn btn-xs"
-                          style={{
-                            flex: 1,
-                            fontSize: '10px',
-                            padding: '3px',
-                            background: requestCategory === tab.key ? 'var(--brand-primary)' : 'transparent',
-                            color: requestCategory === tab.key ? 'white' : 'var(--text-secondary)',
-                            border: 'none',
-                            borderRadius: '4px'
-                          }}
-                          onClick={() => { setRequestCategory(tab.key as any); localStorage.setItem('gsv_req_cat', tab.key); }}
-                        >
-                          {tab.label} ({count})
-                        </button>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '250px', overflowY: 'auto', paddingRight: '4px' }}>
+                    {(() => {
+                      const files = sortedMessages.filter(
+                        (m: any) => m.type && m.type !== 'text' && (m.file_url || m.fileUrl) && !deletedFiles.includes(m.id)
                       );
-                    })}
-                  </div>
+                      
+                      if (files.length === 0) {
+                        return <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', textAlign: 'center', padding: '12px 0' }}>No files shared in this chat</div>;
+                      }
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {simulatedRequests.filter((r: any) => r.status === requestCategory).length === 0 ? (
-                      <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', textAlign: 'center', padding: '12px 0' }}>No {requestCategory} requests</div>
-                    ) : (
-                      simulatedRequests.filter((r: any) => r.status === requestCategory).map((req: any) => (
-                        <div key={req.id} style={{ background: 'var(--bg-secondary)', borderRadius: '8px', padding: '10px', border: '1px solid var(--border-color)' }}>
-                          <div style={{ fontWeight: 600, fontSize: '12px', color: 'var(--text-primary)' }}>{req.fullName}</div>
-                          <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{req.employeeId} • @{req.loginId}</div>
-                          {req.status === 'pending' && (
-                            <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
-                              <button
-                                className="btn btn-primary btn-xs"
-                                style={{ flex: 1, height: '24px', fontSize: '10px', background: '#00a884', border: 'none' }}
-                                onClick={async () => {
-                                  try {
-                                    await chatApi.sendMessage(activeConv.id, { content: `Approved join request from @${req.loginId}`, type: 'system' });
-                                    toast.success(`Approved ${req.fullName} to join group!`);
-                                    
-                                    const nextReqs = simulatedRequests.map((r: any) => r.id === req.id ? { ...r, status: 'approved' } : r);
-                                    setSimulatedRequests(nextReqs);
-                                    localStorage.setItem('gsv_simulated_requests', JSON.stringify(nextReqs));
-                                  } catch (err) {
-                                    toast.error('Failed to add member to database');
-                                  }
-                                }}
+                      return files.map((fileMsg: any) => {
+                        const fileName = fileMsg.file_name || fileMsg.fileName || 'file';
+                        const fileUrl = fileMsg.file_url || fileMsg.fileUrl;
+                        return (
+                          <div
+                            key={fileMsg.id}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: '8px', padding: '8px',
+                              background: 'var(--bg-secondary)', borderRadius: '8px', border: '1px solid var(--border-color)'
+                            }}
+                          >
+                            <File size={16} style={{ color: 'var(--wa-accent)', flexShrink: 0 }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div
+                                style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}
+                                title={fileName}
+                                onClick={() => setPreviewFile({ url: fileUrl, name: fileName, type: fileMsg.type })}
                               >
-                                Approve
-                              </button>
-                              <button
-                                className="btn btn-secondary btn-xs danger"
-                                style={{ flex: 1, height: '24px', fontSize: '10px' }}
-                                onClick={() => {
-                                  toast.success(`Rejected request from ${req.fullName}`);
-                                  const nextReqs = simulatedRequests.map((r: any) => r.id === req.id ? { ...r, status: 'rejected' } : r);
-                                  setSimulatedRequests(nextReqs);
-                                  localStorage.setItem('gsv_simulated_requests', JSON.stringify(nextReqs));
-                                }}
+                                {fileName}
+                              </div>
+                              <div style={{ fontSize: '9px', color: 'var(--text-tertiary)', marginTop: '2px' }}>
+                                {new Date(fileMsg.created_at || fileMsg.createdAt).toLocaleDateString()}
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                              <a
+                                href={fileUrl}
+                                download={fileName}
+                                className="btn btn-ghost btn-icon btn-xs"
+                                title="Download File"
+                                onClick={e => e.stopPropagation()}
+                                style={{ padding: '2px', color: 'var(--wa-accent)', width: '20px', height: '20px' }}
                               >
-                                Reject
+                                <Download size={12} />
+                              </a>
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-icon btn-xs"
+                                title="Hide from list"
+                                onClick={() => handleDeleteFile(fileMsg.id)}
+                                style={{ padding: '2px', color: 'var(--brand-danger)', width: '20px', height: '20px' }}
+                              >
+                                <X size={12} />
                               </button>
                             </div>
-                          )}
-                        </div>
-                      ))
-                    )}
+                          </div>
+                        );
+                      });
+                    })()}
                   </div>
                 </div>
 
-                {/* Members list (Simulated or actual) */}
-                <div>
-                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
-                    👥 Active Members
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0' }}>
-                      <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'var(--gradient-brand)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 'bold' }}>ME</div>
-                      <span style={{ fontSize: '12px', fontWeight: 600 }}>{user?.fullName} (You)</span>
-                    </div>
-                    {otherUsers.slice(0, 3).map((u: any) => (
-                      <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0' }}>
-                        <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 'bold' }}>{initials(u.fullName)}</div>
-                        <span style={{ fontSize: '12px' }}>{u.fullName}</span>
+                {/* Group details: Requests & Members (Only for Groups) */}
+                {(activeConv.type === 'group' || activeConv.type === 'department') && (
+                  <>
+                    {/* Simulated Requests Area with Tabs */}
+                    <div>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--brand-primary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
+                        📥 Group Access Requests
                       </div>
-                    ))}
-                  </div>
-                </div>
+                      
+                      {/* Category tabs */}
+                      <div style={{ display: 'flex', gap: '4px', marginBottom: '10px', background: 'var(--bg-secondary)', padding: '2px', borderRadius: '6px' }}>
+                        {[
+                          { key: 'pending', label: 'Pending' },
+                          { key: 'approved', label: 'Approved' },
+                          { key: 'rejected', label: 'Rejected' }
+                        ].map(tab => {
+                          const count = simulatedRequests.filter((r: any) => r.status === tab.key).length;
+                          return (
+                            <button
+                              key={tab.key}
+                              type="button"
+                              className="btn btn-xs"
+                              style={{
+                                flex: 1,
+                                fontSize: '10px',
+                                padding: '3px',
+                                background: requestCategory === tab.key ? 'var(--brand-primary)' : 'transparent',
+                                color: requestCategory === tab.key ? 'white' : 'var(--text-secondary)',
+                                border: 'none',
+                                borderRadius: '4px'
+                              }}
+                              onClick={() => { setRequestCategory(tab.key as any); localStorage.setItem('gsv_req_cat', tab.key); }}
+                            >
+                              {tab.label} ({count})
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {simulatedRequests.filter((r: any) => r.status === requestCategory).length === 0 ? (
+                          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', textAlign: 'center', padding: '12px 0' }}>No {requestCategory} requests</div>
+                        ) : (
+                          simulatedRequests.filter((r: any) => r.status === requestCategory).map((req: any) => (
+                            <div key={req.id} style={{ background: 'var(--bg-secondary)', borderRadius: '8px', padding: '10px', border: '1px solid var(--border-color)' }}>
+                              <div style={{ fontWeight: 600, fontSize: '12px', color: 'var(--text-primary)' }}>{req.fullName}</div>
+                              <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{req.employeeId} • @{req.loginId}</div>
+                              {req.status === 'pending' && (
+                                <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
+                                  <button
+                                    className="btn btn-primary btn-xs"
+                                    style={{ flex: 1, height: '24px', fontSize: '10px', background: '#00a884', border: 'none' }}
+                                    onClick={async () => {
+                                      try {
+                                        await chatApi.sendMessage(activeConv.id, { content: `Approved join request from @${req.loginId}`, type: 'system' });
+                                        toast.success(`Approved ${req.fullName} to join group!`);
+                                        
+                                        const nextReqs = simulatedRequests.map((r: any) => r.id === req.id ? { ...r, status: 'approved' } : r);
+                                        setSimulatedRequests(nextReqs);
+                                        localStorage.setItem('gsv_simulated_requests', JSON.stringify(nextReqs));
+                                      } catch (err) {
+                                        toast.error('Failed to add member to database');
+                                      }
+                                    }}
+                                  >
+                                    Approve
+                                  </button>
+                                  <button
+                                    className="btn btn-secondary btn-xs danger"
+                                    style={{ flex: 1, height: '24px', fontSize: '10px' }}
+                                    onClick={() => {
+                                      toast.success(`Rejected request from ${req.fullName}`);
+                                      const nextReqs = simulatedRequests.map((r: any) => r.id === req.id ? { ...r, status: 'rejected' } : r);
+                                      setSimulatedRequests(nextReqs);
+                                      localStorage.setItem('gsv_simulated_requests', JSON.stringify(nextReqs));
+                                    }}
+                                  >
+                                    Reject
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Members list (Simulated or actual) */}
+                    <div>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
+                        👥 Active Members
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0' }}>
+                          <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'var(--gradient-brand)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 'bold' }}>ME</div>
+                          <span style={{ fontSize: '12px', fontWeight: 600 }}>{user?.fullName} (You)</span>
+                        </div>
+                        {otherUsers.slice(0, 3).map((u: any) => (
+                          <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0' }}>
+                            <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 'bold' }}>{initials(u.fullName)}</div>
+                            <span style={{ fontSize: '12px' }}>{u.fullName}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+
               </div>
             </div>
           )}

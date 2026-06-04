@@ -30,6 +30,7 @@ services:
     volumes:
       - /mnt/GSVR_Movies/apps/gsv-office/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - /mnt/GSVR_Movies/apps/gsv-office/nginx/conf.d:/etc/nginx/conf.d:ro
+      - /mnt/GSVR_Movies/apps/gsv-office/downloads:/var/www/downloads:ro
       - uploads_data:/var/www/uploads:ro
     depends_on:
       - api

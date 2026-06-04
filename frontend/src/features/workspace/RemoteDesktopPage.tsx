@@ -12,6 +12,7 @@ import { useAuthStore } from '../../store/auth.store';
 import { usersApi } from '../../api';
 import { useThemeStore } from '../../store/theme.store';
 import { io, Socket } from 'socket.io-client';
+import { SoundManager } from '../../utils/sound';
 
 class MockDesktopState {
   files: MockFile[];
@@ -986,6 +987,33 @@ export default function RemoteDesktopPage() {
 
   // Interlock Method state
   const [isControlLocked, setIsControlLocked] = useState(false);
+  const isControlLockedRef = useRef(false);
+  useEffect(() => { isControlLockedRef.current = isControlLocked; }, [isControlLocked]);
+
+  // Client connection states
+  const [partnerIsDesktop, setPartnerIsDesktop] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isPwaInstallable, setIsPwaInstallable] = useState(false);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setIsPwaInstallable(true);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+  }, []);
+
+  const handleInstallPwa = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setIsPwaInstallable(false);
+      setDeferredPrompt(null);
+    }
+  };
 
   // Permissions settings modal
   const [showIncomingRequest, setShowIncomingRequest] = useState(false);
@@ -1103,6 +1131,7 @@ export default function RemoteDesktopPage() {
 
     s.on('remote:request', (data: any) => {
       addLog(`Incoming remote connection request from ${data.callerName} (${data.callerPhone})`);
+      SoundManager.playRemoteRequestRing();
       setIncomingRequestData(data);
       setShowIncomingRequest(true);
     });
@@ -1127,6 +1156,16 @@ export default function RemoteDesktopPage() {
         setDialingStatus('accepted');
         addLog('Host accepted request. Setting up WebRTC session...');
         setActivePartnerId(data.hostId);
+        setPartnerIsDesktop(!!data.isDesktopAgent);
+        
+        if (data.isDesktopAgent) {
+          addLog('Host Desktop Agent is online 🟢. Direct OS-level control is active.');
+          toast.success('Direct Desktop Agent control active!');
+        } else {
+          addLog('WARNING: Host is running inside standard browser. Native OS-level control is unavailable.');
+          toast.error('Host running on browser. Native input control unavailable.');
+        }
+
         const hostUser = teammatesRef.current.find(t => t.id === data.hostId);
         setActivePartnerName(hostUser?.fullName || 'Host');
         
@@ -1365,10 +1404,16 @@ export default function RemoteDesktopPage() {
           if (desktopStateRef.current) {
             desktopStateRef.current.handleClick(payload.x, payload.y);
           }
+          if (!isControlLockedRef.current && (window as any).gsvDesktop && typeof (window as any).gsvDesktop.remoteInput === 'function') {
+            (window as any).gsvDesktop.remoteInput({ type: 'mouse', x: payload.x, y: payload.y });
+          }
         } else if (payload.type === 'key') {
           addLog(`Remote keyboard input: ${payload.key}`);
           if (desktopStateRef.current) {
             desktopStateRef.current.handleKey(payload.key);
+          }
+          if (!isControlLockedRef.current && (window as any).gsvDesktop && typeof (window as any).gsvDesktop.remoteInput === 'function') {
+            (window as any).gsvDesktop.remoteInput({ type: 'key', key: payload.key });
           }
         } else if (payload.type === 'file-transfer') {
           addLog(`File transfer received: ${payload.fileName} (${payload.fileSize})`);
@@ -1496,7 +1541,8 @@ export default function RemoteDesktopPage() {
         targetUserId: incomingRequestData.callerId,
         status: 'accepted',
         permissions: grantedPermissions,
-        duration: sessionDuration
+        duration: sessionDuration,
+        isDesktopAgent: !!(window as any).gsvDesktop
       });
 
       await setupWebRTC(true, incomingRequestData.callerId);
@@ -1744,6 +1790,75 @@ export default function RemoteDesktopPage() {
           <Settings size={14} /> CONFIGURE STUN
         </button>
       </div>
+
+      {/* PWA / Desktop Agent Status Banner */}
+      {(() => {
+        const isDesktopApp = !!(window as any).gsvDesktop;
+        if (isDesktopApp) {
+          return (
+            <div style={{
+              background: 'rgba(16, 185, 129, 0.08)',
+              border: '1px solid rgba(16, 185, 129, 0.2)',
+              borderRadius: '12px',
+              padding: '12px 18px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: '13px',
+              color: '#10b981',
+              fontWeight: 600,
+              boxShadow: '0 4px 12px rgba(16, 185, 129, 0.05)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span className="animate-pulse" style={{ display: 'inline-block', width: '8px', height: '8px', background: '#10b981', borderRadius: '50%' }} />
+                <span>GSV Windows Desktop Agent Active: Native OS-level keyboard and mouse simulation enabled.</span>
+              </div>
+              <span style={{ fontSize: '11px', background: 'rgba(16, 185, 129, 0.15)', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase' }}>tray running</span>
+            </div>
+          );
+        }
+
+        return (
+          <div style={{
+            background: 'rgba(245, 158, 11, 0.08)',
+            border: '1px solid rgba(245, 158, 11, 0.2)',
+            borderRadius: '12px',
+            padding: '12px 18px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            fontSize: '13px',
+            color: '#f59e0b',
+            fontWeight: 600,
+            flexWrap: 'wrap',
+            gap: '12px',
+            boxShadow: '0 4px 12px rgba(245, 158, 11, 0.05)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span className="animate-pulse" style={{ display: 'inline-block', width: '8px', height: '8px', background: '#f59e0b', borderRadius: '50%' }} />
+              <span>Desktop Agent is inactive. Running inside web browser. Direct OS-level control requires the Desktop Agent app.</span>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              {isPwaInstallable && (
+                <button 
+                  onClick={handleInstallPwa}
+                  className="btn btn-warning btn-sm"
+                  style={{ padding: '4px 12px', fontSize: '12px', fontWeight: 700, borderRadius: '4px', background: '#f59e0b', border: 0, color: '#fff', cursor: 'pointer' }}
+                >
+                  🚀 Install PWA App
+                </button>
+              )}
+              <a 
+                href="/downloads" 
+                className="btn btn-outline-warning btn-sm"
+                style={{ padding: '4px 12px', fontSize: '12px', fontWeight: 700, borderRadius: '4px', textDecoration: 'none', border: '1px solid #f59e0b', color: '#f59e0b', display: 'inline-flex', alignItems: 'center' }}
+              >
+                📥 Download Desktop Agent
+              </a>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* AnyDesk Style 2-Column Grid */}
       <div className="row flex-grow-1" style={{ minHeight: '560px' }}>

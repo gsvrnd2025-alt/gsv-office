@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard, MessageSquare, FolderOpen, Ticket, Mail, Users,
   Shield, Receipt, Package, ShoppingCart, BarChart3, Puzzle, Server,
-  ChevronLeft, ChevronRight, LogOut, Settings, Inbox, HardDrive, Laptop, Monitor
+  ChevronLeft, ChevronRight, LogOut, Settings, Inbox, HardDrive, Laptop, Monitor, Download
 } from 'lucide-react';
 import { useAuthStore } from '../../store/auth.store';
 import { authApi, usersApi } from '../../api';
@@ -29,6 +29,7 @@ const navItems: NavItem[] = [
   { to: '/files', icon: FolderOpen, label: 'Files', section: 'main', module: 'files', action: 'read' },
   { to: '/tickets', icon: Ticket, label: 'Helpdesk', section: 'main', module: 'tickets', action: 'read' },
   { to: '/email', icon: Mail, label: 'Email', section: 'main', module: 'email', action: 'read' },
+  { to: '/downloads', icon: Download, label: 'Downloads & App', section: 'main' },
   { to: '/users', icon: Users, label: 'Users', section: 'admin', module: 'users', action: 'read' },
   { to: '/roles', icon: Shield, label: 'Roles & Access', section: 'admin', module: 'roles', action: 'read' },
   { to: '/requests', icon: Inbox, label: 'Requests', section: 'admin', module: 'users', action: 'update' },

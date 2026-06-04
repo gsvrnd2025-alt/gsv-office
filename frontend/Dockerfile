@@ -15,6 +15,7 @@ COPY index.html ./
 RUN npm ci
 
 COPY src ./src
+COPY public ./public
 
 RUN npm run build
 

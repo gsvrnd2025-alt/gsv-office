@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GSV Office — Settings</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* Header */
+    .header {
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      padding: 20px 24px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .header-logo { font-size: 28px; }
+    .header-text h1 { font-size: 16px; font-weight: 700; color: #fff; }
+    .header-text p { font-size: 11px; color: rgba(255,255,255,0.7); }
+    .version-badge {
+      margin-left: auto;
+      background: rgba(255,255,255,0.15);
+      color: #fff;
+      font-size: 10px;
+      padding: 3px 8px;
+      border-radius: 20px;
+      font-weight: 600;
+    }
+
+    /* Content */
+    .content { padding: 20px 24px; }
+
+    .section {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      padding: 16px 20px;
+      margin-bottom: 14px;
+    }
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #6366f1;
+      margin-bottom: 14px;
+    }
+
+    .field { margin-bottom: 12px; }
+    .field:last-child { margin-bottom: 0; }
+    .field label {
+      display: block;
+      font-size: 12px;
+      color: #94a3b8;
+      margin-bottom: 5px;
+      font-weight: 500;
+    }
+    .field input[type="text"],
+    .field input[type="url"] {
+      width: 100%;
+      background: rgba(15,23,42,0.8);
+      border: 1.5px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      padding: 9px 12px;
+      color: #f1f5f9;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+      font-family: 'Consolas', monospace;
+    }
+    .field input:focus {
+      border-color: #6366f1;
+      background: rgba(99,102,241,0.05);
+    }
+
+    /* Toggle switch */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 0;
+      margin-bottom: 10px;
+    }
+    .toggle-row:last-child { margin-bottom: 0; }
+    .toggle-info span { font-size: 13px; color: #e2e8f0; font-weight: 500; }
+    .toggle-info p { font-size: 11px; color: #64748b; margin-top: 2px; }
+
+    .toggle {
+      position: relative;
+      width: 42px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background: rgba(255,255,255,0.1);
+      border-radius: 24px;
+      transition: background 0.2s;
+    }
+    .slider::before {
+      content: '';
+      position: absolute;
+      width: 18px; height: 18px;
+      left: 3px; top: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.2s;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    }
+    input:checked + .slider { background: #6366f1; }
+    input:checked + .slider::before { transform: translateX(18px); }
+
+    /* Connection test */
+    .conn-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-top: 8px;
+    }
+    .btn-test {
+      background: rgba(99,102,241,0.15);
+      border: 1.5px solid rgba(99,102,241,0.3);
+      color: #818cf8;
+      padding: 7px 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .btn-test:hover { background: rgba(99,102,241,0.25); border-color: #6366f1; color: #a5b4fc; }
+    .btn-test:active { transform: scale(0.97); }
+
+    .conn-status {
+      font-size: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .conn-status.online { color: #4ade80; }
+    .conn-status.offline { color: #f87171; }
+    .conn-status.checking { color: #fbbf24; }
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .dot.pulse { animation: pulse 1s infinite; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    /* Footer buttons */
+    .footer {
+      padding: 16px 24px;
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      background: rgba(0,0,0,0.2);
+    }
+    .btn-cancel {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #94a3b8;
+      padding: 9px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-cancel:hover { background: rgba(255,255,255,0.1); color: #e2e8f0; }
+    .btn-save {
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      border: none;
+      color: #fff;
+      padding: 9px 24px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      box-shadow: 0 4px 12px rgba(99,102,241,0.3);
+    }
+    .btn-save:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(99,102,241,0.4); }
+    .btn-save:active { transform: scale(0.98); }
+
+    .saved-badge {
+      background: rgba(74,222,128,0.15);
+      border: 1px solid rgba(74,222,128,0.3);
+      color: #4ade80;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      display: none;
+      align-items: center;
+      gap: 6px;
+    }
+    .saved-badge.show { display: flex; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="header-logo">🏢</div>
+    <div class="header-text">
+      <h1>GSV Office Settings</h1>
+      <p>Desktop Client Configuration</p>
+    </div>
+    <div class="version-badge" id="versionBadge">v1.0.0</div>
+  </div>
+
+  <div class="content">
+
+    <!-- Server Configuration -->
+    <div class="section">
+      <div class="section-title">🌐 Server Connection</div>
+
+      <div class="field">
+        <label>Server URL (IP Address & Port)</label>
+        <input type="url" id="serverUrl" placeholder="http://192.168.0.177:8080" />
+      </div>
+
+      <div class="conn-row">
+        <button class="btn-test" onclick="testConnection()">⚡ Test Connection</button>
+        <div class="conn-status" id="connStatus" style="display:none;">
+          <div class="dot" id="connDot"></div>
+          <span id="connText"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Startup Settings -->
+    <div class="section">
+      <div class="section-title">🚀 Startup</div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <span>Start with Windows</span>
+          <p>Launch automatically when you log in</p>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="autoStart">
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <span>Open App on Start</span>
+          <p>Show the window when the client starts</p>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="openOnStart">
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Window Settings -->
+    <div class="section">
+      <div class="section-title">🖥️ Window</div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <span>Minimize to Tray</span>
+          <p>Keep running in the background when window is closed</p>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="minimizeToTray">
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="footer">
+    <div class="saved-badge" id="savedBadge">✓ Settings Saved</div>
+    <button class="btn-cancel" onclick="window.close()">Cancel</button>
+    <button class="btn-save" onclick="saveSettings()">💾 Save Settings</button>
+  </div>
+
+  <script>
+    let config = {};
+
+    async function init() {
+      config = await window.settingsAPI.getConfig();
+      const version = await window.settingsAPI.getVersion();
+      
+      document.getElementById('versionBadge').textContent = 'v' + version;
+      document.getElementById('serverUrl').value = config.serverUrl || 'http://192.168.0.177:8080';
+      document.getElementById('autoStart').checked = !!config.autoStart;
+      document.getElementById('openOnStart').checked = !!config.openOnStart;
+      document.getElementById('minimizeToTray').checked = config.minimizeToTray !== false;
+    }
+
+    async function testConnection() {
+      const url = document.getElementById('serverUrl').value.trim();
+      const statusEl = document.getElementById('connStatus');
+      const dotEl = document.getElementById('connDot');
+      const textEl = document.getElementById('connText');
+
+      statusEl.style.display = 'flex';
+      statusEl.className = 'conn-status checking';
+      dotEl.className = 'dot pulse';
+      textEl.textContent = 'Checking...';
+
+      const result = await window.settingsAPI.testConnection(url);
+
+      if (result.online) {
+        statusEl.className = 'conn-status online';
+        dotEl.className = 'dot';
+        textEl.textContent = 'Connected ✓';
+      } else {
+        statusEl.className = 'conn-status offline';
+        dotEl.className = 'dot';
+        textEl.textContent = 'Unreachable ✗';
+      }
+    }
+
+    async function saveSettings() {
+      const newConfig = {
+        serverUrl: document.getElementById('serverUrl').value.trim() || config.serverUrl,
+        autoStart: document.getElementById('autoStart').checked,
+        openOnStart: document.getElementById('openOnStart').checked,
+        minimizeToTray: document.getElementById('minimizeToTray').checked
+      };
+
+      await window.settingsAPI.saveConfig(newConfig);
+
+      const badge = document.getElementById('savedBadge');
+      badge.classList.add('show');
+      setTimeout(() => {
+        badge.classList.remove('show');
+        window.close();
+      }, 1500);
+    }
+
+    init();
+  </script>
+</body>
+</html>

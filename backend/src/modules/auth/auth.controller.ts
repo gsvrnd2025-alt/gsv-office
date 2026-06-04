@@ -1,6 +1,6 @@
 import {
   Controller, Post, Body, UseGuards, Request, Get, Res,
-  HttpCode, HttpStatus, Ip, Headers, Param, ForbiddenException,
+  HttpCode, HttpStatus, Ip, Headers, Param, ForbiddenException, UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Response } from 'express';
@@ -57,7 +57,7 @@ export class AuthController {
   async refresh(@Request() req, @Body() body: RefreshTokenDto) {
     const token = body.refreshToken || req.cookies?.refreshToken;
     if (!token) {
-      return { success: false, message: 'Refresh token not provided' };
+      throw new UnauthorizedException('Refresh token not provided');
     }
     return this.authService.refreshAccessToken(token);
   }
