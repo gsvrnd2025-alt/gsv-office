@@ -1952,7 +1952,7 @@ export default function RemoteDesktopPage() {
               <div className="w-100 h-100 position-relative">
                 <video ref={videoRef} autoPlay playsInline muted className="w-100 h-100" style={{ objectFit: videoFit }} />
                 
-                <div className="position-absolute inset-0 d-flex flex-column align-items-center justify-content-center" style={{ background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)', zIndex: 5, padding: '24px' }}>
+                <div className="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center" style={{ background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)', zIndex: 5, padding: '24px' }}>
                   <div className="card p-4 text-center animate-scale-in" style={{ maxWidth: '460px', border: '3px solid #ef4444', background: '#111827', color: '#f9fafb', borderRadius: '16px' }}>
                     <AlertCircle size={48} className="text-danger mx-auto mb-3 animate-pulse" />
                     <h3 style={{ fontWeight: 800, color: '#ef4444', fontSize: '18px', margin: '0 0 10px 0' }}>Remote Sync Active</h3>
@@ -1986,7 +1986,7 @@ export default function RemoteDesktopPage() {
                 
                 {/* Overlay Lock for Interlock system */}
                 {isControlLocked && (
-                  <div className="position-absolute inset-0 d-flex flex-column align-items-center justify-content-center" style={{ background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(3px)', zIndex: 20 }}>
+                  <div className="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center" style={{ background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(3px)', zIndex: 20 }}>
                     <div className="card p-4 text-center" style={{ background: '#1e293b', border: '2px solid #ef4444', color: '#fff', borderRadius: '12px' }}>
                       <AlertTriangle size={40} className="text-danger mx-auto mb-2" />
                       <h5 style={{ fontWeight: 800 }}>Host Input Interlock Active</h5>
@@ -2105,7 +2105,7 @@ export default function RemoteDesktopPage() {
 
             {/* Dialing Connection status modals */}
             {isConnecting && dialingStatus === 'calling' && (
-              <div className="position-absolute inset-0 d-flex align-items-center justify-content-center" style={{ background: 'rgba(0,0,0,0.85)', zIndex: 100 }}>
+              <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style={{ background: 'rgba(0,0,0,0.85)', zIndex: 100 }}>
                 <div className="card p-4 text-center animate-scale-in" style={{ width: '350px', border: '2.5px solid var(--brand-primary)', background: 'var(--bg-card)', color: 'var(--text-primary)', borderRadius: '16px' }}>
                   <RefreshCw size={44} className="text-warning mx-auto mb-3 spin" />
                   <h5 style={{ fontWeight: 800 }}>Connecting Handshake</h5>
@@ -2120,7 +2120,7 @@ export default function RemoteDesktopPage() {
             )}
 
             {dialingStatus === 'timeout' && (
-              <div className="position-absolute inset-0 d-flex align-items-center justify-content-center" style={{ background: 'rgba(0,0,0,0.85)', zIndex: 100 }}>
+              <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style={{ background: 'rgba(0,0,0,0.85)', zIndex: 100 }}>
                 <div className="card p-4 text-center animate-scale-in" style={{ width: '350px', border: '2.5px solid #ef4444', background: 'var(--bg-card)', color: 'var(--text-primary)', borderRadius: '16px' }}>
                   <AlertCircle size={44} className="text-danger mx-auto mb-3" />
                   <h5 style={{ fontWeight: 800, color: '#ef4444' }}>Handshake Timeout</h5>
@@ -2135,7 +2135,7 @@ export default function RemoteDesktopPage() {
             )}
 
             {dialingStatus === 'rejected' && (
-              <div className="position-absolute inset-0 d-flex align-items-center justify-content-center" style={{ background: 'rgba(0,0,0,0.85)', zIndex: 100 }}>
+              <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style={{ background: 'rgba(0,0,0,0.85)', zIndex: 100 }}>
                 <div className="card p-4 text-center animate-scale-in" style={{ width: '350px', border: '2.5px solid #ef4444', background: 'var(--bg-card)', color: 'var(--text-primary)', borderRadius: '16px' }}>
                   <X size={44} className="text-danger mx-auto mb-3" />
                   <h5 style={{ fontWeight: 800, color: '#ef4444' }}>Request Rejected</h5>
@@ -2151,7 +2151,7 @@ export default function RemoteDesktopPage() {
 
             {/* Handshake authorization request pop-up on host side */}
             {showIncomingRequest && incomingRequestData && (
-              <div className="position-absolute inset-0 d-flex align-items-center justify-content-center" style={{ background: 'rgba(0, 0, 0, 0.75)', zIndex: 100 }}>
+              <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style={{ background: 'rgba(0, 0, 0, 0.75)', zIndex: 100 }}>
                 <div className="card p-4 animate-scale-in" style={{ width: '380px', background: 'var(--bg-card)', border: '2px solid var(--brand-primary)', color: 'var(--text-primary)', borderRadius: '16px' }}>
                   <div className="d-flex align-items-center gap-2 mb-3 text-warning">
                     <ShieldAlert size={28} />
