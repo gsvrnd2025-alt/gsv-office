@@ -87,6 +87,18 @@ services:
       # Storage Limits
       UPLOAD_PATH: "/app/uploads"
       MAX_FILE_SIZE_MB: 500
+
+      # Mail SMTP Server Settings
+      MAIL_DOMAIN: "gsv.local"
+      MAIL_HOST: "mailserver"
+      MAIL_PORT: 587
+      MAIL_USER: "admin@gsv.local"
+      MAIL_PASSWORD: "mail_password"
+      MAIL_FROM: "GSV Office <noreply@gsv.local>"
+      MAIL_SECURE: "false"
+      IMAP_HOST: "mailserver"
+      IMAP_PORT: 143
+      IMAP_SECURE: "false"
       
       # Security & Default Admin
       BCRYPT_ROUNDS: 12
@@ -210,6 +222,7 @@ services:
       - mailserver_data:/var/mail
       - mailserver_state:/var/mail-state
       - mailserver_logs:/var/log/mail
+      - /mnt/GSVR_Movies/apps/gsv-office/mailserver/config:/tmp/docker-mailserver
     networks:
       - gsv_network
     cap_add:

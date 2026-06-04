@@ -143,7 +143,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
 
   const { data: notificationsData } = useQuery({
     queryKey: ['notifications'],
-    queryFn: () => notificationsApi.get().then(r => r.data?.data || r.data || []),
+    queryFn: () => notificationsApi.get({ unreadOnly: 'true' }).then(r => r.data?.data || r.data || []),
     enabled: showNotifications,
   });
 

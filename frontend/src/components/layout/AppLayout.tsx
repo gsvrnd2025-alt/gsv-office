@@ -42,6 +42,7 @@ export function AppLayout() {
   });
 
   const prevUnreadCountSumRef = useRef(0);
+  const isFirstRunRef = useRef(true);
   const unreadSum = conversations.reduce((acc: number, c: any) => {
     if (activeConversationId && c.id === activeConversationId) return acc;
     return acc + (Number(c.unread_count) || 0);
@@ -53,7 +54,7 @@ export function AppLayout() {
     if (flashIntervalRef.current) clearInterval(flashIntervalRef.current);
 
     if (unreadSum > 0) {
-      if (unreadSum > prevUnreadCountSumRef.current) {
+      if (!isFirstRunRef.current && unreadSum > prevUnreadCountSumRef.current) {
         SoundManager.playMessageRing();
       }
       let toggle = false;
@@ -67,6 +68,7 @@ export function AppLayout() {
       document.title = 'GSV E-Office Workspace';
     }
 
+    isFirstRunRef.current = false;
     prevUnreadCountSumRef.current = unreadSum;
     return () => {
       if (flashIntervalRef.current) clearInterval(flashIntervalRef.current);

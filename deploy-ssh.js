@@ -28,7 +28,7 @@ conn.on('ready', () => {
   
   // ── Step 1: Create Remote Directories ──────────────────────────
   console.log('\n📁 Step 1: Creating remote directories...');
-  const mkdirCmd = `mkdir -p ${REMOTE_APP_DIR}/database ${REMOTE_APP_DIR}/nginx/conf.d ${REMOTE_APP_DIR}/logs ${REMOTE_APP_DIR}/plugins ${REMOTE_APP_DIR}/uploads ${REMOTE_APP_DIR}/db ${REMOTE_APP_DIR}/redis ${REMOTE_APP_DIR}/minio ${REMOTE_APP_DIR}/downloads`;
+  const mkdirCmd = `mkdir -p ${REMOTE_APP_DIR}/database ${REMOTE_APP_DIR}/nginx/conf.d ${REMOTE_APP_DIR}/logs ${REMOTE_APP_DIR}/plugins ${REMOTE_APP_DIR}/uploads ${REMOTE_APP_DIR}/db ${REMOTE_APP_DIR}/redis ${REMOTE_APP_DIR}/minio ${REMOTE_APP_DIR}/downloads ${REMOTE_APP_DIR}/mailserver/config`;
   
   conn.exec(mkdirCmd, (err, stream) => {
     if (err) throw err;

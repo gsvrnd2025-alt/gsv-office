@@ -695,6 +695,23 @@ export default function ChatPage() {
     }
   });
 
+  const markAllChatsRead = async () => {
+    try {
+      const unread = conversations.filter((c: any) => (Number(c.unread_count) || 0) > 0);
+      if (unread.length === 0) {
+        toast.error('No unread messages');
+        return;
+      }
+      
+      await Promise.all(unread.map((c: any) => chatApi.markRead(c.id)));
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+      qc.invalidateQueries({ queryKey: ['global-conversations-unread'] });
+      toast.success('All chats marked as read! 💬');
+    } catch (err) {
+      toast.error('Failed to mark all chats as read');
+    }
+  };
+
   // 1. Play synthesized message ring and scroll for new messages in the currently active chat room
   const prevMessagesLengthRef = useRef(messages.length);
   useEffect(() => {
@@ -712,12 +729,15 @@ export default function ChatPage() {
 
   // 2. Play synthesized message ring for new background messages (across all conversations unread sum)
   const prevUnreadCountSumRef = useRef(0);
+  const isFirstRunRef = useRef(true);
   useEffect(() => {
     const currentUnreadSum = conversations.reduce((acc: number, c: any) => {
       if (conversationId && c.id === conversationId) return acc;
       return acc + (Number(c.unread_count) || 0);
     }, 0);
-    if (currentUnreadSum > prevUnreadCountSumRef.current) {
+    if (isFirstRunRef.current) {
+      isFirstRunRef.current = false;
+    } else if (currentUnreadSum > prevUnreadCountSumRef.current) {
       SoundManager.playMessageRing();
     }
     prevUnreadCountSumRef.current = currentUnreadSum;
@@ -1470,9 +1490,19 @@ export default function ChatPage() {
             <MessageSquare size={18} style={{ color: 'var(--brand-primary)' }} />
             Node Matrix
           </h2>
-          <button className="btn btn-primary btn-sm btn-icon" onClick={() => setShowCreateGroup(true)} title="Create group channel">
-            <Plus size={16} />
-          </button>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button 
+              className="btn btn-ghost btn-sm btn-icon" 
+              onClick={markAllChatsRead} 
+              title="Mark all chats as read"
+              style={{ width: '28px', height: '28px', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <CheckCheck size={16} />
+            </button>
+            <button className="btn btn-primary btn-sm btn-icon" onClick={() => setShowCreateGroup(true)} title="Create group channel">
+              <Plus size={16} />
+            </button>
+          </div>
         </div>
 
         {/* Search */}
@@ -1586,7 +1616,7 @@ export default function ChatPage() {
                       </div>
                       <div className={styles.convMeta}>
                         <div className={styles.convName}>
-                          <span style={{ fontWeight: 600 }}>
+                          <span style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '140px' }}>
                             {(() => {
                               if (conv.type === 'private') {
                                 const other = conv.members?.find((m: any) => m.id !== user?.id);
@@ -1595,9 +1625,26 @@ export default function ChatPage() {
                               return conv.name || 'Secure Group';
                             })()}
                           </span>
+                          {conv.last_message_at && (
+                            <span className={styles.convTime}>
+                              {(() => {
+                                const date = new Date(conv.last_message_at);
+                                const today = new Date();
+                                if (date.toDateString() === today.toDateString()) {
+                                  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                }
+                                return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                              })()}
+                            </span>
+                          )}
                         </div>
                         <div className={styles.convPreview}>
                           <span>{conv.last_message_preview || 'Ready to resonance.'}</span>
+                          {(Number(conv.unread_count) || 0) > 0 && (
+                            <span className={styles.unreadBadge}>
+                              {conv.unread_count}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>

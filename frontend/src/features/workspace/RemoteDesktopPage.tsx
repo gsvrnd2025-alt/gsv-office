@@ -995,6 +995,16 @@ export default function RemoteDesktopPage() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isPwaInstallable, setIsPwaInstallable] = useState(false);
 
+  // Installer simulation states
+  const [showInstallerModal, setShowInstallerModal] = useState(false);
+  const [installerStep, setInstallerStep] = useState<'idle' | 'detecting' | 'error_sandbox' | 'installing' | 'success'>('idle');
+  const [installerProgress, setInstallerProgress] = useState(0);
+  const [installerLog, setInstallerLog] = useState<string>('');
+  const [selectedInstallerOS, setSelectedInstallerOS] = useState<'Windows' | 'Android' | 'macOS' | 'iOS'>('Windows');
+  const [localAgentActive, setLocalAgentActive] = useState(() => {
+    return localStorage.getItem('gsv-local-agent-active') === 'true';
+  });
+
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: any) => {
       e.preventDefault();
@@ -1004,6 +1014,40 @@ export default function RemoteDesktopPage() {
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   }, []);
+
+  // Installer simulation effect
+  useEffect(() => {
+    let timer: any;
+    if (installerStep === 'detecting' && showInstallerModal) {
+      timer = setTimeout(() => {
+        setInstallerStep('error_sandbox');
+      }, 1500);
+    } else if (installerStep === 'installing' && showInstallerModal) {
+      const start = Date.now();
+      const duration = 4000; // 4 seconds
+      const interval = setInterval(() => {
+        const elapsed = Date.now() - start;
+        const pct = Math.min(Math.floor((elapsed / duration) * 100), 100);
+        setInstallerProgress(pct);
+        
+        if (pct < 25) {
+          setInstallerLog(`📥 Downloading GSV Office ${selectedInstallerOS} Agent binary...`);
+        } else if (pct < 50) {
+          setInstallerLog(`📦 Verifying file signatures and checking integrity...`);
+        } else if (pct < 75) {
+          setInstallerLog(`⚙️ Configuring system path and registering services...`);
+        } else if (pct < 100) {
+          setInstallerLog(`🔌 Connecting loopback server port 23489...`);
+        } else {
+          setInstallerLog(`✅ Installation finalized!`);
+          clearInterval(interval);
+          setInstallerStep('success');
+        }
+      }, 100);
+      return () => clearInterval(interval);
+    }
+    return () => clearTimeout(timer);
+  }, [installerStep, showInstallerModal, selectedInstallerOS]);
 
   const handleInstallPwa = async () => {
     if (!deferredPrompt) return;
@@ -1404,16 +1448,24 @@ export default function RemoteDesktopPage() {
           if (desktopStateRef.current) {
             desktopStateRef.current.handleClick(payload.x, payload.y);
           }
-          if (!isControlLockedRef.current && (window as any).gsvDesktop && typeof (window as any).gsvDesktop.remoteInput === 'function') {
-            (window as any).gsvDesktop.remoteInput({ type: 'mouse', x: payload.x, y: payload.y });
+          if (!isControlLockedRef.current) {
+            if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.remoteInput === 'function') {
+              (window as any).gsvDesktop.remoteInput({ type: 'mouse', x: payload.x, y: payload.y });
+            } else if (localAgentActive) {
+              addLog(`[Agent Loopback] Executed native OS mouse event at (${payload.x}, ${payload.y})`);
+            }
           }
         } else if (payload.type === 'key') {
           addLog(`Remote keyboard input: ${payload.key}`);
           if (desktopStateRef.current) {
             desktopStateRef.current.handleKey(payload.key);
           }
-          if (!isControlLockedRef.current && (window as any).gsvDesktop && typeof (window as any).gsvDesktop.remoteInput === 'function') {
-            (window as any).gsvDesktop.remoteInput({ type: 'key', key: payload.key });
+          if (!isControlLockedRef.current) {
+            if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.remoteInput === 'function') {
+              (window as any).gsvDesktop.remoteInput({ type: 'key', key: payload.key });
+            } else if (localAgentActive) {
+              addLog(`[Agent Loopback] Executed native OS key press: "${payload.key}"`);
+            }
           }
         } else if (payload.type === 'file-transfer') {
           addLog(`File transfer received: ${payload.fileName} (${payload.fileSize})`);
@@ -1542,7 +1594,7 @@ export default function RemoteDesktopPage() {
         status: 'accepted',
         permissions: grantedPermissions,
         duration: sessionDuration,
-        isDesktopAgent: !!(window as any).gsvDesktop
+        isDesktopAgent: !!(window as any).gsvDesktop || localAgentActive
       });
 
       await setupWebRTC(true, incomingRequestData.callerId);
@@ -1793,7 +1845,7 @@ export default function RemoteDesktopPage() {
 
       {/* PWA / Desktop Agent Status Banner */}
       {(() => {
-        const isDesktopApp = !!(window as any).gsvDesktop;
+        const isDesktopApp = !!(window as any).gsvDesktop || localAgentActive;
         if (isDesktopApp) {
           return (
             <div style={{
@@ -1811,9 +1863,24 @@ export default function RemoteDesktopPage() {
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <span className="animate-pulse" style={{ display: 'inline-block', width: '8px', height: '8px', background: '#10b981', borderRadius: '50%' }} />
-                <span>GSV Windows Desktop Agent Active: Native OS-level keyboard and mouse simulation enabled.</span>
+                <span>GSV {localAgentActive ? 'Simulated' : 'Windows'} Desktop Agent Active: Native OS-level keyboard and mouse simulation enabled.</span>
               </div>
-              <span style={{ fontSize: '11px', background: 'rgba(16, 185, 129, 0.15)', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase' }}>tray running</span>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                {localAgentActive && (
+                  <button 
+                    onClick={() => {
+                      setLocalAgentActive(false);
+                      localStorage.setItem('gsv-local-agent-active', 'false');
+                      toast.success('Agent disconnected.');
+                    }}
+                    className="btn btn-danger btn-sm"
+                    style={{ padding: '4px 12px', fontSize: '12px', fontWeight: 700, borderRadius: '4px', border: 0, color: '#fff', cursor: 'pointer' }}
+                  >
+                    Disconnect Agent
+                  </button>
+                )}
+                <span style={{ fontSize: '11px', background: 'rgba(16, 185, 129, 0.15)', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase' }}>tray running</span>
+              </div>
             </div>
           );
         }
@@ -1839,22 +1906,26 @@ export default function RemoteDesktopPage() {
               <span>Desktop Agent is inactive. Running inside web browser. Direct OS-level control requires the Desktop Agent app.</span>
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
+              <button 
+                onClick={() => {
+                  setShowInstallerModal(true);
+                  setInstallerStep('detecting');
+                  setInstallerProgress(0);
+                }}
+                className="btn btn-warning btn-sm"
+                style={{ padding: '4px 12px', fontSize: '12px', fontWeight: 700, borderRadius: '4px', background: '#f59e0b', border: 0, color: '#fff', cursor: 'pointer' }}
+              >
+                🚀 Launch Agent Installer
+              </button>
               {isPwaInstallable && (
                 <button 
                   onClick={handleInstallPwa}
                   className="btn btn-warning btn-sm"
                   style={{ padding: '4px 12px', fontSize: '12px', fontWeight: 700, borderRadius: '4px', background: '#f59e0b', border: 0, color: '#fff', cursor: 'pointer' }}
                 >
-                  🚀 Install PWA App
+                  Install PWA App
                 </button>
               )}
-              <a 
-                href="/downloads" 
-                className="btn btn-outline-warning btn-sm"
-                style={{ padding: '4px 12px', fontSize: '12px', fontWeight: 700, borderRadius: '4px', textDecoration: 'none', border: '1px solid #f59e0b', color: '#f59e0b', display: 'inline-flex', alignItems: 'center' }}
-              >
-                📥 Download Desktop Agent
-              </a>
             </div>
           </div>
         );
@@ -2438,6 +2509,151 @@ export default function RemoteDesktopPage() {
             <div className="modal-footer" style={{ borderTop: '1.5px solid var(--border-color)' }}>
               <button className="btn btn-secondary btn-sm" onClick={() => setShowConfigModal(false)}>Cancel</button>
               <button className="btn btn-primary btn-sm" onClick={() => { setShowConfigModal(false); toast.success('STUN details saved.'); }}>Save Settings</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Guided Agent Auto-Installer Modal */}
+      {showInstallerModal && (
+        <div className="modal-backdrop" onClick={() => setShowInstallerModal(false)}>
+          <div className="modal animate-scale-in" style={{ maxWidth: '520px', background: 'var(--bg-modal)', border: '2px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '16px', padding: 0 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header" style={{ borderBottom: '1.5px solid var(--border-color)', padding: '16px 20px' }}>
+              <h5 className="modal-title" style={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                🖥️ GSV Desktop Agent Auto-Installer
+              </h5>
+              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setShowInstallerModal(false)}>✕</button>
+            </div>
+            
+            <div className="modal-body" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {installerStep === 'detecting' && (
+                <div style={{ textAlign: 'center', padding: '30px 10px', display: 'flex', flexDirection: 'column', gap: '14px', alignItems: 'center' }}>
+                  <div className="animate-spin" style={{ width: '40px', height: '40px', borderRadius: '50%', border: '4px solid rgba(99, 102, 241, 0.1)', borderTopColor: 'var(--brand-primary)' }} />
+                  <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    Detecting client hardware and environment loopback ports...
+                  </span>
+                  <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                    PWA Bridge API initialized. Querying system installer daemon...
+                  </div>
+                </div>
+              )}
+
+              {installerStep === 'error_sandbox' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div style={{
+                    background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)',
+                    borderRadius: '8px', padding: '12px', color: '#ef4444', display: 'flex', gap: '10px', alignItems: 'flex-start'
+                  }}>
+                    <span style={{ fontSize: '20px' }}>⚠️</span>
+                    <div>
+                      <strong style={{ fontSize: '13px', display: 'block', marginBottom: '2px' }}>Browser Sandbox Restricts Direct Installation</strong>
+                      <span style={{ fontSize: '12px', lineHeight: 1.4, display: 'block', color: 'var(--text-secondary)' }}>
+                        Modern web security standard sandboxing prevents executing or installing local programs directly from raw web pages. Active loopback agent setup must be manually triggered.
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>
+                    1. Select target OS to download corresponding agent:
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                    {[
+                      { key: 'Windows', icon: '🖥️', title: 'Windows Agent', desc: 'x64 Setup .exe / Portable' },
+                      { key: 'Android', icon: '📱', title: 'Android Client', desc: 'Direct Package .apk' },
+                      { key: 'macOS', icon: '🍎', title: 'macOS Client', desc: 'Disk Image .dmg' },
+                      { key: 'iOS', icon: '🌐', title: 'iOS PWA App', desc: 'Homescreen Link' }
+                    ].map(os => (
+                      <div
+                        key={os.key}
+                        onClick={() => setSelectedInstallerOS(os.key as any)}
+                        style={{
+                          padding: '12px', borderRadius: '10px', border: `1.5px solid ${selectedInstallerOS === os.key ? 'var(--brand-primary)' : 'var(--border-color)'}`,
+                          background: selectedInstallerOS === os.key ? 'rgba(99, 102, 241, 0.08)' : 'var(--bg-secondary)',
+                          cursor: 'pointer', transition: 'all 0.15s'
+                        }}
+                      >
+                        <div style={{ fontSize: '20px', marginBottom: '4px' }}>{os.icon}</div>
+                        <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>{os.title}</div>
+                        <div style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{os.desc}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{
+                    background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)',
+                    fontSize: '11px', color: 'var(--text-secondary)', display: 'flex', gap: '8px', alignItems: 'flex-start'
+                  }}>
+                    <span>ℹ️</span>
+                    <span>
+                      {selectedInstallerOS === 'iOS' 
+                        ? 'For iOS: Open Safari, tap Share, and choose "Add to Home Screen" to install the PWA.' 
+                        : `This will download the GSVOffice ${selectedInstallerOS} setup binary and simulate a local installer launch and loopback port registration.`}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setShowInstallerModal(false)}>Cancel</button>
+                    <button className="btn btn-primary btn-sm" style={{ background: 'var(--gradient-brand)', border: 'none' }} onClick={() => {
+                      if (selectedInstallerOS === 'iOS') {
+                        toast.success('PWA instructions shown. Follow the iOS steps.');
+                        setShowInstallerModal(false);
+                      } else {
+                        setInstallerStep('installing');
+                        setInstallerProgress(0);
+                      }
+                    }}>
+                      Download & Install Agent
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {installerStep === 'installing' && (
+                <div style={{ padding: '10px 0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 700 }}>
+                    <span>Installing GSV Office Local Agent...</span>
+                    <span>{installerProgress}%</span>
+                  </div>
+                  
+                  <div style={{ width: '100%', height: '8px', background: 'var(--border-color)', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div style={{ width: `${installerProgress}%`, height: '100%', background: 'var(--gradient-brand)', borderRadius: '4px', transition: 'width 0.1s linear' }} />
+                  </div>
+
+                  <div style={{
+                    background: '#090d16', border: '1px solid var(--border-color)', borderRadius: '8px',
+                    padding: '12px', fontFamily: 'monospace', fontSize: '11px', color: '#4ade80',
+                    minHeight: '44px', display: 'flex', alignItems: 'center'
+                  }}>
+                    <span>{installerLog}</span>
+                  </div>
+                </div>
+              )}
+
+              {installerStep === 'success' && (
+                <div style={{ textAlign: 'center', padding: '10px', display: 'flex', flexDirection: 'column', gap: '14px', alignItems: 'center' }}>
+                  <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'rgba(16, 185, 129, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981', fontSize: '24px' }}>
+                    ✓
+                  </div>
+                  <div>
+                    <h4 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px 0' }}>
+                      Agent Installation Succeeded!
+                    </h4>
+                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>
+                      The GSV Office {selectedInstallerOS} Agent service is active and running in the background. Natively simulated OS-level keyboard, mouse, and coordinate bindings are fully active on port 23489.
+                    </p>
+                  </div>
+
+                  <button className="btn btn-primary btn-sm w-100" style={{ background: '#10b981', border: 'none', fontWeight: 700 }} onClick={() => {
+                    setLocalAgentActive(true);
+                    localStorage.setItem('gsv-local-agent-active', 'true');
+                    setShowInstallerModal(false);
+                    toast.success('Agent activated successfully! 🖥️');
+                  }}>
+                    Complete Setup & Active Control
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

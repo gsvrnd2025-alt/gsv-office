@@ -119,6 +119,51 @@ export class EmailService implements OnModuleInit {
       }
     }
 
+    // 5. Local delivery bypass: check if any of the target recipients exist locally on this platform
+    const allRecipients = [...dto.to, ...(dto.cc || [])];
+    if (allRecipients.length > 0) {
+      try {
+        const localAccounts = await this.ds.query(
+          `SELECT id, user_id, email_address FROM email_accounts WHERE email_address = ANY($1)`,
+          [allRecipients]
+        );
+        
+        for (const acc of localAccounts) {
+          const [insertedInbox] = await this.ds.query(
+            `INSERT INTO emails (account_id, user_id, folder, subject, to_addresses, cc_addresses, body_html, body_text, received_at, is_read)
+             VALUES ($1, $2, 'inbox', $3, $4, $5, $6, $7, NOW(), false)
+             RETURNING id`,
+            [
+              acc.id,
+              acc.user_id,
+              dto.subject,
+              dto.to,
+              dto.cc || [],
+              dto.isHtml ? dto.body : null,
+              dto.isHtml ? null : dto.body
+            ]
+          );
+
+          // Copy attachments to recipient's inbox mail record
+          if (insertedInbox && dto.attachmentIds && dto.attachmentIds.length > 0) {
+            const files = await this.ds.query(
+              `SELECT id, original_name, size FROM files WHERE id = ANY($1)`,
+              [dto.attachmentIds]
+            );
+            for (const f of files) {
+              await this.ds.query(
+                `INSERT INTO email_attachments (email_id, file_id, filename, size)
+                 VALUES ($1, $2, $3, $4)`,
+                [insertedInbox.id, f.id, f.original_name, f.size]
+              );
+            }
+          }
+        }
+      } catch (localErr) {
+        console.error('[EmailService] Error in local delivery bypass:', localErr);
+      }
+    }
+
     return { sent: true };
   }
 
