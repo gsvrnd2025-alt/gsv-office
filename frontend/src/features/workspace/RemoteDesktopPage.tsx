@@ -979,10 +979,20 @@ const addGlobalLog = (msg: string, setTerminalLogs?: any) => {
 export default function RemoteDesktopPage() {
   const { user, accessToken } = useAuthStore();
   const { theme } = useThemeStore();
-  const { sidebarCollapsed, setSidebarCollapsed } = useOutletContext<{
+  const { 
+    sidebarCollapsed, 
+    setSidebarCollapsed,
+    isRemoteDesktopExpanded,
+    setIsRemoteDesktopExpanded
+  } = useOutletContext<{
     sidebarCollapsed: boolean;
     setSidebarCollapsed: (v: boolean) => void;
-  }>() || { sidebarCollapsed: false, setSidebarCollapsed: () => {} };
+    isRemoteDesktopExpanded?: boolean;
+    setIsRemoteDesktopExpanded?: (v: boolean) => void;
+  }>() || { 
+    sidebarCollapsed: false, 
+    setSidebarCollapsed: () => {} 
+  };
 
   const [socket, setSocket] = useState<Socket | null>(globalSession ? globalSession.socket : null);
 
@@ -1019,6 +1029,14 @@ export default function RemoteDesktopPage() {
   // Layout View constraints
   const [videoFit, setVideoFit] = useState<'contain' | 'cover' | 'fill'>('contain');
   const [isExpandedView, setIsExpandedView] = useState(false);
+  const isMouseDownRef = useRef(false);
+  const lastMouseDownButton = useRef(0);
+
+  useEffect(() => {
+    if (setIsRemoteDesktopExpanded) {
+      setIsRemoteDesktopExpanded(isExpandedView);
+    }
+  }, [isExpandedView, setIsRemoteDesktopExpanded]);
   const [iceServers, setIceServers] = useState<any[]>([
     { urls: 'stun:stun.l.google.com:19302' }
   ]);
@@ -1644,6 +1662,8 @@ export default function RemoteDesktopPage() {
       // 2. Left Edge Hover for Sidebar slide-in (< 20px)
       if (e.clientX < 20) {
         setSidebarCollapsed(false);
+      } else if (e.clientX > 240) {
+        setSidebarCollapsed(true);
       }
     };
 
@@ -2107,7 +2127,7 @@ export default function RemoteDesktopPage() {
     return clean;
   };
 
-  const getRelativeCoordinates = (e: React.MouseEvent<HTMLVideoElement>) => {
+  const getRelativeCoordinates = (e: React.MouseEvent<any> | MouseEvent) => {
     const video = videoRef.current;
     if (!video) return null;
 
@@ -2190,6 +2210,9 @@ export default function RemoteDesktopPage() {
       action = 'rightdown';
     }
 
+    isMouseDownRef.current = true;
+    lastMouseDownButton.current = e.button;
+
     dataChannelRef.current.send(JSON.stringify({
       type: 'mouse',
       action: action,
@@ -2200,26 +2223,59 @@ export default function RemoteDesktopPage() {
     addLog(`Mouse down (${action}) dispatched: (${coords.x}, ${coords.y})`);
   };
 
-  const handleViewportMouseUp = (e: React.MouseEvent<HTMLVideoElement>) => {
-    if (!isConnected || isControlLocked || !dataChannelRef.current) return;
+  useEffect(() => {
+    const handleGlobalMouseUp = (e: MouseEvent) => {
+      if (!isMouseDownRef.current || !dataChannelRef.current || !isConnected) {
+        isMouseDownRef.current = false;
+        return;
+      }
 
-    const coords = getRelativeCoordinates(e);
-    if (!coords) return;
+      const coords = getRelativeCoordinates(e);
+      const x = coords ? coords.x : 960;
+      const y = coords ? coords.y : 540;
 
-    let action = 'leftup';
-    if (e.button === 2) {
-      action = 'rightup';
-    }
+      let action = 'leftup';
+      if (lastMouseDownButton.current === 2) {
+        action = 'rightup';
+      }
 
-    dataChannelRef.current.send(JSON.stringify({
-      type: 'mouse',
-      action: action,
-      x: coords.x,
-      y: coords.y
-    }));
-    
-    addLog(`Mouse up (${action}) dispatched: (${coords.x}, ${coords.y})`);
-  };
+      try {
+        dataChannelRef.current.send(JSON.stringify({
+          type: 'mouse',
+          action: action,
+          x: x,
+          y: y
+        }));
+        addLog(`Global mouse up (${action}) dispatched: (${x}, ${y})`);
+      } catch (err) {
+        console.error('Failed to send global mouseup over data channel:', err);
+      }
+
+      isMouseDownRef.current = false;
+    };
+
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => {
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+      
+      // Proactive cleanup: release mouse buttons if stuck on unmount
+      if (isMouseDownRef.current && dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
+        let action = 'leftup';
+        if (lastMouseDownButton.current === 2) {
+          action = 'rightup';
+        }
+        try {
+          dataChannelRef.current.send(JSON.stringify({
+            type: 'mouse',
+            action: action,
+            x: 960,
+            y: 540
+          }));
+        } catch {}
+        isMouseDownRef.current = false;
+      }
+    };
+  }, [isConnected]);
 
   const handleViewportContextMenu = (e: React.MouseEvent) => {
     e.preventDefault(); // Stop standard browser context menu on right clicks
@@ -2285,7 +2341,24 @@ export default function RemoteDesktopPage() {
   const showInsecureAlert = isInsecureContext && !isDesktopApp;
 
   return (
-    <div className="page-enter" style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '20px', color: 'var(--text-primary)', padding: '4px' }}>
+    <div className="page-enter" style={isExpandedView ? {
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100vh',
+      width: '100vw',
+      gap: 0,
+      color: 'var(--text-primary)',
+      padding: 0,
+      margin: 0,
+      overflow: 'hidden'
+    } : {
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100%',
+      gap: '20px',
+      color: 'var(--text-primary)',
+      padding: '4px'
+    }}>
       
       {/* Insecure Context Warning Banner */}
       {showInsecureAlert && (
@@ -2481,19 +2554,14 @@ export default function RemoteDesktopPage() {
             tabIndex={0}
             className="card p-0 overflow-hidden bg-black position-relative d-flex align-items-center justify-content-center flex-grow-1" 
             style={isExpandedView ? {
-              position: 'fixed',
-              top: 0,
-              left: sidebarCollapsed ? 0 : '220px',
-              width: sidebarCollapsed ? '100vw' : 'calc(100vw - 220px)',
-              height: '100vh',
-              zIndex: 9999,
+              width: '100%',
+              height: '100%',
               background: '#090d16',
               cursor: isConnected ? (isControlLocked ? 'not-allowed' : 'crosshair') : 'default',
               outline: 'none',
               borderRadius: 0,
               border: 'none',
-              boxShadow: 'none',
-              transition: 'left 0.2s cubic-bezier(0.4, 0, 0.2, 1), width 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+              boxShadow: 'none'
             } : { 
               minHeight: '480px', 
               border: '3px solid ' + (isHostControlled ? '#ef4444' : isConnected ? 'var(--brand-primary)' : 'var(--border-color)'),
@@ -2731,7 +2799,6 @@ export default function RemoteDesktopPage() {
                     style={{ objectFit: videoFit, background: '#000', cursor: isControlLocked ? 'not-allowed' : 'crosshair' }} 
                     onMouseMove={handleViewportMouseMove}
                     onMouseDown={handleViewportMouseDown}
-                    onMouseUp={handleViewportMouseUp}
                     onContextMenu={handleViewportContextMenu}
                   />
                   

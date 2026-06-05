@@ -95,6 +95,8 @@ export function AppLayout() {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
+  const [isRemoteDesktopExpanded, setIsRemoteDesktopExpanded] = useState(false);
+
   return (
     <div className={`${styles.layout} page-enter`}>
       {/* Mobile overlay */}
@@ -107,22 +109,29 @@ export function AppLayout() {
         mobileOpen={mobileSidebarOpen}
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
         onMobileClose={() => setMobileSidebarOpen(false)}
+        hiddenCompletely={isRemoteDesktopExpanded && sidebarCollapsed}
       />
 
-      <div className={`${styles.mainContent} ${sidebarCollapsed ? styles.collapsed : ''}`}>
-        {!isChatPage && (
+      <div 
+        className={`${styles.mainContent} ${sidebarCollapsed ? styles.collapsed : ''}`}
+        style={isRemoteDesktopExpanded ? { marginLeft: 0 } : undefined}
+      >
+        {!isChatPage && !isRemoteDesktopExpanded && (
           <Topbar
             onMenuClick={() => setMobileSidebarOpen(true)}
             sidebarCollapsed={sidebarCollapsed}
           />
         )}
-        <main className={isChatPage ? styles.chatPageContent : styles.pageContent}>
-          <Outlet context={{ sidebarCollapsed, setSidebarCollapsed }} />
+        <main 
+          className={isChatPage ? styles.chatPageContent : styles.pageContent}
+          style={isRemoteDesktopExpanded ? { padding: 0 } : undefined}
+        >
+          <Outlet context={{ sidebarCollapsed, setSidebarCollapsed, isRemoteDesktopExpanded, setIsRemoteDesktopExpanded }} />
         </main>
       </div>
 
       {/* Floating Sticky Notes rendered globally */}
-      <FloatingStickyNotes />
+      {!isRemoteDesktopExpanded && <FloatingStickyNotes />}
     </div>
   );
 }

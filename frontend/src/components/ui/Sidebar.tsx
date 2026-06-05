@@ -77,9 +77,10 @@ interface SidebarProps {
   mobileOpen: boolean;
   onToggle: () => void;
   onMobileClose: () => void;
+  hiddenCompletely?: boolean;
 }
 
-export function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose }: SidebarProps) {
+export function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose, hiddenCompletely }: SidebarProps) {
   const { user, logout } = useAuthStore();
 
   const { data: pendingUsers } = useQuery({
@@ -99,7 +100,10 @@ export function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose }: Side
   const initials = user?.fullName?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'U';
 
   return (
-    <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ''} ${mobileOpen ? styles.mobileOpen : ''}`}>
+    <aside 
+      className={`${styles.sidebar} ${collapsed ? styles.collapsed : ''} ${mobileOpen ? styles.mobileOpen : ''}`}
+      style={hiddenCompletely ? { transform: 'translateX(-100%)', width: 0, borderRight: 'none', transition: 'width 0.25s, transform 0.25s' } : undefined}
+    >
       {/* Logo */}
       <div className={styles.logo}>
         {!collapsed && (
