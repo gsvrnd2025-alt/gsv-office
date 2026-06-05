@@ -362,6 +362,8 @@ using System.Runtime.InteropServices;
 public class Win32Input {
     [DllImport("user32.dll")]
     public static extern void mouse_event(int flags, int dx, int dy, int data, int extraInfo);
+    [DllImport("user32.dll")]
+    public static extern bool SetCursorPos(int x, int y);
 }
 "@
 if (-not ([System.Management.Automation.PSTypeName]"Win32Input").Type) {
@@ -444,7 +446,7 @@ ipcMain.handle('remote-input', async (event, payload) => {
       const nativeX = Math.round((payload.x / 1920) * width);
       const nativeY = Math.round((payload.y / 1080) * height);
       
-      let cmd = `[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${nativeX}, ${nativeY})`;
+      let cmd = `[Win32Input]::SetCursorPos(${nativeX}, ${nativeY})`;
       
       if (payload.action === 'move') {
         // Just move the cursor, no click

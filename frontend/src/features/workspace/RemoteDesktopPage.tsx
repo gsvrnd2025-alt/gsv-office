@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { 
   Monitor, Play, Square, Settings, Share2, 
   MousePointer2, Keyboard, ShieldAlert, Cpu, Network,
@@ -937,10 +938,53 @@ interface ConnectionLog {
   timestamp: string;
 }
 
+// Persistent global session cache for WebRTC route transition persistence
+interface GlobalSession {
+  socket: Socket | null;
+  peerConnection: RTCPeerConnection | null;
+  dataChannel: RTCDataChannel | null;
+  localStream: MediaStream | null;
+  remoteStream: MediaStream | null;
+  activePartnerId: string | null;
+  activePartnerName: string;
+  isHosting: boolean;
+  isHostControlled: boolean;
+  isVoiceChatEnabled: boolean;
+  localAudioStream: MediaStream | null;
+  terminalLogs: string[];
+  desktopState: MockDesktopState | null;
+  showIncomingRequest: boolean;
+  incomingRequestData: any | null;
+  remoteClipboard: MockFile | null;
+  explorerOpen: boolean;
+  explorerPos: { x: number; y: number };
+}
+let globalSession: GlobalSession | null = null;
+let activeCallbacks: any = null;
+
+// Global log helper that updates the persistent buffer
+const addGlobalLog = (msg: string, setTerminalLogs?: any) => {
+  const formattedMsg = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  const session: any = globalSession;
+  if (session) {
+    session.terminalLogs = [...session.terminalLogs.slice(-15), formattedMsg];
+  }
+  if (setTerminalLogs) {
+    setTerminalLogs((prev: string[]) => [...prev.slice(-15), formattedMsg]);
+  } else if (activeCallbacks && activeCallbacks.setTerminalLogs) {
+    activeCallbacks.setTerminalLogs((prev: string[]) => [...prev.slice(-15), formattedMsg]);
+  }
+};
+
 export default function RemoteDesktopPage() {
   const { user, accessToken } = useAuthStore();
   const { theme } = useThemeStore();
-  const [socket, setSocket] = useState<Socket | null>(null);
+  const { sidebarCollapsed, setSidebarCollapsed } = useOutletContext<{
+    sidebarCollapsed: boolean;
+    setSidebarCollapsed: (v: boolean) => void;
+  }>() || { sidebarCollapsed: false, setSidebarCollapsed: () => {} };
+
+  const [socket, setSocket] = useState<Socket | null>(globalSession ? globalSession.socket : null);
 
   // User directory states
   const [teammates, setTeammates] = useState<any[]>([]);
@@ -949,15 +993,15 @@ export default function RemoteDesktopPage() {
   const [targetPhone, setTargetPhone] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
   const [dialingStatus, setDialingStatus] = useState<'idle' | 'calling' | 'accepted' | 'rejected' | 'timeout'>('idle');
-  const [isConnected, setIsConnected] = useState(false);
-  const [isHosting, setIsHosting] = useState(false);
-  const [isHostControlled, setIsHostControlled] = useState(false);
-  const [activePartnerId, setActivePartnerId] = useState<string | null>(null);
-  const [activePartnerName, setActivePartnerName] = useState<string>('');
+  const [isConnected, setIsConnected] = useState(globalSession ? true : false);
+  const [isHosting, setIsHosting] = useState(globalSession ? globalSession.isHosting : false);
+  const [isHostControlled, setIsHostControlled] = useState(globalSession ? globalSession.isHostControlled : false);
+  const [activePartnerId, setActivePartnerId] = useState<string | null>(globalSession ? globalSession.activePartnerId : null);
+  const [activePartnerName, setActivePartnerName] = useState<string>(globalSession ? globalSession.activePartnerName : '');
 
   // WebRTC state objects to prevent video mounting race condition
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(globalSession ? globalSession.localStream : null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(globalSession ? globalSession.remoteStream : null);
 
   // Connection History Logs state
   const [connectionHistory, setConnectionHistory] = useState<ConnectionLog[]>(() => {
@@ -969,8 +1013,8 @@ export default function RemoteDesktopPage() {
   });
 
   // Voice Chat
-  const [isVoiceChatEnabled, setIsVoiceChatEnabled] = useState(false);
-  const [localAudioStream, setLocalAudioStream] = useState<MediaStream | null>(null);
+  const [isVoiceChatEnabled, setIsVoiceChatEnabled] = useState(globalSession ? globalSession.isVoiceChatEnabled : false);
+  const [localAudioStream, setLocalAudioStream] = useState<MediaStream | null>(globalSession ? globalSession.localAudioStream : null);
 
   // Layout View constraints
   const [videoFit, setVideoFit] = useState<'contain' | 'cover' | 'fill'>('contain');
@@ -1074,8 +1118,8 @@ export default function RemoteDesktopPage() {
   };
 
   // Permissions settings modal
-  const [showIncomingRequest, setShowIncomingRequest] = useState(false);
-  const [incomingRequestData, setIncomingRequestData] = useState<any | null>(null);
+  const [showIncomingRequest, setShowIncomingRequest] = useState(globalSession ? globalSession.showIncomingRequest : false);
+  const [incomingRequestData, setIncomingRequestData] = useState<any | null>(globalSession ? globalSession.incomingRequestData : null);
   const [grantedPermissions, setGrantedPermissions] = useState({
     fullControl: true,
     keyboard: true,
@@ -1108,24 +1152,262 @@ export default function RemoteDesktopPage() {
   // Viewport / WebRTC simulation objects
   const viewportRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-  const dataChannelRef = useRef<RTCDataChannel | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(globalSession ? globalSession.localStream : null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(globalSession ? globalSession.peerConnection : null);
+  const dataChannelRef = useRef<RTCDataChannel | null>(globalSession ? globalSession.dataChannel : null);
+  const socketRef = useRef<Socket | null>(globalSession ? globalSession.socket : null);
   const dialingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const iceCandidatesQueueRef = useRef<any[]>([]);
+
   const desktopStateRef = useRef<MockDesktopState | null>(null);
+  if (!desktopStateRef.current) {
+    desktopStateRef.current = globalSession && globalSession.desktopState ? globalSession.desktopState : new MockDesktopState();
+  }
   
-  const [explorerOpen, setExplorerOpen] = useState(true);
+  const [explorerOpen, setExplorerOpen] = useState(globalSession ? globalSession.explorerOpen : false);
+  const [explorerPos, setExplorerPos] = useState(globalSession ? globalSession.explorerPos : { x: 20, y: 80 });
+  const [isDraggingExplorer, setIsDraggingExplorer] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0 });
+
   const [selectedFileIndex, setSelectedFileIndex] = useState<number>(0);
-  const [remoteClipboard, setRemoteClipboard] = useState<MockFile | null>(null);
-  const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
+  const [remoteClipboard, setRemoteClipboard] = useState<MockFile | null>(globalSession ? globalSession.remoteClipboard : null);
+  const [terminalLogs, setTerminalLogs] = useState<string[]>(globalSession ? globalSession.terminalLogs : []);
 
   const lastEscPressTime = useRef<number>(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastMouseMoveTime = useRef<number>(0);
+  const [showFloatingToolbar, setShowFloatingToolbar] = useState(false);
 
   const addLog = (msg: string) => {
     setTerminalLogs(prev => [...prev.slice(-15), `[${new Date().toLocaleTimeString()}] ${msg}`]);
+  };
+
+  // Draggable File explorer mounts overlay handlers
+  const handleDragStart = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'BUTTON' || target.closest('button') || target.closest('svg')) return;
+    setIsDraggingExplorer(true);
+    dragStartRef.current = {
+      x: e.clientX - explorerPos.x,
+      y: e.clientY - explorerPos.y
+    };
+    e.preventDefault();
+  };
+
+  const handleDrag = (e: MouseEvent) => {
+    if (!isDraggingExplorer) return;
+    const newX = e.clientX - dragStartRef.current.x;
+    const newY = e.clientY - dragStartRef.current.y;
+    setExplorerPos({ x: newX, y: newY });
+  };
+
+  const handleDragEnd = () => {
+    setIsDraggingExplorer(false);
+  };
+
+  useEffect(() => {
+    if (isDraggingExplorer) {
+      window.addEventListener('mousemove', handleDrag);
+      window.addEventListener('mouseup', handleDragEnd);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleDrag);
+      window.removeEventListener('mouseup', handleDragEnd);
+    };
+  }, [isDraggingExplorer, explorerPos]);
+
+  // ─── Bind active callbacks for persistent global session ────────────────────
+  activeCallbacks = {
+    handleRemoteRequest: (data: any) => {
+      addGlobalLog(`Incoming remote connection request from ${data.callerName} (${data.callerPhone})`, setTerminalLogs);
+      setIncomingRequestData(data);
+      setShowIncomingRequest(true);
+      SoundManager.playNotification();
+    },
+    handleRemoteResponse: async (data: any) => {
+      if (dialingTimeoutRef.current) clearTimeout(dialingTimeoutRef.current);
+      if (data.status === 'rejected') {
+        setIsConnecting(false);
+        setDialingStatus('rejected');
+        
+        if (data.reason === 'insecure') {
+          toast.error('Connection failed: Host is blocked by browser insecure context. The host must use HTTPS or the Desktop App.', { duration: 8000 });
+          addGlobalLog('Host connection failed due to host insecure HTTP context.', setTerminalLogs);
+        } else if (data.reason === 'permission_denied') {
+          toast.error('Connection failed: Host denied screen share permission.');
+          addGlobalLog('Host denied display capture permission.', setTerminalLogs);
+        } else if (data.reason === 'not_supported') {
+          toast.error('Connection failed: Host browser does not support screen sharing.');
+          addGlobalLog('Host browser does not support display capture.', setTerminalLogs);
+        } else {
+          toast.error('Remote access request was rejected by host.');
+          addGlobalLog('Host rejected remote access request.', setTerminalLogs);
+        }
+        
+        const targetId = targetPhoneRef.current.replace(/\s+/g, '');
+        const target = teammatesRef.current.find(t => t.id === targetPhoneRef.current || t.phone?.replace(/\s+/g, '') === targetId || t.loginId === targetId);
+        addConnectionHistory({
+          peerName: target?.fullName || targetPhoneRef.current,
+          peerPhone: target?.phone || targetPhoneRef.current,
+          type: 'Outgoing',
+          status: 'Rejected'
+        });
+      } else {
+        setDialingStatus('accepted');
+        addGlobalLog('Host accepted request. Setting up WebRTC session...', setTerminalLogs);
+        setActivePartnerId(data.hostId);
+        setPartnerIsDesktop(!!data.isDesktopAgent);
+        
+        if (data.isDesktopAgent) {
+          addGlobalLog('Host Desktop Agent is online 🟢. Direct OS-level control is active.', setTerminalLogs);
+          toast.success('Direct Desktop Agent control active!');
+        } else {
+          addGlobalLog('WARNING: Host is running inside standard browser. Native OS-level control is unavailable.', setTerminalLogs);
+          toast.error('Host running on browser. Native input control unavailable.');
+        }
+
+        const hostUser = teammatesRef.current.find(t => t.id === data.hostId);
+        setActivePartnerName(hostUser?.fullName || 'Host');
+        
+        addConnectionHistory({
+          peerName: hostUser?.fullName || 'Peer Host',
+          peerPhone: hostUser?.phone || 'Unknown',
+          type: 'Outgoing',
+          status: 'Accepted'
+        });
+
+        if (!peerConnectionRef.current) {
+          await setupWebRTC(false, data.hostId);
+        }
+      }
+    },
+    handleRemoteSignal: async (data: any) => {
+      if (!peerConnectionRef.current) {
+        if (data.signal.type === 'offer') {
+          addGlobalLog('Received WebRTC offer before connection was initialized. Setting up now...', setTerminalLogs);
+          await setupWebRTC(false, data.fromId);
+        } else {
+          return;
+        }
+      }
+      const pc = peerConnectionRef.current;
+      if (!pc) return;
+
+      try {
+        const signal = data.signal;
+        if (signal.type === 'offer') {
+          await pc.setRemoteDescription(new RTCSessionDescription(signal));
+          // Drain queued ICE candidates
+          if (iceCandidatesQueueRef.current.length > 0) {
+            addGlobalLog(`Draining ${iceCandidatesQueueRef.current.length} queued ICE candidates...`, setTerminalLogs);
+            for (const candidate of iceCandidatesQueueRef.current) {
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(candidate));
+              } catch (e) {
+                console.error('Error adding queued ICE candidate', e);
+              }
+            }
+            iceCandidatesQueueRef.current = [];
+          }
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          socketRef.current?.emit('remote:signal', { targetUserId: data.fromId, signal: answer });
+          addGlobalLog('Signaling offer dispatched.', setTerminalLogs);
+        } else if (signal.type === 'answer') {
+          await pc.setRemoteDescription(new RTCSessionDescription(signal));
+          // Drain queued ICE candidates
+          if (iceCandidatesQueueRef.current.length > 0) {
+            addGlobalLog(`Draining ${iceCandidatesQueueRef.current.length} queued ICE candidates...`, setTerminalLogs);
+            for (const candidate of iceCandidatesQueueRef.current) {
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(candidate));
+              } catch (e) {
+                console.error('Error adding queued ICE candidate', e);
+              }
+            }
+            iceCandidatesQueueRef.current = [];
+          }
+        }
+      } catch (e) {
+        console.error('Signal error', e);
+      }
+    },
+    handleRemoteIceCandidate: async (data: any) => {
+      try {
+        if (peerConnectionRef.current && peerConnectionRef.current.remoteDescription) {
+          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+        } else {
+          iceCandidatesQueueRef.current.push(data.candidate);
+        }
+      } catch (e) {
+        console.error('Error adding ICE candidate', e);
+      }
+    },
+    handleRemoteControlLock: (data: any) => {
+      setIsControlLocked(data.isLocked);
+      if (data.isLocked) {
+        toast.error('Control Lock: Host is typing or moving mouse. Inputs paused.', { id: 'lock-alert' });
+        addGlobalLog('Control Lock: Remote host physical input active.', setTerminalLogs);
+      } else {
+        toast.success('Control released. Inputs enabled.', { id: 'lock-alert' });
+        addGlobalLog('Control released: Host yielded controls.', setTerminalLogs);
+      }
+    },
+    handleRemoteTerminate: () => {
+      terminateSession(true);
+    },
+    handleDataChannelMessage: (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.type === 'mouse') {
+          if (payload.action !== 'move') {
+            addGlobalLog(`Remote mouse action: ${payload.action || 'click'} (${payload.x}, ${payload.y})`, setTerminalLogs);
+          }
+          if (desktopStateRef.current) {
+            if (payload.action === 'move') {
+              desktopStateRef.current.cursorX = Math.round((payload.x / 1920) * 1280);
+              desktopStateRef.current.cursorY = Math.round((payload.y / 1080) * 720);
+            } else if (payload.action === 'leftdown') {
+              desktopStateRef.current.handleClick(payload.x, payload.y);
+            }
+          }
+          if (!isControlLockedRef.current) {
+            if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.remoteInput === 'function') {
+              (window as any).gsvDesktop.remoteInput({ type: 'mouse', action: payload.action, x: payload.x, y: payload.y });
+            } else if (localAgentActive) {
+              if (payload.action !== 'move') {
+                addGlobalLog(`[Agent Loopback] Executed native OS mouse event: ${payload.action} at (${payload.x}, ${payload.y})`, setTerminalLogs);
+              }
+            }
+          }
+        } else if (payload.type === 'key') {
+          addGlobalLog(`Remote keyboard input: ${payload.key}`, setTerminalLogs);
+          if (desktopStateRef.current) {
+            desktopStateRef.current.handleKey(payload.key);
+          }
+          if (!isControlLockedRef.current) {
+            if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.remoteInput === 'function') {
+              (window as any).gsvDesktop.remoteInput({ type: 'key', key: payload.key });
+            } else if (localAgentActive) {
+              addGlobalLog(`[Agent Loopback] Executed native OS key press: "${payload.key}"`, setTerminalLogs);
+            }
+          }
+        } else if (payload.type === 'file-transfer') {
+          addGlobalLog(`File transfer received: ${payload.fileName} (${payload.fileSize})`, setTerminalLogs);
+          toast.success(`Received shared file: ${payload.fileName}`);
+          if (desktopStateRef.current) {
+            desktopStateRef.current.addFile(payload.fileName, payload.fileSize, payload.content || '');
+          }
+          setRemoteClipboard({
+            name: payload.fileName,
+            type: 'text',
+            size: payload.fileSize,
+            content: payload.content || 'File payload synchronised'
+          });
+        }
+      } catch (e) {}
+    },
+    setTerminalLogs
   };
 
   // Connection History helper
@@ -1202,196 +1484,79 @@ export default function RemoteDesktopPage() {
   useEffect(() => { targetPhoneRef.current = targetPhone; }, [targetPhone]);
 
   // Socket Connection setup — ONLY depends on accessToken, never on teammates/targetPhone
-  // Using refs for event handlers so they always have latest values without reconnecting
   useEffect(() => {
     if (!accessToken) return;
     
-    const s = io('/webrtc', {
-      auth: { token: accessToken },
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 2000,
-    });
+    let s: Socket;
+    if (globalSession && globalSession.socket) {
+      s = globalSession.socket;
+      addLog('Reconnected to persistent signaling socket tunnel.');
+    } else {
+      s = io('/webrtc', {
+        auth: { token: accessToken },
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionAttempts: 10,
+        reconnectionDelay: 2000,
+      });
 
-    s.on('connect', () => {
-      addLog('Secure signaling socket tunnel online.');
-    });
+      s.on('connect', () => {
+        addGlobalLog('Secure signaling socket tunnel online.', setTerminalLogs);
+      });
 
-    s.on('connect_error', async (err) => {
-      addLog(`Socket connection error: ${err.message}. Attempting to refresh token...`);
-      try {
-        // Trigger a simple authenticated API call to trigger Axios interceptor token refresh
-        await usersApi.getDirectory();
-        const freshToken = useAuthStore.getState().accessToken;
-        if (freshToken && freshToken !== (s.auth as any).token) {
-          (s.auth as any).token = freshToken;
-          s.connect();
-          addLog('Token refreshed. Socket reconnected successfully.');
-        }
-      } catch (refreshErr) {
-        addLog('Token refresh failed. Reconnect will retry.');
-        console.error('Failed to auto-refresh token for webrtc socket:', refreshErr);
-      }
-    });
-
-    s.on('disconnect', (reason: string) => {
-      addLog(`Socket disconnected: ${reason}. Reconnecting...`);
-    });
-
-    s.on('remote:request', (data: any) => {
-      addLog(`Incoming remote connection request from ${data.callerName} (${data.callerPhone})`);
-      // User must explicitly accept to allow real screen sharing.
-      setIncomingRequestData(data);
-      setShowIncomingRequest(true);
-      SoundManager.playNotification();
-    });
-
-    s.on('remote:response', async (data: any) => {
-      if (dialingTimeoutRef.current) clearTimeout(dialingTimeoutRef.current);
-      if (data.status === 'rejected') {
-        setIsConnecting(false);
-        setDialingStatus('rejected');
-        
-        if (data.reason === 'insecure') {
-          toast.error('Connection failed: Host is blocked by browser insecure context. The host must use HTTPS or the Desktop App.', { duration: 8000 });
-          addLog('Host connection failed due to host insecure HTTP context.');
-        } else if (data.reason === 'permission_denied') {
-          toast.error('Connection failed: Host denied screen share permission.');
-          addLog('Host denied display capture permission.');
-        } else if (data.reason === 'not_supported') {
-          toast.error('Connection failed: Host browser does not support screen sharing.');
-          addLog('Host browser does not support display capture.');
-        } else {
-          toast.error('Remote access request was rejected by host.');
-          addLog('Host rejected remote access request.');
-        }
-        
-        const targetId = targetPhoneRef.current.replace(/\s+/g, '');
-        const target = teammatesRef.current.find(t => t.id === targetPhoneRef.current || t.phone?.replace(/\s+/g, '') === targetId || t.loginId === targetId);
-        addConnectionHistory({
-          peerName: target?.fullName || targetPhoneRef.current,
-          peerPhone: target?.phone || targetPhoneRef.current,
-          type: 'Outgoing',
-          status: 'Rejected'
-        });
-      } else {
-        setDialingStatus('accepted');
-        addLog('Host accepted request. Setting up WebRTC session...');
-        setActivePartnerId(data.hostId);
-        setPartnerIsDesktop(!!data.isDesktopAgent);
-        
-        if (data.isDesktopAgent) {
-          addLog('Host Desktop Agent is online 🟢. Direct OS-level control is active.');
-          toast.success('Direct Desktop Agent control active!');
-        } else {
-          addLog('WARNING: Host is running inside standard browser. Native OS-level control is unavailable.');
-          toast.error('Host running on browser. Native input control unavailable.');
-        }
-
-        const hostUser = teammatesRef.current.find(t => t.id === data.hostId);
-        setActivePartnerName(hostUser?.fullName || 'Host');
-        
-        addConnectionHistory({
-          peerName: hostUser?.fullName || 'Peer Host',
-          peerPhone: hostUser?.phone || 'Unknown',
-          type: 'Outgoing',
-          status: 'Accepted'
-        });
-
-        if (!peerConnectionRef.current) {
-          await setupWebRTC(false, data.hostId);
-        }
-      }
-    });
-
-    s.on('remote:signal', async (data: any) => {
-      if (!peerConnectionRef.current) {
-        if (data.signal.type === 'offer') {
-          addLog('Received WebRTC offer before connection was initialized. Setting up now...');
-          await setupWebRTC(false, data.fromId);
-        } else {
-          return;
-        }
-      }
-      const pc = peerConnectionRef.current;
-      if (!pc) return;
-
-      try {
-        const signal = data.signal;
-        if (signal.type === 'offer') {
-          await pc.setRemoteDescription(new RTCSessionDescription(signal));
-          // Drain queued ICE candidates
-          if (iceCandidatesQueueRef.current.length > 0) {
-            addLog(`Draining ${iceCandidatesQueueRef.current.length} queued ICE candidates...`);
-            for (const candidate of iceCandidatesQueueRef.current) {
-              try {
-                await pc.addIceCandidate(new RTCIceCandidate(candidate));
-              } catch (e) {
-                console.error('Error adding queued ICE candidate', e);
-              }
-            }
-            iceCandidatesQueueRef.current = [];
+      s.on('connect_error', async (err) => {
+        addGlobalLog(`Socket connection error: ${err.message}. Attempting to refresh token...`, setTerminalLogs);
+        try {
+          await usersApi.getDirectory();
+          const freshToken = useAuthStore.getState().accessToken;
+          if (freshToken && freshToken !== (s.auth as any).token) {
+            (s.auth as any).token = freshToken;
+            s.connect();
+            addGlobalLog('Token refreshed. Socket reconnected successfully.', setTerminalLogs);
           }
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          s.emit('remote:signal', { targetUserId: data.fromId, signal: answer });
-        } else if (signal.type === 'answer') {
-          await pc.setRemoteDescription(new RTCSessionDescription(signal));
-          // Drain queued ICE candidates
-          if (iceCandidatesQueueRef.current.length > 0) {
-            addLog(`Draining ${iceCandidatesQueueRef.current.length} queued ICE candidates...`);
-            for (const candidate of iceCandidatesQueueRef.current) {
-              try {
-                await pc.addIceCandidate(new RTCIceCandidate(candidate));
-              } catch (e) {
-                console.error('Error adding queued ICE candidate', e);
-              }
-            }
-            iceCandidatesQueueRef.current = [];
-          }
+        } catch (refreshErr) {
+          addGlobalLog('Token refresh failed. Reconnect will retry.', setTerminalLogs);
+          console.error('Failed to auto-refresh token for webrtc socket:', refreshErr);
         }
-      } catch (e) {
-        console.error('Signal error', e);
-      }
-    });
+      });
 
-    s.on('remote:ice-candidate', async (data: any) => {
-      try {
-        if (peerConnectionRef.current && peerConnectionRef.current.remoteDescription) {
-          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
-        } else {
-          // Queue ICE candidate if remote description is not set yet
-          iceCandidatesQueueRef.current.push(data.candidate);
-        }
-      } catch (e) {
-        console.error('Error adding ICE candidate', e);
-      }
-    });
+      s.on('disconnect', (reason: string) => {
+        addGlobalLog(`Socket disconnected: ${reason}. Reconnecting...`, setTerminalLogs);
+      });
 
-    s.on('remote:control-lock', (data: any) => {
-      setIsControlLocked(data.isLocked);
-      if (data.isLocked) {
-        toast.error('Control Lock: Host is typing or moving mouse. Inputs paused.', { id: 'lock-alert' });
-        addLog('Control Lock: Remote host physical input active.');
-      } else {
-        toast.success('Control released. Inputs enabled.', { id: 'lock-alert' });
-        addLog('Control released: Host yielded controls.');
-      }
-    });
+      s.on('remote:request', (data: any) => {
+        if (activeCallbacks) activeCallbacks.handleRemoteRequest(data);
+      });
 
-    s.on('remote:terminate', () => {
-      terminateSession(true);
-    });
+      s.on('remote:response', async (data: any) => {
+        if (activeCallbacks) activeCallbacks.handleRemoteResponse(data);
+      });
+
+      s.on('remote:signal', async (data: any) => {
+        if (activeCallbacks) activeCallbacks.handleRemoteSignal(data);
+      });
+
+      s.on('remote:ice-candidate', async (data: any) => {
+        if (activeCallbacks) activeCallbacks.handleRemoteIceCandidate(data);
+      });
+
+      s.on('remote:control-lock', (data: any) => {
+        if (activeCallbacks) activeCallbacks.handleRemoteControlLock(data);
+      });
+
+      s.on('remote:terminate', () => {
+        if (activeCallbacks) activeCallbacks.handleRemoteTerminate();
+      });
+    }
 
     setSocket(s);
+    socketRef.current = s;
 
     return () => {
-      s.disconnect();
-      if (dialingTimeoutRef.current) clearTimeout(dialingTimeoutRef.current);
+      if (!globalSession) {
+        s.disconnect();
+      }
     };
-  // ✅ CRITICAL FIX: Only depend on accessToken — NOT teammates or targetPhone
-  // teammates/targetPhone use refs so handlers always have fresh values without reconnecting socket
   }, [accessToken]);
 
   // Fetch users for directories — use /users/directory (no admin perm needed, any user can call)
@@ -1432,21 +1597,26 @@ export default function RemoteDesktopPage() {
       if (e.key === 'Escape') {
         const now = Date.now();
         if (now - lastEscPressTime.current < 500) {
-          addLog('🚨 Emergency escape keys detected.');
+          addGlobalLog('🚨 Emergency escape keys detected. Disconnecting...', setTerminalLogs);
           terminateSession(false);
-          toast.error('Emergency Exit: Remote connection killed instantly.', { icon: '🚨' });
+          toast.error('Emergency Exit: Remote connection terminated.', { icon: '🚨' });
         } else {
-          // Single ESC press: Exit full screen if active, otherwise toggle video scale fit
+          // Single ESC press: Exit full screen and exit expanded Fit to Window mode
+          let exitedSomething = false;
           if (document.fullscreenElement || (document as any).webkitFullscreenElement) {
             if (document.exitFullscreen) {
               document.exitFullscreen();
             } else if ((document as any).webkitExitFullscreen) {
               (document as any).webkitExitFullscreen();
             }
-            toast.success('Exiting full screen view.');
-          } else {
-            setVideoFit(prev => prev === 'contain' ? 'fill' : prev === 'fill' ? 'cover' : 'contain');
-            toast.success('Toggled remote screen frame scale.');
+            exitedSomething = true;
+          }
+          if (isExpandedView) {
+            setIsExpandedView(false);
+            exitedSomething = true;
+          }
+          if (exitedSomething) {
+            toast.success('Exited expanded view / full screen.');
           }
         }
         lastEscPressTime.current = now;
@@ -1454,7 +1624,38 @@ export default function RemoteDesktopPage() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isConnected, isHosting, activePartnerId, activePartnerName, videoFit]);
+  }, [isConnected, isHosting, activePartnerId, activePartnerName, isExpandedView]);
+
+  // Expanded/Fit to screen mouse hover handlers
+  useEffect(() => {
+    if (!isExpandedView) {
+      setShowFloatingToolbar(false);
+      return;
+    }
+
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      // 1. Top Edge Hover for Floating Toolbar (< 15px)
+      if (e.clientY < 15) {
+        setShowFloatingToolbar(true);
+      } else if (e.clientY > 60) {
+        setShowFloatingToolbar(false);
+      }
+
+      // 2. Left Edge Hover for Sidebar slide-in (< 20px)
+      if (e.clientX < 20) {
+        setSidebarCollapsed(false);
+      }
+    };
+
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    return () => window.removeEventListener('mousemove', handleWindowMouseMove);
+  }, [isExpandedView, setSidebarCollapsed]);
+
+  useEffect(() => {
+    if (isExpandedView) {
+      setSidebarCollapsed(true);
+    }
+  }, [isExpandedView, setSidebarCollapsed]);
 
   // Host local input tracking for Interlock mechanism (Keyboard only to prevent simulated mouse movement self-lockouts)
   useEffect(() => {
@@ -1549,46 +1750,9 @@ export default function RemoteDesktopPage() {
       setIsConnected(false);
     };
     dc.onmessage = (event) => {
-      try {
-        const payload = JSON.parse(event.data);
-        if (payload.type === 'mouse') {
-          addLog(`Remote mouse action: (${payload.x}, ${payload.y})`);
-          if (desktopStateRef.current) {
-            desktopStateRef.current.handleClick(payload.x, payload.y);
-          }
-          if (!isControlLockedRef.current) {
-            if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.remoteInput === 'function') {
-              (window as any).gsvDesktop.remoteInput({ type: 'mouse', x: payload.x, y: payload.y });
-            } else if (localAgentActive) {
-              addLog(`[Agent Loopback] Executed native OS mouse event at (${payload.x}, ${payload.y})`);
-            }
-          }
-        } else if (payload.type === 'key') {
-          addLog(`Remote keyboard input: ${payload.key}`);
-          if (desktopStateRef.current) {
-            desktopStateRef.current.handleKey(payload.key);
-          }
-          if (!isControlLockedRef.current) {
-            if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.remoteInput === 'function') {
-              (window as any).gsvDesktop.remoteInput({ type: 'key', key: payload.key });
-            } else if (localAgentActive) {
-              addLog(`[Agent Loopback] Executed native OS key press: "${payload.key}"`);
-            }
-          }
-        } else if (payload.type === 'file-transfer') {
-          addLog(`File transfer received: ${payload.fileName} (${payload.fileSize})`);
-          toast.success(`Received shared file: ${payload.fileName}`);
-          if (desktopStateRef.current) {
-            desktopStateRef.current.addFile(payload.fileName, payload.fileSize, payload.content || '');
-          }
-          setRemoteClipboard({
-            name: payload.fileName,
-            type: 'text',
-            size: payload.fileSize,
-            content: payload.content || 'File payload synchronised'
-          });
-        }
-      } catch (e) {}
+      if (activeCallbacks && activeCallbacks.handleDataChannelMessage) {
+        activeCallbacks.handleDataChannelMessage(event);
+      }
     };
   };
 
@@ -2319,8 +2483,8 @@ export default function RemoteDesktopPage() {
             style={isExpandedView ? {
               position: 'fixed',
               top: 0,
-              left: 0,
-              width: '100vw',
+              left: sidebarCollapsed ? 0 : '220px',
+              width: sidebarCollapsed ? '100vw' : 'calc(100vw - 220px)',
               height: '100vh',
               zIndex: 9999,
               background: '#090d16',
@@ -2328,7 +2492,8 @@ export default function RemoteDesktopPage() {
               outline: 'none',
               borderRadius: 0,
               border: 'none',
-              boxShadow: 'none'
+              boxShadow: 'none',
+              transition: 'left 0.2s cubic-bezier(0.4, 0, 0.2, 1), width 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
             } : { 
               minHeight: '480px', 
               border: '3px solid ' + (isHostControlled ? '#ef4444' : isConnected ? 'var(--brand-primary)' : 'var(--border-color)'),
@@ -2372,7 +2537,23 @@ export default function RemoteDesktopPage() {
 
             {/* Controlling Client Mirror Feed */}
             {isConnected && !isHosting && (
-              <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', position: 'relative', background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)', padding: '16px' }}>
+              <div style={isExpandedView ? {
+                width: '100%',
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                position: 'relative',
+                background: '#090d16',
+                padding: 0
+              } : {
+                width: '100%',
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                position: 'relative',
+                background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)',
+                padding: '16px'
+              }}>
                 
                 {/* Overlay Lock for Interlock system */}
                 {isControlLocked && (
@@ -2388,56 +2569,160 @@ export default function RemoteDesktopPage() {
                   </div>
                 )}
 
-                {/* Remote Connection Header bar */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.06)', backdropFilter: 'blur(10px)', padding: '10px 16px', borderRadius: '10px', border: '1.5px solid rgba(255,255,255,0.1)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#60a5fa' }}>
-                    <Eye size={16} />
-                    <strong style={{ fontSize: '13px', fontWeight: 800 }}>P2P UltraViewer Session</strong>
-                  </div>
-                  
-                  {/* Screen scaling controls */}
-                  <div className="d-flex align-items-center gap-3">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '12px', color: '#cbd5e1', fontWeight: 600 }}>Screen Scale:</span>
+                {/* Floating Top Toolbar (Only in expanded view) */}
+                {isExpandedView && (
+                  <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    pointerEvents: 'none',
+                    zIndex: 20
+                  }}>
+                    <div style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: '50%',
+                      transform: `translateX(-50%) translateY(${showFloatingToolbar ? '0' : '-100%'})`,
+                      transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+                      pointerEvents: 'auto',
+                      background: 'rgba(15, 23, 42, 0.95)',
+                      backdropFilter: 'blur(12px)',
+                      border: '1.5px solid rgba(255, 255, 255, 0.1)',
+                      borderTop: 'none',
+                      borderRadius: '0 0 12px 12px',
+                      padding: '8px 24px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)'
+                    }}>
+                      <div style={{ color: '#60a5fa', fontWeight: 800, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Monitor size={14} /> <span>{activePartnerName}</span>
+                      </div>
+                      <div style={{ borderRight: '1.5px solid rgba(255, 255, 255, 0.1)', height: '16px' }} />
+                      
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '11px', color: '#cbd5e1', fontWeight: 600 }}>Scale:</span>
+                        <button 
+                          className={`btn btn-xs ${videoFit === 'contain' ? 'btn-primary' : 'btn-ghost'}`}
+                          onClick={() => setVideoFit('contain')}
+                          style={{ fontSize: '11px', fontWeight: 700 }}
+                        >
+                          Contain
+                        </button>
+                        <button 
+                          className={`btn btn-xs ${videoFit === 'fill' ? 'btn-primary' : 'btn-ghost'}`}
+                          onClick={() => setVideoFit('fill')}
+                          style={{ fontSize: '11px', fontWeight: 700 }}
+                        >
+                          Stretch
+                        </button>
+                      </div>
+                      
+                      <div style={{ borderRight: '1.5px solid rgba(255, 255, 255, 0.1)', height: '16px' }} />
+                      
                       <button 
-                        className={`btn btn-xs ${videoFit === 'contain' ? 'btn-primary' : 'btn-ghost'}`}
-                        onClick={() => setVideoFit('contain')}
-                        style={{ fontSize: '11px', fontWeight: 700, color: '#fff' }}
+                        className={`btn btn-xs ${explorerOpen ? 'btn-primary' : 'btn-ghost'}`}
+                        onClick={() => setExplorerOpen(prev => !prev)}
+                        style={{ fontSize: '11px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px', color: '#fff' }}
                       >
-                        Contain
+                        <Folder size={12} /> Files
                       </button>
-                      <button 
-                        className={`btn btn-xs ${videoFit === 'fill' ? 'btn-primary' : 'btn-ghost'}`}
-                        onClick={() => setVideoFit('fill')}
-                        style={{ fontSize: '11px', fontWeight: 700, color: '#fff' }}
-                      >
-                        Stretch
-                      </button>
+
+                      <div style={{ borderRight: '1.5px solid rgba(255, 255, 255, 0.1)', height: '16px' }} />
+
                       <button 
                         className="btn btn-xs btn-ghost"
-                        onClick={handleFullScreen}
-                        style={{ fontSize: '11px', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        onClick={() => setIsExpandedView(false)}
+                        style={{ fontSize: '11px', fontWeight: 700, color: '#fca5a5' }}
                       >
-                        <Maximize size={12} /> Full Screen
+                        Exit Fit
                       </button>
-                      <button 
-                        className={`btn btn-xs ${isExpandedView ? 'btn-primary' : 'btn-ghost'}`}
-                        onClick={() => setIsExpandedView(!isExpandedView)}
-                        style={{ fontSize: '11px', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '4px' }}
-                      >
-                        <Maximize size={12} /> {isExpandedView ? 'Exit Window Fit' : 'Fit to Window'}
-                      </button>
-                    </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#94a3b8', fontWeight: 600 }}>
-                      <span>Latency: 12ms</span>
-                      <span>FPS: {config.fps}</span>
+                      <button 
+                        className="btn btn-xs btn-danger"
+                        onClick={() => terminateSession(false)}
+                        style={{ fontSize: '11px', fontWeight: 800 }}
+                      >
+                        Disconnect
+                      </button>
                     </div>
                   </div>
-                </div>
+                )}
+
+                {/* Remote Connection Header bar */}
+                {!isExpandedView && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.06)', backdropFilter: 'blur(10px)', padding: '10px 16px', borderRadius: '10px', border: '1.5px solid rgba(255,255,255,0.1)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#60a5fa' }}>
+                      <Eye size={16} />
+                      <strong style={{ fontSize: '13px', fontWeight: 800 }}>P2P UltraViewer Session</strong>
+                    </div>
+                    
+                    {/* Screen scaling controls */}
+                    <div className="d-flex align-items-center gap-3">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '12px', color: '#cbd5e1', fontWeight: 600 }}>Screen Scale:</span>
+                        <button 
+                          className={`btn btn-xs ${videoFit === 'contain' ? 'btn-primary' : 'btn-ghost'}`}
+                          onClick={() => setVideoFit('contain')}
+                          style={{ fontSize: '11px', fontWeight: 700, color: '#fff' }}
+                        >
+                          Contain
+                        </button>
+                        <button 
+                          className={`btn btn-xs ${videoFit === 'fill' ? 'btn-primary' : 'btn-ghost'}`}
+                          onClick={() => setVideoFit('fill')}
+                          style={{ fontSize: '11px', fontWeight: 700, color: '#fff' }}
+                        >
+                          Stretch
+                        </button>
+                        <button 
+                          className="btn btn-xs btn-ghost"
+                          onClick={handleFullScreen}
+                          style={{ fontSize: '11px', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        >
+                          <Maximize size={12} /> Full Screen
+                        </button>
+                        <button 
+                          className={`btn btn-xs ${explorerOpen ? 'btn-primary' : 'btn-ghost'}`}
+                          onClick={() => setExplorerOpen(prev => !prev)}
+                          style={{ fontSize: '11px', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        >
+                          <Folder size={12} /> Files
+                        </button>
+                        <button 
+                          className={`btn btn-xs ${isExpandedView ? 'btn-primary' : 'btn-ghost'}`}
+                          onClick={() => setIsExpandedView(!isExpandedView)}
+                          style={{ fontSize: '11px', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        >
+                          <Maximize size={12} /> {isExpandedView ? 'Exit Window Fit' : 'Fit to Window'}
+                        </button>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#94a3b8', fontWeight: 600 }}>
+                        <span>Latency: 12ms</span>
+                        <span>FPS: {config.fps}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Video container with applied fit controls */}
-                <div style={{ flex: 1, marginTop: '16px', position: 'relative', overflow: 'hidden', borderRadius: '8px' }}>
+                <div style={isExpandedView ? {
+                  flex: 1,
+                  position: 'relative',
+                  overflow: 'hidden',
+                  width: '100%',
+                  height: '100%'
+                } : {
+                  flex: 1,
+                  marginTop: '16px',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  borderRadius: '8px'
+                }}>
                   <video 
                     ref={videoRef} 
                     autoPlay 
@@ -2454,12 +2739,32 @@ export default function RemoteDesktopPage() {
                     <div 
                       className="animate-scale-in"
                       style={{ 
-                        position: 'absolute', top: '10px', left: '10px', width: '380px', height: '240px', 
-                        background: 'rgba(15, 23, 42, 0.95)', border: '1px solid rgba(255,255,255,0.15)',
-                        borderRadius: '10px', display: 'flex', flexDirection: 'column', overflow: 'hidden', zIndex: 10
+                        position: 'absolute', 
+                        top: `${explorerPos.y}px`, 
+                        left: `${explorerPos.x}px`, 
+                        width: '380px', 
+                        height: '240px', 
+                        background: 'rgba(15, 23, 42, 0.95)', 
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '10px', 
+                        display: 'flex', 
+                        flexDirection: 'column', 
+                        overflow: 'hidden', 
+                        zIndex: 10
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.04)', padding: '6px 10px' }}>
+                      <div 
+                        onMouseDown={handleDragStart}
+                        style={{ 
+                          display: 'flex', 
+                          justifyContent: 'space-between', 
+                          alignItems: 'center', 
+                          background: 'rgba(255,255,255,0.04)', 
+                          padding: '6px 10px',
+                          cursor: 'move',
+                          userSelect: 'none'
+                        }}
+                      >
                         <span style={{ fontSize: '11px', color: '#fff', fontWeight: 700 }}>Host Datasets Mount</span>
                         <X size={12} className="cursor-pointer" onClick={() => setExplorerOpen(false)} />
                       </div>
@@ -2487,9 +2792,11 @@ export default function RemoteDesktopPage() {
                   )}
                 </div>
 
-                <div style={{ height: '80px', background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '8px', fontFamily: 'monospace', fontSize: '10px', color: '#10b981', overflowY: 'auto' }}>
-                  {terminalLogs.map((lg, i) => <div key={i}>{lg}</div>)}
-                </div>
+                {!isExpandedView && (
+                  <div style={{ height: '80px', background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '8px', fontFamily: 'monospace', fontSize: '10px', color: '#10b981', overflowY: 'auto' }}>
+                    {terminalLogs.map((lg, i) => <div key={i}>{lg}</div>)}
+                  </div>
+                )}
               </div>
             )}
 
