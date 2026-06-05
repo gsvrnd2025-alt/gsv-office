@@ -107,6 +107,9 @@ export const chatApi = {
   sendMessage: (id: string, data: any) => api.post(`/chat/conversations/${id}/messages`, data),
   markRead: (id: string) => api.post(`/chat/conversations/${id}/read`),
   deleteMessage: (messageId: string) => api.delete(`/chat/messages/${messageId}`),
+  addMember: (id: string, userId: string) => api.post(`/chat/conversations/${id}/members`, { userId }),
+  deleteConversation: (id: string, clearForEveryone: boolean) => api.delete(`/chat/conversations/${id}`, { params: { clearForEveryone: String(clearForEveryone) } }),
+  updateConversation: (id: string, data: any) => api.patch(`/chat/conversations/${id}`, data),
 };
 
 export const filesApi = {

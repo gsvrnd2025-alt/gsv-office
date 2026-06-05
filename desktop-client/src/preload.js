@@ -9,5 +9,6 @@ contextBridge.exposeInMainWorld('gsvDesktop', {
   getSources: () => ipcRenderer.invoke('get-sources'),
   selectSource: (sourceId) => ipcRenderer.invoke('select-source', sourceId),
   openSettings: () => ipcRenderer.invoke('open-settings'),
-  minimizeWindow: () => ipcRenderer.invoke('minimize-window')
+  minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
+  showAndFocus: () => ipcRenderer.invoke('show-and-focus')
 });

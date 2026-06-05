@@ -159,7 +159,7 @@ export class ChatService implements OnModuleInit {
       JOIN conversation_members cm ON cm.conversation_id = c.id AND cm.user_id = $1 AND cm.left_at IS NULL
       LEFT JOIN messages m ON m.conversation_id = c.id
       GROUP BY c.id, cm.last_read_at, cm.is_muted, cm.is_archived
-      ORDER BY c.last_message_at DESC NULLS LAST
+      ORDER BY COALESCE(c.last_message_at, c.created_at) DESC
       LIMIT $2 OFFSET $3
     `, [userId, limit, (page - 1) * limit]);
   }
@@ -208,6 +208,11 @@ export class ChatService implements OnModuleInit {
         [user1, user2]
       );
       if (existing.length > 0) {
+        // Reset left_at to NULL for both members so they can see the conversation again in their list
+        await this.dataSource.query(
+          `UPDATE conversation_members SET left_at = NULL WHERE conversation_id = $1`,
+          [existing[0].id]
+        );
         return existing[0];
       }
     }
@@ -301,6 +306,51 @@ export class ChatService implements OnModuleInit {
       `INSERT INTO conversation_members (conversation_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING`,
       [conversationId, userId]
     );
+    return { success: true };
+  }
+
+  async updateConversation(id: string, dto: any) {
+    const fields: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+    
+    if (dto.name !== undefined) {
+      fields.push(`name = $${idx++}`);
+      values.push(dto.name);
+    }
+    if (dto.description !== undefined) {
+      fields.push(`description = $${idx++}`);
+      values.push(dto.description);
+    }
+    if (dto.metadata !== undefined) {
+      fields.push(`metadata = $${idx++}`);
+      values.push(typeof dto.metadata === 'string' ? dto.metadata : JSON.stringify(dto.metadata));
+    }
+    
+    if (fields.length === 0) return { success: true };
+    
+    values.push(id);
+    await this.dataSource.query(
+      `UPDATE conversations SET ${fields.join(', ')} WHERE id = $${idx}`,
+      values
+    );
+    
+    return { success: true };
+  }
+
+  async deleteConversation(id: string, userId: string, clearForEveryone: boolean) {
+    if (clearForEveryone) {
+      await this.dataSource.transaction(async (manager) => {
+        await manager.query(`DELETE FROM messages WHERE conversation_id = $1`, [id]);
+        await manager.query(`DELETE FROM conversation_members WHERE conversation_id = $1`, [id]);
+        await manager.query(`DELETE FROM conversations WHERE id = $1`, [id]);
+      });
+    } else {
+      await this.dataSource.query(
+        `UPDATE conversation_members SET left_at = NOW() WHERE conversation_id = $1 AND user_id = $2`,
+        [id, userId]
+      );
+    }
     return { success: true };
   }
 }

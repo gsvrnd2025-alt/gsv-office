@@ -20,6 +20,14 @@ export class UsersService implements OnApplicationBootstrap {
 
   async onApplicationBootstrap() {
     try {
+      // Reset all users' online status to false on application bootstrap
+      await this.usersRepo.createQueryBuilder()
+        .update(User)
+        .set({ isOnline: false })
+        .where('is_online = :isOnline', { isOnline: true })
+        .execute();
+      console.log('[UsersService] Reset all users online status to offline on bootstrap.');
+
       const count = await this.usersRepo.count();
       if (count <= 1) {
         console.log('[UsersService] Only default user found. Automatically triggering Google Sheets sync...');

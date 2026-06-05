@@ -1,5 +1,26 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Fragment } from 'react';
 import { useParams, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom';
+
+const getMessageDateString = (msg: any) => {
+  if (!msg) return '';
+  const date = new Date(msg.created_at || msg.createdAt || 0);
+  return date.toDateString();
+};
+
+const formatDividerDate = (dateStr: string) => {
+  const date = new Date(dateStr);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  
+  if (date.toDateString() === today.toDateString()) {
+    return 'Today';
+  } else if (date.toDateString() === yesterday.toDateString()) {
+    return 'Yesterday';
+  } else {
+    return date.toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  }
+};
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Send, Plus, Search, MessageSquare, Hash, Phone, Video,
@@ -90,7 +111,13 @@ export default function ChatPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const dmUserId = searchParams.get('userId');
-  const { sidebarCollapsed, setSidebarCollapsed } = useOutletContext<any>() || {};
+  const { 
+    sidebarCollapsed, 
+    setSidebarCollapsed,
+    initiateCall,
+    callHistory = [],
+    setCallHistory
+  } = useOutletContext<any>() || {};
   const { user } = useAuthStore();
   const qc = useQueryClient();
 
@@ -130,10 +157,11 @@ export default function ChatPage() {
   const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'unknown'>('unknown');
   const [showMicWarningModal, setShowMicWarningModal] = useState(false);
   
-  // Calling resonance state
-  const [incomingCall, setIncomingCall] = useState<string | null>(null);
-  const [activeCall, setActiveCall] = useState(false);
-  const [callingState, setCallingState] = useState<'idle' | 'calling' | 'connected'>('idle');
+  const [activeChatTab, setActiveChatTab] = useState<'messages' | 'calls'>('messages');
+
+  useEffect(() => {
+    setActiveChatTab('messages');
+  }, [conversationId]);
 
   // WhatsApp-style Custom Features
   const [showAttachmentsDropdown, setShowAttachmentsDropdown] = useState(false);
@@ -1038,19 +1066,12 @@ export default function ChatPage() {
         toast.error(`Teammate "${partnerName || 'User'}" is offline. Call handshakes are blocked.`);
         return;
       }
+      if (partner && initiateCall) {
+        initiateCall(partner.id, partnerName, type);
+      } else {
+        toast.error('Calling services are unavailable.');
+      }
     }
-
-    setCallingState('calling');
-    setActiveCall(true);
-    toast(`Initiating secure ${type} handshake resonance... 📞`);
-    setTimeout(() => {
-      setCallingState('connected');
-      toast.success('Link Established! Nodal resonance synced.');
-    }, 2500);
-  };
-
-  const simulateIncomingCall = () => {
-    setIncomingCall(activeConv?.name || 'Jane Doe');
   };
 
   const filteredConvs = conversations.filter((c: any) => {
@@ -1135,7 +1156,29 @@ export default function ChatPage() {
        })) 
     : null;
   const partnerName = partner?.fullName || activeConv?.name?.replace('DM with ', '');
-  const handshakeRequired = activeConv?.type === 'private' && partner && (partner as any).departmentId !== (user as any)?.departmentId && (partner as any).department_id !== (user as any)?.department_id && !approvedHandshakes.includes((partner as any).id);
+  
+  const partnerIsAdmin = partner && (
+    (partner as any).role?.name === 'Super Admin' ||
+    (partner as any).role_name === 'Super Admin' ||
+    partner.fullName === 'System Administrator' ||
+    partner.id === '20000000-0000-0000-0000-000000000001'
+  );
+  const userIsAdmin = user && (
+    (user as any).role?.name === 'Super Admin' ||
+    (user as any).role_name === 'Super Admin' ||
+    user.fullName === 'System Administrator' ||
+    user.id === '20000000-0000-0000-0000-000000000001'
+  );
+
+  const handshakeRequired = activeConv?.type === 'private' && partner && 
+    !partnerIsAdmin && !userIsAdmin &&
+    (partner as any).departmentId !== (user as any)?.departmentId && 
+    (partner as any).department_id !== (user as any)?.department_id && 
+    !approvedHandshakes.includes((partner as any).id);
+
+  const partnerCallLogs = (callHistory || []).filter((log: any) => 
+    log.name?.toLowerCase() === partnerName?.toLowerCase()
+  );
   
   let sortedMessages = [...messages].sort((a: any, b: any) => {
     const timeA = new Date(a.created_at || a.createdAt || 0).getTime();
@@ -1939,23 +1982,168 @@ export default function ChatPage() {
                     </>
                   );
                 })()}
-                <button className="btn btn-ghost btn-icon" onClick={simulateIncomingCall} title="Simulate Call"><MoreVertical size={18} /></button>
               </div>
             </div>
           </div>
 
-          {/* Messages list */}
-          <div className={styles.messagesArea}>
-            {sortedMessages.map((msg: any, i: number) => {
-              const isOwn = msg.sender_id === user?.id || msg.sender?.id === user?.id;
-              const senderName = msg.sender_name || msg.sender?.fullName || 'System Teammate';
-              const showAvatar = !isOwn && (i === 0 || sortedMessages[i - 1]?.sender_id !== msg.sender_id);
-              const hasAttachment = msg.type !== 'text' && msg.type !== undefined;
+          {/* Sub-header Tab switcher for private DMs */}
+          {activeConv?.type === 'private' && partner && (
+            <div style={{
+              display: 'flex',
+              background: 'rgba(30, 41, 59, 0.4)',
+              backdropFilter: 'blur(12px)',
+              borderBottom: '1px solid var(--border-color)',
+              padding: '6px 16px',
+              gap: '12px'
+            }}>
+              <button
+                type="button"
+                onClick={() => setActiveChatTab('messages')}
+                style={{
+                  background: activeChatTab === 'messages' ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
+                  border: 'none',
+                  color: activeChatTab === 'messages' ? 'var(--brand-primary)' : 'var(--text-secondary)',
+                  padding: '6px 16px',
+                  borderRadius: '20px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  borderBottom: activeChatTab === 'messages' ? '2px solid var(--brand-primary)' : '2px solid transparent'
+                }}
+              >
+                Messages
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveChatTab('calls')}
+                style={{
+                  background: activeChatTab === 'calls' ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
+                  border: 'none',
+                  color: activeChatTab === 'calls' ? 'var(--brand-primary)' : 'var(--text-secondary)',
+                  padding: '6px 16px',
+                  borderRadius: '20px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  borderBottom: activeChatTab === 'calls' ? '2px solid var(--brand-primary)' : '2px solid transparent'
+                }}
+              >
+                Call History
+              </button>
+            </div>
+          )}
 
-              const reactions = messageReactions[msg.id] || [];
+          {activeChatTab === 'calls' ? (
+            <div className={styles.messagesArea} style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '20px', flex: 1, overflowY: 'auto' }}>
+              <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Phone size={18} style={{ color: 'var(--brand-primary)' }} />
+                <span>Call Resonance History — {partnerName}</span>
+              </div>
+              {partnerCallLogs.length === 0 ? (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', opacity: 0.6, padding: '40px 0' }}>
+                  <Volume2 size={48} style={{ marginBottom: '16px', color: 'var(--text-tertiary)' }} />
+                  <span style={{ fontSize: '13px' }}>No Call Resonance Logs Found</span>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {partnerCallLogs.map((log: any) => {
+                    const isIncoming = log.status === 'incoming';
+                    const isOutgoing = log.status === 'outgoing';
+                    const isMissed = log.status === 'missed';
+                    const isRejected = log.status === 'rejected';
+                    
+                    return (
+                      <div key={log.id} style={{
+                        background: 'rgba(255, 255, 255, 0.03)',
+                        backdropFilter: 'blur(8px)',
+                        border: '1.5px solid var(--border-color)',
+                        borderRadius: '12px',
+                        padding: '12px 16px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        transition: 'all 0.2s ease',
+                        boxShadow: '0 4px 15px rgba(0, 0, 0, 0.05)'
+                      }} className="hover-glass">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div style={{
+                            width: '36px',
+                            height: '36px',
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: isMissed || isRejected ? 'rgba(239, 68, 68, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+                            color: isMissed || isRejected ? '#ef4444' : '#22c55e'
+                          }}>
+                            {isIncoming || isMissed ? <Phone size={16} style={{ transform: 'rotate(135deg)' }} /> : <Phone size={16} />}
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', textTransform: 'capitalize' }}>
+                              {log.status === 'missed' ? 'Missed Call' : log.status === 'rejected' ? 'Rejected Call' : log.status === 'outgoing' ? 'Outgoing Call' : 'Incoming Call'}
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>
+                              {new Date(log.timestamp).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                            {log.duration || '00:00'}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* Messages list */}
+              <div className={styles.messagesArea}>
+                {sortedMessages.map((msg: any, i: number) => {
+                  const isOwn = msg.sender_id === user?.id || msg.sender?.id === user?.id;
+                  const senderName = msg.sender_name || msg.sender?.fullName || 'System Teammate';
+                  const showAvatar = !isOwn && (i === 0 || sortedMessages[i - 1]?.sender_id !== msg.sender_id);
+                  const hasAttachment = msg.type !== 'text' && msg.type !== undefined;
 
-              return (
-                <div key={msg.id || i} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '2px 0' }} className="message-row-wrapper hover-glass">
+                  const reactions = messageReactions[msg.id] || [];
+
+                  const msgDateStr = getMessageDateString(msg);
+                  const prevMsgDateStr = i > 0 ? getMessageDateString(sortedMessages[i - 1]) : '';
+                  const showDateDivider = msgDateStr && msgDateStr !== prevMsgDateStr;
+
+                  return (
+                    <Fragment key={msg.id || i}>
+                      {showDateDivider && (
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'center',
+                          margin: '16px 0',
+                          position: 'relative'
+                        }}>
+                          <span style={{
+                            background: 'rgba(255, 255, 255, 0.08)',
+                            backdropFilter: 'blur(8px)',
+                            border: '1px solid rgba(255, 255, 255, 0.1)',
+                            padding: '6px 16px',
+                            borderRadius: '20px',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            color: 'var(--text-secondary)',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px',
+                            boxShadow: '0 2px 10px rgba(0, 0, 0, 0.1)'
+                          }}>
+                            {formatDividerDate(msg.created_at || msg.createdAt)}
+                          </span>
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '2px 0' }} className="message-row-wrapper hover-glass">
                   {(isSelectionMode || selectedMessages.length > 0) && msg.id && (
                     <div style={{ opacity: 1, width: '24px', flexShrink: 0 }} className="message-checkbox-container">
                       <input
@@ -2216,7 +2404,7 @@ export default function ChatPage() {
                         </div>
                       )}
 
-                      <div className={styles.messageTime} style={{ marginTop: reactions.length > 0 ? '10px' : '4px' }}>
+                      <div className={styles.messageTime} style={{ marginTop: reactions.length > 0 ? '10px' : '4px', fontWeight: 'bold' }}>
                         {formatTime(msg.created_at || msg.createdAt)}
                         {isOwn && (
                           msg.isSending ? (
@@ -2245,8 +2433,9 @@ export default function ChatPage() {
                     </div>
                   </div>
                 </div>
-              );
-            })}
+                  </Fragment>
+                );
+              })}
             <div ref={messagesEndRef} />
           </div>
 
@@ -2533,6 +2722,8 @@ export default function ChatPage() {
               </div>
             )}
           </div>
+          </>
+          )}
 
           {/* Conversation details sidebar */}
           {showGroupDetails && (
@@ -2880,62 +3071,7 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* Incoming Call Overlay */}
-      {incomingCall && (
-        <div className="modal-backdrop" style={{ zIndex: 1200 }}>
-          <div className="modal animate-scale-in" style={{ maxWidth: '340px', textAlign: 'center', background: 'var(--bg-card)', border: '1px solid var(--brand-primary)' }}>
-            <div style={{ padding: '24px 20px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--brand-primary)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: '16px', animation: 'pulse 1.5s infinite' }}>
-                <Phone size={22} />
-              </div>
-              <h4 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '4px' }}>INCOMING RESONANCE</h4>
-              <p style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '24px' }}>Node <strong>{incomingCall}</strong> is requesting audio handshake link.</p>
-              
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-                <button className="btn btn-danger btn-sm rounded-pill px-4" onClick={() => setIncomingCall(null)}>REJECT</button>
-                <button className="btn btn-success btn-sm rounded-pill px-4" onClick={() => { setIncomingCall(null); setActiveCall(true); setCallingState('connected'); toast.success('Link Established! Resonance synced.'); }}>ESTABLISH</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Active Call Resonance HUD */}
-      {activeCall && (
-        <div style={{
-          position: 'absolute', bottom: '24px', right: '24px',
-          background: 'var(--bg-card)', border: '1px solid var(--border-color)',
-          borderRadius: '16px', padding: '16px 20px', zIndex: 1100, display: 'flex', alignItems: 'center', gap: '20px',
-          boxShadow: '0 12px 40px rgba(99, 102, 241, 0.25)', animation: 'slideUp 0.3s ease-out'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{
-              width: '40px', height: '40px', borderRadius: '50%',
-              background: callingState === 'connected' ? 'var(--brand-success)' : 'var(--brand-primary)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-primary)',
-              animation: 'pulse 1.5s infinite'
-            }}>
-              <Phone size={18} />
-            </div>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                {callingState === 'connected' ? 'SECURE NODE ESTABLISHED' : 'INITIATING HANDSHAKE...'}
-              </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>
-                {callingState === 'connected' ? 'Resonance active.' : 'Handshake active.'}
-              </div>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="btn btn-danger btn-sm btn-icon"
-            onClick={() => { setActiveCall(false); setCallingState('idle'); toast.error('Resonance terminated.'); }}
-            style={{ borderRadius: '50%', width: '32px', height: '32px', padding: 0 }}
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
 
       {/* Custom Right-Click Context Menu */}
       {msgContextMenu && (

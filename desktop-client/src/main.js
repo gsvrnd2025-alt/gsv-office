@@ -512,6 +512,16 @@ ipcMain.handle('open-settings', () => {
   return { success: true };
 });
 
+ipcMain.handle('show-and-focus', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    return { success: true };
+  }
+  return { success: false };
+});
+
 ipcMain.handle('save-config', (event, newConfig) => {
   const oldUrl = config.serverUrl;
   config = { ...config, ...newConfig };
