@@ -1268,7 +1268,7 @@ export default function RemoteDesktopPage() {
         }
         
         const targetId = targetPhoneRef.current.replace(/\s+/g, '');
-        const target = teammatesRef.current.find(t => t.phone?.replace(/\s+/g, '') === targetId || t.loginId === targetId);
+        const target = teammatesRef.current.find(t => t.id === targetPhoneRef.current || t.phone?.replace(/\s+/g, '') === targetId || t.loginId === targetId);
         addConnectionHistory({
           peerName: target?.fullName || targetPhoneRef.current,
           peerPhone: target?.phone || targetPhoneRef.current,
@@ -1595,7 +1595,7 @@ export default function RemoteDesktopPage() {
   // Connect via phone number or code
   const initiateConnection = () => {
     const targetId = targetPhone.replace(/\s+/g, '');
-    const target = teammates.find(t => t.phone?.replace(/\s+/g, '') === targetId || t.loginId === targetId);
+    const target = teammates.find(t => t.id === targetPhone || t.phone?.replace(/\s+/g, '') === targetId || t.loginId === targetId);
     if (!target) {
       toast.error('User not found in online directory.');
       return;
@@ -1636,7 +1636,7 @@ export default function RemoteDesktopPage() {
   const cancelConnectionRequest = () => {
     if (dialingTimeoutRef.current) clearTimeout(dialingTimeoutRef.current);
     const targetId = targetPhone.replace(/\s+/g, '');
-    const target = teammates.find(t => t.phone?.replace(/\s+/g, '') === targetId || t.loginId === targetId);
+    const target = teammates.find(t => t.id === targetPhone || t.phone?.replace(/\s+/g, '') === targetId || t.loginId === targetId);
     if (socket && target) {
       socket.emit('remote:terminate', { targetUserId: target.id });
     }
@@ -2804,7 +2804,7 @@ export default function RemoteDesktopPage() {
             >
               <option value="" disabled>Select a User to Connect...</option>
               {teammates.map((t) => (
-                <option key={t.id} value={t.phone || t.loginId}>{t.fullName} ({t.phone || t.loginId})</option>
+                <option key={t.id} value={t.id}>{t.fullName} ({t.phone || t.loginId})</option>
               ))}
             </select>
             <button 
@@ -2909,8 +2909,8 @@ export default function RemoteDesktopPage() {
                     key={t.id}
                     onClick={() => {
                       if (t.isOnline) {
-                        setTargetPhone(t.phone || t.loginId);
-                        toast.success(`Target phone ID set to ${t.fullName}`);
+                        setTargetPhone(t.id);
+                        toast.success(`Target ID set to ${t.fullName}`);
                       } else {
                         toast.error(`${t.fullName} is offline`);
                       }
