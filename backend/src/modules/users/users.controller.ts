@@ -10,6 +10,7 @@ import { RequirePermissions } from '../../common/decorators/require-permissions.
 import { CurrentUser } from '../../common/decorators/public.decorator';
 import { UsersService } from './users.service';
 import { CreateUserDto, UpdateUserDto, ResetPasswordDto } from './dto/create-user.dto';
+import { SkipThrottle } from '@nestjs/throttler';
 
 @ApiTags('Users')
 @ApiBearerAuth('JWT')
@@ -19,6 +20,7 @@ export class UsersController {
   constructor(private usersService: UsersService) {}
 
   @Get('directory')
+  @SkipThrottle()
   @ApiOperation({ summary: 'Get all active users for peer directory (no admin permission needed)' })
   async getDirectory(@CurrentUser('id') currentUserId: string) {
     // Any logged-in user can get the directory listing for remote desktop / chat

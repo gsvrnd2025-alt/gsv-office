@@ -74,8 +74,8 @@ import mailConfig from './config/mail.config';
       useFactory: (config: ConfigService) => ({
         throttlers: [
           {
-            ttl: config.get<number>('RATE_LIMIT_TTL', 900) * 1000,
-            limit: config.get<number>('RATE_LIMIT_MAX', 100),
+            ttl: Number(config.get('RATE_LIMIT_TTL', 900)) * 1000,
+            limit: Number(config.get('RATE_LIMIT_MAX', 100)),
           },
         ],
       }),
