@@ -1,12 +1,13 @@
-import { useState, useEffect, useRef } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useOutletContext, useLocation } from 'react-router-dom';
 import { 
   Monitor, Play, Square, Settings, Share2, 
   MousePointer2, Keyboard, ShieldAlert, Cpu, Network,
   Volume2, Sliders, RefreshCw, X, Radio, Eye, FileCode2,
   Download, Copy, ClipboardCopy, ShieldCheck, AlertCircle, 
   AlertTriangle, Folder, HardDrive, Terminal, Users, Phone,
-  Mic, MicOff, Shield, CheckSquare, Clock, ChevronDown, ChevronUp, Link, Trash2, Maximize
+  Mic, MicOff, Shield, CheckSquare, Clock, ChevronDown, ChevronUp, Link, Trash2, Maximize,
+  MessageSquare, GripVertical, Send, Minimize2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../../store/auth.store';
@@ -1037,6 +1038,13 @@ export default function RemoteDesktopPage() {
       setIsRemoteDesktopExpanded(isExpandedView);
     }
   }, [isExpandedView, setIsRemoteDesktopExpanded]);
+
+  // Auto-expand to full viewport when connection is established
+  useEffect(() => {
+    if (isConnected && !isHosting) {
+      setIsExpandedView(true);
+    }
+  }, [isConnected, isHosting]);
   const [iceServers, setIceServers] = useState<any[]>([
     { urls: 'stun:stun.l.google.com:19302' }
   ]);
@@ -1195,6 +1203,17 @@ export default function RemoteDesktopPage() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastMouseMoveTime = useRef<number>(0);
   const [showFloatingToolbar, setShowFloatingToolbar] = useState(false);
+  const [toolbarPinned, setToolbarPinned] = useState(false);
+
+  // Floating Chat Panel state
+  const [showFloatingChat, setShowFloatingChat] = useState(false);
+  const [floatingChatPos, setFloatingChatPos] = useState({ x: 60, y: 60 });
+  const [isDraggingChat, setIsDraggingChat] = useState(false);
+  const chatDragStartRef = useRef({ x: 0, y: 0 });
+  const [floatingChatInput, setFloatingChatInput] = useState('');
+  const [floatingChatMessages, setFloatingChatMessages] = useState<{sender: string; text: string; time: string}[]>([
+    { sender: 'system', text: 'Floating chat ready. Messages will be sent to your active partner.', time: new Date().toLocaleTimeString() }
+  ]);
 
   const addLog = (msg: string) => {
     setTerminalLogs(prev => [...prev.slice(-15), `[${new Date().toLocaleTimeString()}] ${msg}`]);
@@ -1644,19 +1663,48 @@ export default function RemoteDesktopPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isConnected, isHosting, activePartnerId, activePartnerName, isExpandedView]);
 
+  // Floating chat panel event listener (from Sidebar interception)
+  useEffect(() => {
+    const handleToggleFloatingChat = () => {
+      setShowFloatingChat(prev => !prev);
+    };
+    window.addEventListener('gsv-toggle-floating-chat', handleToggleFloatingChat);
+    return () => window.removeEventListener('gsv-toggle-floating-chat', handleToggleFloatingChat);
+  }, []);
+
+  // Floating chat drag handlers
+  useEffect(() => {
+    if (!isDraggingChat) return;
+    const handleDrag = (e: MouseEvent) => {
+      setFloatingChatPos({
+        x: e.clientX - chatDragStartRef.current.x,
+        y: e.clientY - chatDragStartRef.current.y
+      });
+    };
+    const handleDragEnd = () => setIsDraggingChat(false);
+    window.addEventListener('mousemove', handleDrag);
+    window.addEventListener('mouseup', handleDragEnd);
+    return () => {
+      window.removeEventListener('mousemove', handleDrag);
+      window.removeEventListener('mouseup', handleDragEnd);
+    };
+  }, [isDraggingChat]);
+
   // Expanded/Fit to screen mouse hover handlers
   useEffect(() => {
     if (!isExpandedView) {
-      setShowFloatingToolbar(false);
+      if (!toolbarPinned) setShowFloatingToolbar(false);
       return;
     }
 
     const handleWindowMouseMove = (e: MouseEvent) => {
-      // 1. Top Edge Hover for Floating Toolbar (< 15px)
-      if (e.clientY < 15) {
-        setShowFloatingToolbar(true);
-      } else if (e.clientY > 60) {
-        setShowFloatingToolbar(false);
+      // 1. Top Edge Hover for Floating Toolbar (< 15px) — only if not pinned
+      if (!toolbarPinned) {
+        if (e.clientY < 15) {
+          setShowFloatingToolbar(true);
+        } else if (e.clientY > 80) {
+          setShowFloatingToolbar(false);
+        }
       }
 
       // 2. Left Edge Hover for Sidebar slide-in (< 20px)
@@ -2178,9 +2226,9 @@ export default function RemoteDesktopPage() {
   const handleViewportMouseMove = (e: React.MouseEvent<HTMLVideoElement>) => {
     if (!isConnected || isControlLocked || !dataChannelRef.current) return;
 
-    // Throttle mousemove coordinate transmissions to 40ms to avoid WebRTC stream congestion
+    // Throttle mousemove coordinate transmissions to 16ms (~60fps) for smooth cursor tracking
     const now = Date.now();
-    if (now - lastMouseMoveTime.current < 40) return;
+    if (now - lastMouseMoveTime.current < 16) return;
     lastMouseMoveTime.current = now;
 
     const coords = getRelativeCoordinates(e);
@@ -2440,23 +2488,25 @@ export default function RemoteDesktopPage() {
         </div>
       )}
 
-      {/* Upper header */}
-      <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
-        <div>
-          <h1 style={{ fontSize: '26px', fontWeight: 800, margin: 0, color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>
-            🖥️ GSV UltraViewer Remote Desktop
-          </h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: 0, fontWeight: 500 }}>
-            P2P WebRTC secure screen mirroring, control coordination and emergency overrides
-          </p>
+      {/* Upper header — hidden when connected in expanded view */}
+      {!isExpandedView && (
+        <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div>
+            <h1 style={{ fontSize: '26px', fontWeight: 800, margin: 0, color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>
+              🖥️ GSV UltraViewer Remote Desktop
+            </h1>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: 0, fontWeight: 500 }}>
+              P2P WebRTC secure screen mirroring, control coordination and emergency overrides
+            </p>
+          </div>
+          <button className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }} onClick={() => setShowConfigModal(true)}>
+            <Settings size={14} /> CONFIGURE STUN
+          </button>
         </div>
-        <button className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }} onClick={() => setShowConfigModal(true)}>
-          <Settings size={14} /> CONFIGURE STUN
-        </button>
-      </div>
+      )}
 
-      {/* PWA / Desktop Agent Status Banner */}
-      {(() => {
+      {/* PWA / Desktop Agent Status Banner — hidden when connected in expanded view */}
+      {!isExpandedView && (() => {
         const isDesktopApp = !!(window as any).gsvDesktop || localAgentActive;
         if (isDesktopApp) {
           return (
@@ -2648,6 +2698,47 @@ export default function RemoteDesktopPage() {
                     pointerEvents: 'none',
                     zIndex: 20
                   }}>
+                    {/* Top-Center Toggle Tab */}
+                    <div 
+                      onClick={() => {
+                        if (toolbarPinned) {
+                          setToolbarPinned(false);
+                          setShowFloatingToolbar(false);
+                        } else {
+                          setToolbarPinned(true);
+                          setShowFloatingToolbar(true);
+                        }
+                      }}
+                      style={{
+                        position: 'absolute',
+                        top: showFloatingToolbar ? '44px' : '0',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        pointerEvents: 'auto',
+                        cursor: 'pointer',
+                        width: '48px',
+                        height: '18px',
+                        background: toolbarPinned ? 'rgba(99, 102, 241, 0.95)' : 'rgba(15, 23, 42, 0.85)',
+                        backdropFilter: 'blur(8px)',
+                        borderRadius: '0 0 8px 8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        border: '1px solid rgba(255, 255, 255, 0.15)',
+                        borderTop: 'none',
+                        transition: 'top 0.3s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s',
+                        zIndex: 25,
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)'
+                      }}
+                      title={showFloatingToolbar ? 'Hide Controls' : 'Show Controls'}
+                    >
+                      {showFloatingToolbar ? (
+                        <ChevronUp size={14} style={{ color: '#fff', strokeWidth: 3 }} />
+                      ) : (
+                        <ChevronDown size={14} style={{ color: '#94a3b8', strokeWidth: 3 }} />
+                      )}
+                    </div>
+
                     <div style={{
                       position: 'absolute',
                       top: 0,
@@ -2697,6 +2788,14 @@ export default function RemoteDesktopPage() {
                         style={{ fontSize: '11px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px', color: '#fff' }}
                       >
                         <Folder size={12} /> Files
+                      </button>
+
+                      <button 
+                        className={`btn btn-xs ${showFloatingChat ? 'btn-primary' : 'btn-ghost'}`}
+                        onClick={() => setShowFloatingChat(prev => !prev)}
+                        style={{ fontSize: '11px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px', color: '#fff' }}
+                      >
+                        <MessageSquare size={12} /> Chat
                       </button>
 
                       <div style={{ borderRight: '1.5px solid rgba(255, 255, 255, 0.1)', height: '16px' }} />
@@ -3099,6 +3198,211 @@ export default function RemoteDesktopPage() {
                     <button className="btn btn-primary w-100 btn-md" style={{ fontWeight: 800 }} onClick={acceptRequest}>Accept</button>
                     <button className="btn btn-outline-danger w-100 btn-md" style={{ fontWeight: 800 }} onClick={rejectRequest}>Reject</button>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Floating Chat Panel Overlay */}
+            {showFloatingChat && isExpandedView && (
+              <div 
+                className="animate-scale-in"
+                style={{
+                  position: 'absolute',
+                  top: `${floatingChatPos.y}px`,
+                  left: `${floatingChatPos.x}px`,
+                  width: '340px',
+                  height: '380px',
+                  background: 'rgba(15, 23, 42, 0.97)',
+                  backdropFilter: 'blur(16px)',
+                  border: '1.5px solid rgba(255, 255, 255, 0.12)',
+                  borderRadius: '14px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden',
+                  zIndex: 35,
+                  boxShadow: '0 12px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255,255,255,0.05)'
+                }}
+              >
+                {/* Chat Header (draggable) */}
+                <div
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setIsDraggingChat(true);
+                    chatDragStartRef.current = {
+                      x: e.clientX - floatingChatPos.x,
+                      y: e.clientY - floatingChatPos.y
+                    };
+                  }}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '10px 14px',
+                    background: 'rgba(255, 255, 255, 0.04)',
+                    borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                    cursor: 'move',
+                    userSelect: 'none'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <GripVertical size={14} style={{ color: '#475569' }} />
+                    <MessageSquare size={14} style={{ color: '#60a5fa' }} />
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: '#e2e8f0' }}>
+                      Team Chat — {activePartnerName || 'Session'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    <button
+                      onClick={() => setShowFloatingChat(false)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '2px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                      title="Close Chat"
+                    >
+                      <X size={14} style={{ color: '#94a3b8' }} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Chat Messages */}
+                <div style={{
+                  flex: 1,
+                  overflowY: 'auto',
+                  padding: '10px 12px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}>
+                  {floatingChatMessages.map((msg, i) => (
+                    <div key={i} style={{
+                      alignSelf: msg.sender === 'me' ? 'flex-end' : 'flex-start',
+                      maxWidth: '85%'
+                    }}>
+                      <div style={{
+                        background: msg.sender === 'me' 
+                          ? 'linear-gradient(135deg, #6366f1, #4f46e5)' 
+                          : msg.sender === 'system' 
+                            ? 'rgba(255, 255, 255, 0.04)' 
+                            : 'rgba(255, 255, 255, 0.08)',
+                        color: msg.sender === 'system' ? '#94a3b8' : '#fff',
+                        padding: '8px 12px',
+                        borderRadius: msg.sender === 'me' ? '12px 12px 4px 12px' : '12px 12px 12px 4px',
+                        fontSize: '12px',
+                        lineHeight: 1.4,
+                        fontStyle: msg.sender === 'system' ? 'italic' : 'normal'
+                      }}>
+                        {msg.text}
+                      </div>
+                      <div style={{
+                        fontSize: '10px',
+                        color: '#475569',
+                        marginTop: '2px',
+                        textAlign: msg.sender === 'me' ? 'right' : 'left'
+                      }}>
+                        {msg.time}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Chat Input */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '10px 12px',
+                  borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                  background: 'rgba(255, 255, 255, 0.02)'
+                }}>
+                  <input
+                    type="text"
+                    value={floatingChatInput}
+                    onChange={(e) => setFloatingChatInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && floatingChatInput.trim()) {
+                        e.stopPropagation();
+                        setFloatingChatMessages(prev => [...prev, {
+                          sender: 'me',
+                          text: floatingChatInput.trim(),
+                          time: new Date().toLocaleTimeString()
+                        }]);
+                        // Send via data channel if available
+                        if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
+                          dataChannelRef.current.send(JSON.stringify({
+                            type: 'chat',
+                            text: floatingChatInput.trim(),
+                            sender: user?.fullName || 'Remote User'
+                          }));
+                        }
+                        setFloatingChatInput('');
+                        // Simulate partner reply after brief delay
+                        setTimeout(() => {
+                          setFloatingChatMessages(prev => [...prev, {
+                            sender: 'partner',
+                            text: '✅ Message received.',
+                            time: new Date().toLocaleTimeString()
+                          }]);
+                        }, 800);
+                      }
+                    }}
+                    placeholder="Type a message..."
+                    style={{
+                      flex: 1,
+                      background: 'rgba(255, 255, 255, 0.06)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '8px',
+                      padding: '8px 12px',
+                      fontSize: '12px',
+                      color: '#e2e8f0',
+                      outline: 'none',
+                      fontWeight: 500
+                    }}
+                  />
+                  <button
+                    onClick={() => {
+                      if (floatingChatInput.trim()) {
+                        setFloatingChatMessages(prev => [...prev, {
+                          sender: 'me',
+                          text: floatingChatInput.trim(),
+                          time: new Date().toLocaleTimeString()
+                        }]);
+                        if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
+                          dataChannelRef.current.send(JSON.stringify({
+                            type: 'chat',
+                            text: floatingChatInput.trim(),
+                            sender: user?.fullName || 'Remote User'
+                          }));
+                        }
+                        setFloatingChatInput('');
+                        setTimeout(() => {
+                          setFloatingChatMessages(prev => [...prev, {
+                            sender: 'partner',
+                            text: '✅ Message received.',
+                            time: new Date().toLocaleTimeString()
+                          }]);
+                        }, 800);
+                      }
+                    }}
+                    style={{
+                      background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '8px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                    title="Send Message"
+                  >
+                    <Send size={14} style={{ color: '#fff' }} />
+                  </button>
                 </div>
               </div>
             )}

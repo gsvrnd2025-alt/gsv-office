@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard, MessageSquare, FolderOpen, Ticket, Mail, Users,
@@ -82,6 +82,7 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose, hiddenCompletely }: SidebarProps) {
   const { user, logout } = useAuthStore();
+  const location = useLocation();
 
   const { data: pendingUsers } = useQuery({
     queryKey: ['users', '', 'pending', 1],
@@ -136,7 +137,16 @@ export function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose, hidden
                     key={item.to}
                     to={item.to}
                     className={({ isActive }) => `${styles.navItem} ${isActive ? styles.active : ''}`}
-                    onClick={onMobileClose}
+                    onClick={(e) => {
+                      // Intercept Team Chat click when on Remote Desktop page — toggle floating chat instead
+                      if (item.to === '/chat' && location.pathname.startsWith('/remote-desktop')) {
+                        e.preventDefault();
+                        window.dispatchEvent(new CustomEvent('gsv-toggle-floating-chat'));
+                        onMobileClose();
+                        return;
+                      }
+                      onMobileClose();
+                    }}
                     title={collapsed ? item.label + (isLocked ? ' (Locked)' : '') : undefined}
                     style={isLocked ? { opacity: 0.65 } : undefined}
                   >
