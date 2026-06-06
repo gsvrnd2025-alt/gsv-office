@@ -45,8 +45,7 @@ interface StagedFile {
 const getFullUrl = (url: string) => {
   if (!url) return '#';
   if (url.startsWith('http')) return url;
-  const backend = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  return `${backend}${url.startsWith('/') ? '' : '/'}${url}`;
+  return url;
 };
 
 const normalizeMessage = (m: any) => {
