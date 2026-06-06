@@ -54,10 +54,11 @@ export class FilesService implements OnModuleInit {
     }
 
     return this.dataSource.query(
-      `SELECT f.*, u.full_name AS owner_name FROM folders f
+      `SELECT DISTINCT f.*, u.full_name AS owner_name FROM folders f
        LEFT JOIN users u ON u.id = f.owner_id
+       LEFT JOIN folder_access_requests far ON far.folder_id = f.id AND far.requester_id = $1 AND far.status = 'approved'
        WHERE f.deleted_at IS NULL
-       AND (f.metadata->>'is_user_private' IS NULL OR f.metadata->>'is_user_private' != 'true')
+       AND (f.owner_id = $1 OR far.id IS NOT NULL)
        AND ($2::uuid IS NULL AND f.parent_id IS NULL OR f.parent_id = $2::uuid)
        ORDER BY f.name ASC`,
       [userId, parentId || null]
@@ -66,9 +67,10 @@ export class FilesService implements OnModuleInit {
 
   async getFiles(userId: string, folderId?: string, search?: string, recursive = false) {
     const qb = `
-      SELECT f.*, u.full_name AS owner_name FROM files f
+      SELECT DISTINCT f.*, u.full_name AS owner_name FROM files f
       LEFT JOIN users u ON u.id = f.owner_id
-      WHERE (f.owner_id = $1 OR f.is_public = true) AND f.deleted_at IS NULL
+      LEFT JOIN folder_access_requests far ON far.folder_id = f.folder_id AND far.requester_id = $1 AND far.status = 'approved'
+      WHERE (f.owner_id = $1 OR f.is_public = true OR far.id IS NOT NULL) AND f.deleted_at IS NULL
       ${recursive ? '' : (folderId ? 'AND f.folder_id = $2' : 'AND f.folder_id IS NULL')}
       ${search ? `AND (f.name ILIKE '%${search}%' OR f.original_name ILIKE '%${search}%')` : ''}
       ORDER BY f.created_at DESC
@@ -126,10 +128,19 @@ export class FilesService implements OnModuleInit {
   }
 
   async deleteFolder(folderId: string, userId: string) {
+    const [folder] = await this.dataSource.query(`SELECT owner_id FROM folders WHERE id = $1`, [folderId]);
+    if (!folder) return;
+    
+    // Check if owner or Super Admin
+    const [isAdmin] = await this.dataSource.query(`SELECT id FROM users WHERE id = $1 AND role_id IN (SELECT id FROM roles WHERE name IN ('Super Admin', 'Admin'))`, [userId]);
+    if (folder.owner_id !== userId && !isAdmin) {
+      throw new Error('You do not have permission to delete this folder. Read-only access does not permit deletion.');
+    }
+
     // 1. Soft-delete the folder itself
     await this.dataSource.query(
-      `UPDATE folders SET deleted_at = NOW() WHERE id = $1 AND (owner_id = $2 OR $2 IN (SELECT id FROM users WHERE role_id IN (SELECT id FROM roles WHERE name IN ('Super Admin', 'Admin'))))`,
-      [folderId, userId]
+      `UPDATE folders SET deleted_at = NOW() WHERE id = $1`,
+      [folderId]
     );
 
     // 2. Soft-delete all files directly inside this folder
@@ -342,9 +353,18 @@ export class FilesService implements OnModuleInit {
   }
 
   async renameFolder(id: string, name: string, userId: string) {
+    const [folder] = await this.dataSource.query(`SELECT owner_id FROM folders WHERE id = $1`, [id]);
+    if (!folder) return { success: false };
+    
+    // Check if owner or Super Admin
+    const [isAdmin] = await this.dataSource.query(`SELECT id FROM users WHERE id = $1 AND role_id IN (SELECT id FROM roles WHERE name IN ('Super Admin', 'Admin'))`, [userId]);
+    if (folder.owner_id !== userId && !isAdmin) {
+      throw new Error('You do not have permission to rename this folder. Read-only access does not permit renaming.');
+    }
+
     await this.dataSource.query(
-      `UPDATE folders SET name = $1, updated_at = NOW() WHERE id = $2 AND owner_id = $3`,
-      [name, id, userId]
+      `UPDATE folders SET name = $1, updated_at = NOW() WHERE id = $2`,
+      [name, id]
     );
     return { success: true };
   }
@@ -389,19 +409,37 @@ export class FilesService implements OnModuleInit {
       } else {
         const [folder] = await this.dataSource.query(`SELECT * FROM folders WHERE id = $1`, [itemId]);
         if (!folder) throw new Error('Source folder not found');
-        const [newFolder] = await this.dataSource.query(
-          `INSERT INTO folders (name, parent_id, owner_id, path, metadata)
-           VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-          [`Copy of ${folder.name}`, destFolderId, userId, folder.path, folder.metadata]
-        );
-        const files = await this.dataSource.query(`SELECT * FROM files WHERE folder_id = $1 AND deleted_at IS NULL`, [itemId]);
-        for (const f of files) {
-          await this.dataSource.query(
-            `INSERT INTO files (name, original_name, mime_type, size, extension, storage_type, storage_path, storage_url, folder_id, owner_id, metadata)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-            [f.name, f.original_name, f.mime_type, f.size, f.extension, f.storage_type, f.storage_path, f.storage_url, newFolder.id, userId, f.metadata]
+
+        // Recursive function to copy a folder and all its contents
+        const copyFolderRecursive = async (sourceId: string, parentTargetId: string | null) => {
+          const [srcFolder] = await this.dataSource.query(`SELECT * FROM folders WHERE id = $1`, [sourceId]);
+          if (!srcFolder) return;
+          
+          const newName = sourceId === itemId ? `Copy of ${srcFolder.name}` : srcFolder.name;
+          const [newFolder] = await this.dataSource.query(
+            `INSERT INTO folders (name, parent_id, owner_id, path, metadata)
+             VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+            [newName, parentTargetId, userId, srcFolder.path, srcFolder.metadata]
           );
-        }
+
+          // Copy files in this folder
+          const files = await this.dataSource.query(`SELECT * FROM files WHERE folder_id = $1 AND deleted_at IS NULL`, [sourceId]);
+          for (const f of files) {
+            await this.dataSource.query(
+              `INSERT INTO files (name, original_name, mime_type, size, extension, storage_type, storage_path, storage_url, folder_id, owner_id, metadata)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+              [f.name, f.original_name, f.mime_type, f.size, f.extension, f.storage_type, f.storage_path, f.storage_url, newFolder.id, userId, f.metadata]
+            );
+          }
+
+          // Recursively copy subfolders
+          const subfolders = await this.dataSource.query(`SELECT id FROM folders WHERE parent_id = $1 AND deleted_at IS NULL`, [sourceId]);
+          for (const sub of subfolders) {
+            await copyFolderRecursive(sub.id, newFolder.id);
+          }
+        };
+
+        await copyFolderRecursive(itemId, destFolderId);
       }
     }
     return { success: true };
@@ -449,19 +487,37 @@ export class FilesService implements OnModuleInit {
       } else {
         const [folder] = await this.dataSource.query(`SELECT * FROM folders WHERE id = $1`, [itemId]);
         if (!folder) throw new Error('Source folder not found');
-        const [newFolder] = await this.dataSource.query(
-          `INSERT INTO folders (name, parent_id, owner_id, path, metadata)
-           VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-          [folder.name, targetFolderId, targetUserId, folder.path, folder.metadata]
-        );
-        const files = await this.dataSource.query(`SELECT * FROM files WHERE folder_id = $1 AND deleted_at IS NULL`, [itemId]);
-        for (const f of files) {
-          await this.dataSource.query(
-            `INSERT INTO files (name, original_name, mime_type, size, extension, storage_type, storage_path, storage_url, folder_id, owner_id, metadata)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-            [f.name, f.original_name, f.mime_type, f.size, f.extension, f.storage_type, f.storage_path, f.storage_url, newFolder.id, targetUserId, f.metadata]
+
+        // Recursive function to copy a folder and all its contents
+        const copyFolderRecursive = async (sourceId: string, parentTargetId: string) => {
+          const [srcFolder] = await this.dataSource.query(`SELECT * FROM folders WHERE id = $1`, [sourceId]);
+          if (!srcFolder) return;
+          
+          const newName = sourceId === itemId ? `Copy of ${srcFolder.name}` : srcFolder.name;
+          const [newFolder] = await this.dataSource.query(
+            `INSERT INTO folders (name, parent_id, owner_id, path, metadata)
+             VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+            [newName, parentTargetId, targetUserId, srcFolder.path, srcFolder.metadata]
           );
-        }
+
+          // Copy files in this folder
+          const files = await this.dataSource.query(`SELECT * FROM files WHERE folder_id = $1 AND deleted_at IS NULL`, [sourceId]);
+          for (const f of files) {
+            await this.dataSource.query(
+              `INSERT INTO files (name, original_name, mime_type, size, extension, storage_type, storage_path, storage_url, folder_id, owner_id, metadata)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+              [f.name, f.original_name, f.mime_type, f.size, f.extension, f.storage_type, f.storage_path, f.storage_url, newFolder.id, targetUserId, f.metadata]
+            );
+          }
+
+          // Recursively copy subfolders
+          const subfolders = await this.dataSource.query(`SELECT id FROM folders WHERE parent_id = $1 AND deleted_at IS NULL`, [sourceId]);
+          for (const sub of subfolders) {
+            await copyFolderRecursive(sub.id, newFolder.id);
+          }
+        };
+
+        await copyFolderRecursive(itemId, targetFolderId);
       }
     }
     return { success: true };
@@ -509,10 +565,10 @@ export class FilesService implements OnModuleInit {
   }
 
   async reviewAccessRequest(dto: { requestId: string; status: 'approved' | 'rejected'; permission: string }) {
-    const { requestId, status, permission } = dto;
+    const { requestId, status } = dto;
     await this.dataSource.query(
-      `UPDATE folder_access_requests SET status = $1, permission = $2, reviewed_at = NOW() WHERE id = $3`,
-      [status, permission, requestId]
+      `UPDATE folder_access_requests SET status = $1, permission = 'read', reviewed_at = NOW() WHERE id = $2`,
+      [status, requestId]
     );
     return { success: true };
   }

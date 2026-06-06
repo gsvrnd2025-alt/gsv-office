@@ -276,6 +276,39 @@ export class ChatService implements OnModuleInit {
       }
     }
 
+    if (folderId) {
+      const members = await this.dataSource.query(
+        `SELECT user_id FROM conversation_members WHERE conversation_id = $1 AND user_id != $2`,
+        [dto.conversationId, dto.senderId]
+      );
+      
+      // Get all descendant folders including the folder itself
+      const descendants = await this.dataSource.query(
+        `WITH RECURSIVE descendants AS (
+           SELECT id FROM folders WHERE id = $1
+           UNION ALL
+           SELECT f.id FROM folders f
+           INNER JOIN descendants d ON d.id = f.parent_id
+         )
+         SELECT id FROM descendants`,
+        [folderId]
+      );
+
+      for (const m of members) {
+        for (const desc of descendants) {
+          await this.dataSource.query(
+            `INSERT INTO folder_access_requests (folder_id, owner_id, requester_id, requester_name, status, permission)
+             SELECT $1, $2, $3, 'Chat Auto-Share', 'approved', 'read'
+             WHERE NOT EXISTS (
+               SELECT 1 FROM folder_access_requests 
+               WHERE folder_id = $1 AND requester_id = $3
+             )`,
+            [desc.id, dto.senderId, m.user_id]
+          );
+        }
+      }
+    }
+
     if (msg.type === 'image') msg.type = 'photo';
     if (msg.type === 'audio') msg.type = 'music';
 
