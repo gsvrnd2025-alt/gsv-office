@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, Fragment } from 'react';
 import { useParams, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom';
+import { Capacitor } from '@capacitor/core';
 
 const getMessageDateString = (msg: any) => {
   if (!msg) return '';
@@ -26,7 +27,7 @@ import {
   Send, Plus, Search, MessageSquare, Hash, Phone, Video,
   MoreVertical, Smile, Paperclip, CheckCheck, Check, File, Image,
   Download, Folder, Volume2, ChevronRight, ChevronLeft, X, Users2,
-  Pin, ArrowRight, Mic, Sparkles, Copy, Trash2, Menu, CheckSquare, Info
+  Pin, ArrowRight, Mic, Sparkles, Copy, Trash2, Menu, CheckSquare, Info, StickyNote
 } from 'lucide-react';
 import { chatApi, usersApi, filesApi } from '../../api';
 import { useAuthStore } from '../../store/auth.store';
@@ -348,6 +349,12 @@ export default function ChatPage() {
   const [showNoteEditor, setShowNoteEditor] = useState(false);
   const [noteFileName, setNoteFileName] = useState('note.txt');
   const [noteContent, setNoteContent] = useState('');
+  const [showScratchpad, setShowScratchpad] = useState(false);
+  const [scratchpadText, setScratchpadText] = useState(() => localStorage.getItem('gsv_scratchpad') || '');
+
+  useEffect(() => {
+    localStorage.setItem('gsv_scratchpad', scratchpadText);
+  }, [scratchpadText]);
 
   useEffect(() => {
     if (!previewFile) {
@@ -2093,28 +2100,26 @@ export default function ChatPage() {
                 >
                   <CheckSquare size={18} />
                 </button>
-                {(() => {
-                  return (
-                    <>
-                      <button 
-                        className="btn btn-ghost btn-icon" 
-                        onClick={() => handleCallHandshake('audio')} 
-                        title="Audio Handshake"
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <Phone size={18} style={{ color: 'var(--brand-primary)' }} />
-                      </button>
-                      <button 
-                        className="btn btn-ghost btn-icon" 
-                        onClick={() => handleCallHandshake('video')} 
-                        title="Video Resonance"
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <Video size={18} style={{ color: 'var(--brand-primary)' }} />
-                      </button>
-                    </>
-                  );
-                })()}
+                {Capacitor.isNativePlatform() && (
+                  <>
+                    <button 
+                      className="btn btn-ghost btn-icon" 
+                      onClick={() => handleCallHandshake('audio')} 
+                      title="Audio Handshake"
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <Phone size={18} style={{ color: 'var(--brand-primary)' }} />
+                    </button>
+                    <button 
+                      className="btn btn-ghost btn-icon" 
+                      onClick={() => handleCallHandshake('video')} 
+                      title="Video Resonance"
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <Video size={18} style={{ color: 'var(--brand-primary)' }} />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -2658,7 +2663,44 @@ export default function ChatPage() {
               </div>
             ) : (
               /* Standard Input control form */
-              <form onSubmit={handleSend} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <form onSubmit={handleSend} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}>
+                <div style={{ position: 'relative' }}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-icon"
+                    title="Personal Ideas / Scratchpad"
+                    onClick={() => setShowScratchpad(!showScratchpad)}
+                  >
+                    <StickyNote size={20} style={{ color: showScratchpad ? 'var(--wa-accent)' : 'var(--text-secondary)' }} />
+                  </button>
+                  {showScratchpad && (
+                    <div style={{
+                      position: 'absolute', bottom: '100%', left: 0, marginBottom: '12px', zIndex: 1000,
+                      background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px',
+                      width: '300px', height: '350px', display: 'flex', flexDirection: 'column',
+                      boxShadow: '0 10px 30px rgba(0,0,0,0.4)', overflow: 'hidden'
+                    }} className="animate-scale-in">
+                      <div style={{ padding: '10px 14px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                          <StickyNote size={14} color="var(--wa-accent)" /> 
+                          Personal Ideas
+                        </div>
+                        <button type="button" className="btn btn-ghost btn-icon btn-sm" onClick={() => setShowScratchpad(false)} style={{ width: '24px', height: '24px', minHeight: '24px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <X size={14} />
+                        </button>
+                      </div>
+                      <textarea
+                        value={scratchpadText}
+                        onChange={e => setScratchpadText(e.target.value)}
+                        placeholder="Type your brilliant ideas here... (Auto-saves locally)"
+                        style={{
+                          flex: 1, padding: '12px', background: 'transparent', border: 'none', resize: 'none',
+                          color: 'var(--text-primary)', fontSize: '13px', outline: 'none', fontFamily: 'inherit'
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
                 <div className="dropdown">
                   <button
                     type="button"
