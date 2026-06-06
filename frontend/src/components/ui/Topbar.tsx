@@ -32,7 +32,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
 
   const { data: usersData } = useQuery({
     queryKey: ['users', '', '', 1],
-    queryFn: () => usersApi.getAll().then(r => r.data?.data || r.data || []),
+    queryFn: () => usersApi.getDirectory().then(r => r.data?.data || r.data || []),
   });
 
   const systemPages = [

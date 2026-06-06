@@ -37,6 +37,9 @@ export function AppLayout() {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
+  const [activeCallPos, setActiveCallPos] = useState<{x: number, y: number} | null>(null);
+  const [isDraggingCall, setIsDraggingCall] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0 });
 
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -126,18 +129,29 @@ export function AppLayout() {
         SoundManager.playRing(4.0);
       }, 5000);
 
-      // Focus Electron Window
-      if ((window as any).gsvDesktop?.showAndFocus) {
-        (window as any).gsvDesktop.showAndFocus();
-      }
-
-      // Trigger Web Notification
-      if (Notification.permission === 'granted') {
+      // Trigger Web Notification and Electron Popup
+      if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.showIncomingCallPopup === 'function') {
+        (window as any).gsvDesktop.showIncomingCallPopup({
+          roomId: data.roomId,
+          callerName,
+          type: data.type || 'audio'
+        });
+      } else if (Notification.permission === 'granted') {
         new Notification(`Incoming Call from ${callerName}`, {
           body: 'Open GSV Office to answer this secure voice call.'
         });
       }
     });
+
+    // Handle IPC from popup
+    const handlePopupAction = (e: any) => {
+      if (e.detail === 'accept') {
+        acceptIncomingCall();
+      } else if (e.detail === 'reject') {
+        rejectIncomingCall();
+      }
+    };
+    window.addEventListener('gsv-call-action', handlePopupAction);
 
     socket.on('call:participant-joined', async (data) => {
       // Received by the caller
@@ -193,6 +207,7 @@ export function AppLayout() {
     });
 
     return () => {
+      window.removeEventListener('gsv-call-action', handlePopupAction);
       socket.disconnect();
     };
   }, [accessToken, users]);
@@ -344,6 +359,10 @@ export function AppLayout() {
 
     activeRoomIdRef.current = roomId;
     webrtcSocket.emit('call:join', { roomId });
+
+    if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.closeIncomingCallPopup === 'function') {
+      (window as any).gsvDesktop.closeIncomingCallPopup();
+    }
   };
 
   const rejectIncomingCall = () => {
@@ -355,6 +374,10 @@ export function AppLayout() {
 
     webrtcSocket.emit('call:leave', { roomId: incomingCall.roomId });
     setIncomingCall(null);
+
+    if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.closeIncomingCallPopup === 'function') {
+      (window as any).gsvDesktop.closeIncomingCallPopup();
+    }
   };
 
   const hangUpCall = () => {
@@ -403,6 +426,24 @@ export function AppLayout() {
     };
   }, [callingState]);
 
+  // Drag logic for Active Call HUD
+  useEffect(() => {
+    if (!isDraggingCall) return;
+    const handleDrag = (e: MouseEvent) => {
+      setActiveCallPos({
+        x: e.clientX - dragStartRef.current.x,
+        y: e.clientY - dragStartRef.current.y
+      });
+    };
+    const handleDragEnd = () => setIsDraggingCall(false);
+    window.addEventListener('mousemove', handleDrag);
+    window.addEventListener('mouseup', handleDragEnd);
+    return () => {
+      window.removeEventListener('mousemove', handleDrag);
+      window.removeEventListener('mouseup', handleDragEnd);
+    };
+  }, [isDraggingCall]);
+
   const isChatPage = location.pathname.startsWith('/chat');
   const pathParts = location.pathname.split('/');
   const activeConversationId = (isChatPage && pathParts[2]) ? pathParts[2] : null;
@@ -429,6 +470,12 @@ export function AppLayout() {
     if (unreadSum > 0) {
       if (!isFirstRunRef.current && unreadSum > prevUnreadCountSumRef.current) {
         SoundManager.playMessageRing();
+        if (Notification.permission === 'granted') {
+          new Notification('New Message', {
+            body: 'You have a new message in GSV Office',
+            icon: '/assets/icon.png'
+          });
+        }
       }
       let toggle = false;
       flashIntervalRef.current = setInterval(() => {
@@ -522,13 +569,25 @@ export function AppLayout() {
 
       {/* Global Active Call HUD */}
       {activeCall && (
-        <div style={{
-          position: 'fixed', bottom: '24px', right: '24px', zIndex: 9998,
+        <div 
+          onMouseDown={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            setIsDraggingCall(true);
+            dragStartRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+            if (!activeCallPos) {
+              setActiveCallPos({ x: rect.left, y: rect.top });
+            }
+          }}
+          style={{
+          position: 'fixed', 
+          ...(activeCallPos ? { left: `${activeCallPos.x}px`, top: `${activeCallPos.y}px` } : { bottom: '24px', right: '24px' }), 
+          zIndex: 9998,
           background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(16px)',
           border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px',
           padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '16px',
           boxShadow: '0 20px 25px -5px rgba(0,0,0,0.3)', minWidth: '280px',
-          color: '#fff', animation: 'slideIn 0.3s ease', fontFamily: 'system-ui, sans-serif'
+          color: '#fff', animation: 'slideIn 0.3s ease', fontFamily: 'system-ui, sans-serif',
+          cursor: isDraggingCall ? 'grabbing' : 'grab', userSelect: 'none'
         }}>
           <div style={{
             width: '40px', height: '40px', borderRadius: '50%',
@@ -560,6 +619,7 @@ export function AppLayout() {
 
           <div style={{ display: 'flex', gap: '10px' }}>
             <button
+              onMouseDown={(e) => e.stopPropagation()}
               onClick={() => {
                 if (localStreamRef.current) {
                   const audioTrack = localStreamRef.current.getAudioTracks()[0];
@@ -580,6 +640,7 @@ export function AppLayout() {
             </button>
             
             <button
+              onMouseDown={(e) => e.stopPropagation()}
               onClick={hangUpCall}
               style={{
                 width: '36px', height: '36px', borderRadius: '50%', border: 'none',

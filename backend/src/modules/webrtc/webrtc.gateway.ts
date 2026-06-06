@@ -36,6 +36,16 @@ export class WebrtcGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   handleDisconnect(client: Socket) {
     this.logger.log(`WebRTC Client disconnected: ${client.id}`);
+    // Notify any active rooms that the participant left
+    for (const [roomId, participants] of this.rooms.entries()) {
+      if (participants.has(client.id)) {
+        participants.delete(client.id);
+        this.server.to(roomId).emit('call:participant-left', { socketId: client.id });
+        if (participants.size === 0) {
+          this.rooms.delete(roomId);
+        }
+      }
+    }
   }
 
   @SubscribeMessage('call:initiate')
@@ -64,6 +74,14 @@ export class WebrtcGateway implements OnGatewayConnection, OnGatewayDisconnect {
   handleCallLeave(@ConnectedSocket() client: Socket, @MessageBody() data: { roomId: string }) {
     client.leave(data.roomId);
     client.to(data.roomId).emit('call:participant-left', { socketId: client.id });
+    
+    const room = this.rooms.get(data.roomId);
+    if (room) {
+      room.delete(client.id);
+      if (room.size === 0) {
+        this.rooms.delete(data.roomId);
+      }
+    }
   }
 
   @SubscribeMessage('webrtc:offer')

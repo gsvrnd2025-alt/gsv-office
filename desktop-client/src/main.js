@@ -63,6 +63,30 @@ if (config.serverUrl) {
   }
 }
 
+// ─── Protocol Deep Linking & Device Tracking ─────────────────────────────────
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('gsvoffice', process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient('gsvoffice');
+}
+
+const deviceIdPath = path.join(userDataPath, 'device_id.txt');
+let persistentDeviceId = null;
+try {
+  if (fs.existsSync(deviceIdPath)) {
+    persistentDeviceId = fs.readFileSync(deviceIdPath, 'utf8').trim();
+  } else {
+    const { randomUUID } = require('crypto');
+    persistentDeviceId = randomUUID();
+    fs.writeFileSync(deviceIdPath, persistentDeviceId);
+  }
+} catch (e) {
+  persistentDeviceId = 'unknown-device';
+}
+
+
 // ─── App State ────────────────────────────────────────────────────────────────
 let mainWindow = null;
 let tray = null;
@@ -95,6 +119,68 @@ function checkServer(callback) {
     callback(false);
   }
 }
+
+// ─── Auto-Updater ─────────────────────────────────────────────────────────────
+const { autoUpdater } = require('electron-updater');
+
+// Configure autoUpdater
+autoUpdater.autoDownload = false;
+autoUpdater.autoInstallOnAppQuit = true;
+
+let updateCheckInProgress = false;
+
+autoUpdater.on('update-available', (info) => {
+  dialog.showMessageBox({
+    type: 'info',
+    title: 'Update Available',
+    message: `A new version of GSV Office is available (${info.version}).`,
+    detail: 'Would you like to download it now?',
+    buttons: ['Download Update', 'Later']
+  }).then(({ response }) => {
+    if (response === 0) {
+      autoUpdater.downloadUpdate();
+    }
+  });
+});
+
+autoUpdater.on('update-downloaded', () => {
+  dialog.showMessageBox({
+    type: 'info',
+    title: 'Update Ready',
+    message: 'The update has been downloaded.',
+    detail: 'The app will restart and install the update now.',
+    buttons: ['Restart Now', 'Later']
+  }).then(({ response }) => {
+    if (response === 0) {
+      autoUpdater.quitAndInstall();
+    }
+  });
+});
+
+autoUpdater.on('error', (err) => {
+  console.error('AutoUpdater Error:', err);
+  updateCheckInProgress = false;
+});
+
+function checkForUpdates() {
+  autoUpdater.checkForUpdates().catch(e => console.error('Check failed:', e));
+}
+
+ipcMain.handle('check-for-updates', async () => {
+  if (updateCheckInProgress) return { success: false, message: 'Check already in progress.' };
+  updateCheckInProgress = true;
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    updateCheckInProgress = false;
+    if (!result || !result.updateInfo) {
+      return { success: true, message: 'You are on the latest version.' };
+    }
+    return { success: true, message: 'Update check complete.' };
+  } catch (err) {
+    updateCheckInProgress = false;
+    return { success: false, message: 'Failed to check for updates. Make sure GitHub releases are published.' };
+  }
+});
 
 // ─── Update tray icon based on server status ──────────────────────────────────
 function updateTrayStatus(online) {
@@ -169,7 +255,7 @@ function updateTrayMenu() {
 }
 
 // ─── Create main app window ───────────────────────────────────────────────────
-function createMainWindow() {
+function createMainWindow(showWindow = true) {
   mainWindow = new BrowserWindow({
     width: config.windowWidth || 1280,
     height: config.windowHeight || 800,
@@ -189,12 +275,24 @@ function createMainWindow() {
     autoHideMenuBar: true
   });
 
-  // Load the GSV Office URL
-  mainWindow.loadURL(config.serverUrl);
+  // Load the GSV Office URL with retry mechanism
+  const loadWithRetry = () => {
+    if (!mainWindow) return;
+    mainWindow.loadURL(config.serverUrl).catch(err => {
+      console.error('Failed to load url, retrying in 5 seconds...', err);
+      setTimeout(() => {
+        if (mainWindow) loadWithRetry();
+      }, 5000);
+    });
+  };
+  
+  loadWithRetry();
 
   mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
-    mainWindow.focus();
+    if (showWindow) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
   });
 
   // Save window size on resize
@@ -293,7 +391,7 @@ function openMainWindow() {
           mainWindow.show();
           mainWindow.focus();
         } else {
-          createMainWindow();
+          createMainWindow(true);
         }
       }
     });
@@ -304,7 +402,7 @@ function openMainWindow() {
     mainWindow.show();
     mainWindow.focus();
   } else {
-    createMainWindow();
+    createMainWindow(true);
   }
 }
 
@@ -443,8 +541,11 @@ ipcMain.handle('remote-input', async (event, payload) => {
     const { width, height } = primaryDisplay.bounds;
     
     if (payload.type === 'mouse') {
-      const nativeX = Math.round((payload.x / 1920) * width);
-      const nativeY = Math.round((payload.y / 1080) * height);
+      const fractionX = payload.fractionX !== undefined ? payload.fractionX : (payload.x / 1920);
+      const fractionY = payload.fractionY !== undefined ? payload.fractionY : (payload.y / 1080);
+
+      const nativeX = Math.round(fractionX * width);
+      const nativeY = Math.round(fractionY * height);
       
       let cmd = `[Win32Input]::SetCursorPos(${nativeX}, ${nativeY})`;
       
@@ -564,9 +665,103 @@ ipcMain.handle('test-connection', async (event, url) => {
 
 ipcMain.handle('get-version', () => app.getVersion());
 
-// ─── Second instance focus ────────────────────────────────────────────────────
-app.on('second-instance', () => {
+ipcMain.handle('get-device-id', () => persistentDeviceId);
+
+let callPopupWindow = null;
+
+ipcMain.handle('show-incoming-call-popup', async (event, data) => {
+  if (callPopupWindow) {
+    callPopupWindow.close();
+  }
+
+  const { screen } = require('electron');
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.workAreaSize;
+
+  const popupWidth = 320;
+  const popupHeight = 220;
+
+  callPopupWindow = new BrowserWindow({
+    width: popupWidth,
+    height: popupHeight,
+    x: width - popupWidth - 20,
+    y: height - popupHeight - 20,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+
+  callPopupWindow.loadFile(path.join(__dirname, 'call-popup.html'));
+
+  callPopupWindow.webContents.once('did-finish-load', () => {
+    callPopupWindow.webContents.send('call-data', data);
+    callPopupWindow.showInactive();
+  });
+
+  callPopupWindow.on('closed', () => {
+    callPopupWindow = null;
+  });
+
+  return { success: true };
+});
+
+ipcMain.handle('close-incoming-call-popup', async () => {
+  if (callPopupWindow) {
+    callPopupWindow.close();
+    callPopupWindow = null;
+  }
+  return { success: true };
+});
+
+ipcMain.on('call-action-response', (event, action) => {
+  if (callPopupWindow) {
+    callPopupWindow.close();
+    callPopupWindow = null;
+  }
+  if (mainWindow && mainWindow.webContents) {
+    mainWindow.webContents.executeJavaScript(`
+      window.dispatchEvent(new CustomEvent('gsv-call-action', { detail: '${action}' }));
+    `).catch(err => console.error(err));
+  }
+  if (action === 'accept') {
+    openMainWindow();
+  }
+});
+
+// ─── Deep Link Handling Helper ────────────────────────────────────────────────
+function handleDeepLink(url) {
+  if (!url || !url.startsWith('gsvoffice://')) return;
   openMainWindow();
+  
+  // Pass the deep link to the frontend if it's ready
+  if (mainWindow && mainWindow.webContents) {
+    // We send it via executeJavaScript as a custom event
+    mainWindow.webContents.executeJavaScript(`
+      window.dispatchEvent(new CustomEvent('gsv-deep-link', { detail: '${url}' }));
+    `).catch(err => console.error('Failed to dispatch deep link event', err));
+  }
+}
+
+// macOS Protocol Handler
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  handleDeepLink(url);
+});
+
+// ─── Second instance focus ────────────────────────────────────────────────────
+app.on('second-instance', (event, commandLine, workingDirectory) => {
+  openMainWindow();
+  // Handle Windows deep links
+  const url = commandLine.find(arg => arg.startsWith('gsvoffice://'));
+  if (url) {
+    handleDeepLink(url);
+  }
 });
 
 // ─── App Ready ────────────────────────────────────────────────────────────────
@@ -612,12 +807,25 @@ app.whenReady().then(() => {
   };
 
   startHealthChecks();
+  
+  // Start update check loop
+  checkForUpdates();
+  setInterval(checkForUpdates, 4 * 60 * 60 * 1000); // every 4 hours
+
+  // Create window hidden immediately so it starts trying to load WebSockets
+  createMainWindow(false);
 
   // Auto-open on start (if not launched with --hidden)
   const hiddenArg = process.argv.includes('--hidden');
   if (config.openOnStart && !hiddenArg) {
     // Wait a bit for server check
     setTimeout(() => openMainWindow(), 2000);
+  }
+
+  // Handle Windows deep links if app started with one (first instance)
+  const url = process.argv.find(arg => arg.startsWith('gsvoffice://'));
+  if (url) {
+    setTimeout(() => handleDeepLink(url), 3000);
   }
 });
 

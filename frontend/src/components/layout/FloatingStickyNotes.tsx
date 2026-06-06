@@ -327,6 +327,27 @@ export default function FloatingStickyNotes() {
     };
   }, [isDraggingPopup, isMaximized]);
 
+  // Clamp sticky note bounds on window resize
+  useEffect(() => {
+    const handleResize = () => {
+      setFabPosition(prev => ({
+        x: Math.max(10, Math.min(prev.x, window.innerWidth - 70)),
+        y: Math.max(10, Math.min(prev.y, window.innerHeight - 70))
+      }));
+      setPopupPosition(prev => {
+        if (!prev) return null;
+        const popupW = isMaximized ? window.innerWidth : 900;
+        const popupH = isMaximized ? window.innerHeight : 600;
+        return {
+          x: Math.max(0, Math.min(prev.x, window.innerWidth - popupW)),
+          y: Math.max(0, Math.min(prev.y, window.innerHeight - popupH))
+        };
+      });
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [isMaximized]);
+
   const handleFabClick = () => {
     if (dragDistanceRef.current < 5) {
       setIsPopupOpen(!isPopupOpen);

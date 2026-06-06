@@ -424,6 +424,12 @@ export default function FilesPage() {
   const pendingRequests = accessRequests.filter((r: any) => r.ownerId === user?.id && r.status === 'pending');
   const mySentRequests = accessRequests.filter((r: any) => r.requesterId === user?.id);
 
+  // Filter folders by search
+  const filteredFolders = folders.filter((folder: any) => {
+    if (!search) return true;
+    return (folder.name || '').toLowerCase().includes(search.toLowerCase());
+  });
+
   // Perform category-based file filtering
   const filteredFiles = files.filter((file: any) => {
     const mime = (file.mimeType || '').toLowerCase();
@@ -828,7 +834,9 @@ export default function FilesPage() {
               >
                 <CheckSquare size={15} /> {isBulkMode ? 'Exit Bulk' : 'Bulk Select'}
               </button>
-              <button className="btn btn-secondary btn-sm" onClick={() => setShowNewFolder(true)}><FolderOpen size={15} /> New Folder</button>
+              {shouldShowFolders && (
+                <button className="btn btn-secondary btn-sm" onClick={() => setShowNewFolder(true)}><FolderOpen size={15} /> New Folder</button>
+              )}
               <label className="btn btn-primary btn-sm" style={{ cursor: 'pointer' }}>
                 <Upload size={15} /> Upload Files {uploading && uploadProgressPercent === null && <div className="spinner" />}
                 <input type="file" multiple style={{ display: 'none' }} onChange={e => { if (e.target.files) onDrop(Array.from(e.target.files)); }} />
@@ -946,7 +954,7 @@ export default function FilesPage() {
           {viewMode === 'grid' ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '16px' }}>
               {/* Folders */}
-              {shouldShowFolders && folders.map((folder: any) => {
+              {shouldShowFolders && filteredFolders.map((folder: any) => {
                 const locked = !hasAccess(folder);
                 const isPublic = folder.path?.startsWith('/public');
                 return (
@@ -1067,7 +1075,7 @@ export default function FilesPage() {
                   <thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Permissions</th><th>Actions</th></tr></thead>
                   <tbody>
                     {[
-                      ...(shouldShowFolders ? folders.map((f: any) => ({ ...f, isFolder: true })) : []),
+                      ...(shouldShowFolders ? filteredFolders.map((f: any) => ({ ...f, isFolder: true })) : []),
                       ...filteredFiles
                     ].map((item: any) => {
                       const locked = item.isFolder && !hasAccess(item);
@@ -1402,7 +1410,7 @@ export default function FilesPage() {
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => {
               const allItems = [
-                ...folders.map((f: any) => ({ id: f.id, type: 'folder' as const })),
+                ...filteredFolders.map((f: any) => ({ id: f.id, type: 'folder' as const })),
                 ...filteredFiles.map((f: any) => ({ id: f.id, type: 'file' as const }))
               ];
               const isAllChecked = allItems.every(item => selectedItems.some(s => s.id === item.id));
@@ -1414,7 +1422,7 @@ export default function FilesPage() {
             }}>
               {(() => {
                 const allItems = [
-                  ...folders.map((f: any) => ({ id: f.id, type: 'folder' as const })),
+                  ...filteredFolders.map((f: any) => ({ id: f.id, type: 'folder' as const })),
                   ...filteredFiles.map((f: any) => ({ id: f.id, type: 'file' as const }))
                 ];
                 const isAllChecked = allItems.length > 0 && allItems.every(item => selectedItems.some(s => s.id === item.id));

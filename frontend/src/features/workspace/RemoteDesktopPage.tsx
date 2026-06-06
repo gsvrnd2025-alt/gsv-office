@@ -1037,6 +1037,11 @@ export default function RemoteDesktopPage() {
     if (setIsRemoteDesktopExpanded) {
       setIsRemoteDesktopExpanded(isExpandedView);
     }
+    return () => {
+      if (setIsRemoteDesktopExpanded) {
+        setIsRemoteDesktopExpanded(false);
+      }
+    };
   }, [isExpandedView, setIsRemoteDesktopExpanded]);
 
   // Auto-expand to full viewport when connection is established
@@ -1826,6 +1831,13 @@ export default function RemoteDesktopPage() {
 
   // Connect via phone number or code
   const initiateConnection = () => {
+    const isDesktopApp = !!(window as any).gsvDesktop;
+    if (!isDesktopApp) {
+      window.location.href = `gsvoffice://remote?action=connect&target=${encodeURIComponent(targetPhone)}`;
+      toast.info('Opening GSV Desktop App...');
+      return;
+    }
+
     const targetId = targetPhone.replace(/\s+/g, '');
     const target = teammates.find(t => t.id === targetPhone || t.phone?.replace(/\s+/g, '') === targetId || t.loginId === targetId);
     if (!target) {
@@ -1885,6 +1897,13 @@ export default function RemoteDesktopPage() {
 
     const isInsecureContext = typeof window !== 'undefined' && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
     const isDesktopApp = !!(window as any).gsvDesktop || localAgentActive;
+
+    if (!isDesktopApp) {
+      window.location.href = `gsvoffice://remote?action=accept&callerId=${incomingRequestData.callerId}`;
+      toast.info('Opening GSV Desktop App to share screen...');
+      rejectRequest('redirected_to_app');
+      return;
+    }
 
     if (isInsecureContext && !isDesktopApp) {
       toast.error('Insecure Context: Screen sharing is blocked over HTTP. Please access via HTTPS or use the Desktop App.', { duration: 8000 });
@@ -2004,6 +2023,12 @@ export default function RemoteDesktopPage() {
   const startHostingManually = async () => {
     const isInsecureContext = typeof window !== 'undefined' && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
     const isDesktopApp = !!(window as any).gsvDesktop || localAgentActive;
+
+    if (!isDesktopApp) {
+      window.location.href = 'gsvoffice://remote?action=host';
+      toast.info('Opening GSV Desktop App to share screen...');
+      return;
+    }
 
     if (isInsecureContext && !isDesktopApp) {
       toast.error('Insecure Context: Screen sharing is blocked over HTTP. Please access via HTTPS or use the Desktop App.', { duration: 8000 });
@@ -2214,13 +2239,16 @@ export default function RemoteDesktopPage() {
     const relativeX = clickX - offsetX;
     const relativeY = clickY - offsetY;
 
-    const x = Math.round((relativeX / actualVideoWidth) * 1920);
-    const y = Math.round((relativeY / actualVideoHeight) * 1080);
+    const fractionX = relativeX / actualVideoWidth;
+    const fractionY = relativeY / actualVideoHeight;
 
-    const clampedX = Math.max(0, Math.min(1920, x));
-    const clampedY = Math.max(0, Math.min(1080, y));
+    const clampedFractionX = Math.max(0, Math.min(1.0, fractionX));
+    const clampedFractionY = Math.max(0, Math.min(1.0, fractionY));
 
-    return { x: clampedX, y: clampedY };
+    const x = Math.round(clampedFractionX * 1920);
+    const y = Math.round(clampedFractionY * 1080);
+
+    return { x, y, fractionX: clampedFractionX, fractionY: clampedFractionY };
   };
 
   const handleViewportMouseMove = (e: React.MouseEvent<HTMLVideoElement>) => {
@@ -2238,7 +2266,9 @@ export default function RemoteDesktopPage() {
       type: 'mouse',
       action: 'move',
       x: coords.x,
-      y: coords.y
+      y: coords.y,
+      fractionX: coords.fractionX,
+      fractionY: coords.fractionY
     }));
   };
 
@@ -2265,7 +2295,9 @@ export default function RemoteDesktopPage() {
       type: 'mouse',
       action: action,
       x: coords.x,
-      y: coords.y
+      y: coords.y,
+      fractionX: coords.fractionX,
+      fractionY: coords.fractionY
     }));
     
     addLog(`Mouse down (${action}) dispatched: (${coords.x}, ${coords.y})`);
@@ -2281,6 +2313,8 @@ export default function RemoteDesktopPage() {
       const coords = getRelativeCoordinates(e);
       const x = coords ? coords.x : 960;
       const y = coords ? coords.y : 540;
+      const fractionX = coords ? coords.fractionX : 0.5;
+      const fractionY = coords ? coords.fractionY : 0.5;
 
       let action = 'leftup';
       if (lastMouseDownButton.current === 2) {
@@ -2292,7 +2326,9 @@ export default function RemoteDesktopPage() {
           type: 'mouse',
           action: action,
           x: x,
-          y: y
+          y: y,
+          fractionX: fractionX,
+          fractionY: fractionY
         }));
         addLog(`Global mouse up (${action}) dispatched: (${x}, ${y})`);
       } catch (err) {
@@ -2895,7 +2931,11 @@ export default function RemoteDesktopPage() {
                     autoPlay 
                     playsInline 
                     className="w-100 h-100" 
-                    style={{ objectFit: videoFit, background: '#000', cursor: isControlLocked ? 'not-allowed' : 'crosshair' }} 
+                    style={{ 
+                      objectFit: videoFit, 
+                      background: '#000', 
+                      cursor: isControlLocked ? 'not-allowed' : "url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"%233b82f6\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z\"/><path d=\"M13 13l6 6\"/></svg>') 0 0, auto"
+                    }} 
                     onMouseMove={handleViewportMouseMove}
                     onMouseDown={handleViewportMouseDown}
                     onContextMenu={handleViewportContextMenu}
@@ -3324,9 +3364,10 @@ export default function RemoteDesktopPage() {
                     type="text"
                     value={floatingChatInput}
                     onChange={(e) => setFloatingChatInput(e.target.value)}
+                    onKeyUp={(e) => e.stopPropagation()}
                     onKeyDown={(e) => {
+                      e.stopPropagation();
                       if (e.key === 'Enter' && floatingChatInput.trim()) {
-                        e.stopPropagation();
                         setFloatingChatMessages(prev => [...prev, {
                           sender: 'me',
                           text: floatingChatInput.trim(),

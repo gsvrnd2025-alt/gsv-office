@@ -173,7 +173,7 @@ export class ChatService implements OnModuleInit {
                ELSE m.type::text
              END AS type,
              u.full_name AS sender_name, u.avatar_url AS sender_avatar,
-             COALESCE(json_agg(DISTINCT mr.*) FILTER (WHERE mr.message_id IS NOT NULL), '[]') AS reactions,
+             COALESCE(json_agg(mr) FILTER (WHERE mr.message_id IS NOT NULL), '[]') AS reactions,
              COALESCE(f.original_name, f.name, fold.name) AS file_name, f.mime_type, f.size AS file_size, f.storage_url AS file_url
       FROM messages m
       JOIN users u ON u.id = m.sender_id
@@ -261,6 +261,20 @@ export class ChatService implements OnModuleInit {
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
       [dto.conversationId, dto.senderId, dto.content, mappedType, fileId, folderId, replyToId]
     );
+
+    if (fileId) {
+      const members = await this.dataSource.query(
+        `SELECT user_id FROM conversation_members WHERE conversation_id = $1 AND user_id != $2`,
+        [dto.conversationId, dto.senderId]
+      );
+      for (const m of members) {
+        await this.dataSource.query(
+          `INSERT INTO file_shares (file_id, shared_by_user_id, shared_with_user_id, permission)
+           VALUES ($1, $2, $3, 'read') ON CONFLICT DO NOTHING`,
+          [fileId, dto.senderId, m.user_id]
+        );
+      }
+    }
 
     if (msg.type === 'image') msg.type = 'photo';
     if (msg.type === 'audio') msg.type = 'music';

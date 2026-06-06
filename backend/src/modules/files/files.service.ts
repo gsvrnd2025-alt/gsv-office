@@ -164,42 +164,79 @@ export class FilesService implements OnModuleInit {
       `SELECT * FROM files WHERE id = $1 AND deleted_at IS NULL`,
       [fileId]
     );
-    if (!origFile) throw new Error('File not found');
 
-    const ext = path.extname(origFile.original_name).replace('.', '').toLowerCase();
-    
-    let categoryName = 'Documents';
-    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext) || origFile.mime_type?.startsWith('image/')) {
-      categoryName = 'Images';
-    } else if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext) || origFile.mime_type?.startsWith('video/')) {
-      categoryName = 'Videos';
-    } else if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext) || origFile.mime_type?.startsWith('audio/')) {
-      categoryName = 'Audios';
+    if (origFile) {
+      const ext = path.extname(origFile.original_name).replace('.', '').toLowerCase();
+      
+      let categoryName = 'Documents';
+      if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext) || origFile.mime_type?.startsWith('image/')) {
+        categoryName = 'Images';
+      } else if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext) || origFile.mime_type?.startsWith('video/')) {
+        categoryName = 'Videos';
+      } else if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext) || origFile.mime_type?.startsWith('audio/')) {
+        categoryName = 'Audios';
+      }
+      
+      let targetFolderId;
+      const [existingFolder] = await this.dataSource.query(
+        `SELECT id FROM folders WHERE owner_id = $1 AND name = $2 AND deleted_at IS NULL LIMIT 1`,
+        [userId, categoryName]
+      );
+      
+      if (existingFolder) {
+        targetFolderId = existingFolder.id;
+      } else {
+        const newFolder = await this.createFolder({
+          name: categoryName,
+          ownerId: userId
+        });
+        targetFolderId = newFolder.id;
+      }
+
+      const [newFile] = await this.dataSource.query(
+        `INSERT INTO files (name, original_name, mime_type, size, extension, storage_path, storage_url, owner_id, folder_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+        [origFile.name, origFile.original_name, origFile.mime_type, origFile.size, ext, origFile.storage_path, origFile.storage_url, userId, targetFolderId]
+      );
+      return newFile;
     }
-    
-    let targetFolderId;
-    const [existingFolder] = await this.dataSource.query(
-      `SELECT id FROM folders WHERE owner_id = $1 AND name = $2 AND deleted_at IS NULL LIMIT 1`,
-      [userId, categoryName]
+
+    const [origFolder] = await this.dataSource.query(
+      `SELECT * FROM folders WHERE id = $1 AND deleted_at IS NULL`,
+      [fileId]
     );
-    
-    if (existingFolder) {
-      targetFolderId = existingFolder.id;
-    } else {
-      const newFolder = await this.createFolder({
-        name: categoryName,
-        ownerId: userId
+
+    if (origFolder) {
+      const [user] = await this.dataSource.query(`SELECT full_name FROM users WHERE id = $1`, [userId]);
+      const userName = user?.full_name || 'Teammate';
+      const cloudFolderName = `${userName}'s Saved Cloud Files`;
+      
+      let rootCloudFolderId;
+      const [existingCloudFolder] = await this.dataSource.query(
+        `SELECT id FROM folders WHERE owner_id = $1 AND name = $2 AND deleted_at IS NULL LIMIT 1`,
+        [userId, cloudFolderName]
+      );
+      
+      if (existingCloudFolder) {
+        rootCloudFolderId = existingCloudFolder.id;
+      } else {
+        const newCloudFolder = await this.createFolder({
+          name: cloudFolderName,
+          ownerId: userId
+        });
+        rootCloudFolderId = newCloudFolder.id;
+      }
+
+      return this.moveOrCopy({
+        itemType: 'folder',
+        itemId: fileId,
+        targetFolderId: rootCloudFolderId,
+        action: 'copy',
+        userId: userId
       });
-      targetFolderId = newFolder.id;
     }
 
-
-    const [newFile] = await this.dataSource.query(
-      `INSERT INTO files (name, original_name, mime_type, size, extension, storage_path, storage_url, owner_id, folder_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [origFile.name, origFile.original_name, origFile.mime_type, origFile.size, ext, origFile.storage_path, origFile.storage_url, userId, targetFolderId]
-    );
-    return newFile;
+    throw new Error('File or folder not found');
   }
 
   async saveFolderStructure(dto: {

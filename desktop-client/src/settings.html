@@ -290,6 +290,17 @@
       </div>
     </div>
 
+    <!-- Updates -->
+    <div class="section">
+      <div class="section-title">🔄 Updates</div>
+      <div class="conn-row">
+        <button class="btn-test" id="btnUpdate" onclick="checkForUpdates()">Check for Updates</button>
+        <div class="conn-status" id="updateStatus" style="display:none;">
+          <span id="updateText"></span>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <div class="footer">
@@ -352,6 +363,23 @@
         badge.classList.remove('show');
         window.close();
       }, 1500);
+    }
+
+    async function checkForUpdates() {
+      const btn = document.getElementById('btnUpdate');
+      const statusEl = document.getElementById('updateStatus');
+      const textEl = document.getElementById('updateText');
+      
+      btn.disabled = true;
+      statusEl.style.display = 'flex';
+      statusEl.className = 'conn-status checking';
+      textEl.textContent = 'Checking...';
+      
+      const res = await window.settingsAPI.checkForUpdates();
+      
+      btn.disabled = false;
+      statusEl.className = res.success ? 'conn-status online' : 'conn-status offline';
+      textEl.textContent = res.message;
     }
 
     init();

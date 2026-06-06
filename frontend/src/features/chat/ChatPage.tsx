@@ -42,12 +42,22 @@ interface StagedFile {
   type: string;
 }
 
+const getFullUrl = (url: string) => {
+  if (!url) return '#';
+  if (url.startsWith('http')) return url;
+  const backend = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  return `${backend}${url.startsWith('/') ? '' : '/'}${url}`;
+};
+
 const normalizeMessage = (m: any) => {
   if (!m) return m;
+  const rawUrl = m.file_url !== undefined ? m.file_url : m.fileUrl;
+  const fullUrl = rawUrl ? getFullUrl(rawUrl) : rawUrl;
   return {
     ...m,
     fileName: m.file_name !== undefined ? m.file_name : m.fileName,
-    fileUrl: m.file_url !== undefined ? m.file_url : m.fileUrl,
+    fileUrl: fullUrl,
+    file_url: fullUrl,
     fileSize: m.file_size !== undefined ? m.file_size : m.fileSize,
     mimeType: m.mime_type !== undefined ? m.mime_type : m.mimeType,
     folderId: m.folder_id !== undefined ? m.folder_id : m.folderId,
@@ -336,6 +346,9 @@ export default function ChatPage() {
   const [previewFile, setPreviewFile] = useState<{ url: string, name: string, type: string } | null>(null);
   const [previewTextContent, setPreviewTextContent] = useState<string>('');
   const [loadingTextContent, setLoadingTextContent] = useState<boolean>(false);
+  const [showNoteEditor, setShowNoteEditor] = useState(false);
+  const [noteFileName, setNoteFileName] = useState('note.txt');
+  const [noteContent, setNoteContent] = useState('');
 
   useEffect(() => {
     if (!previewFile) {
@@ -1055,17 +1068,79 @@ export default function ChatPage() {
     }
   };
 
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const items = Array.from(e.dataTransfer.items);
+    if (items.length === 0) return;
+
+    let stagedFolder = null;
+    let filesToStage: File[] = [];
+
+    // Simple check for folder drop using webkitGetAsEntry
+    for (const item of items) {
+      if (item.kind === 'file') {
+        const entry = item.webkitGetAsEntry();
+        if (entry && entry.isDirectory) {
+          // It's a folder, but reading all files recursively without a library is complex.
+          // For now, we will fallback to the input type="file" webkitdirectory method 
+          // or just prompt the user to use the folder button.
+          toast.error("Folder drops are not fully supported yet. Please use the 'Attach Folder' button instead.");
+          return;
+        } else {
+          const file = item.getAsFile();
+          if (file) filesToStage.push(file);
+        }
+      }
+    }
+
+    if (filesToStage.length > 0) {
+      if (filesToStage.length > 30) {
+        toast.error("You can drop a maximum of 30 files at a time. Slicing to the first 30 files.");
+        filesToStage = filesToStage.slice(0, 30);
+      }
+      if (stagedFiles.length + filesToStage.length > 30) {
+        toast.error("You can stage a maximum of 30 files total.");
+        return;
+      }
+      const staged = filesToStage.map(file => {
+        const ext = file.name.split('.').pop()?.toLowerCase() || '';
+        let type = 'file';
+        if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) type = 'photo';
+        else if (['mp4', 'mov', 'avi', 'mkv'].includes(ext)) type = 'video';
+        else if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) type = 'music';
+        
+        return {
+          name: file.name,
+          size: (file.size / 1024).toFixed(1) + ' KB',
+          blob: file,
+          type: type
+        };
+      });
+      setStagedFiles(prev => [...prev, ...staged]);
+      toast.success(`${filesToStage.length} dropped file(s) staged successfully! 📥`);
+    }
+  };
+
   const handleCallHandshake = (type: 'audio' | 'video') => {
+    const isDesktopApp = !!(window as any).gsvDesktop;
     if (activeConv && activeConv.type === 'private') {
       const partnerName = activeConv.name?.replace('DM with ', '');
       const partnerUser = otherUsers.find(
         (u: any) => u.fullName.toLowerCase() === partnerName?.toLowerCase() || u.loginId.toLowerCase() === partnerName?.toLowerCase()
       );
-      const isPartnerOnline = partnerUser ? partnerUser.isOnline : false;
-      if (!isPartnerOnline) {
-        toast.error(`Teammate "${partnerName || 'User'}" is offline. Call handshakes are blocked.`);
+      
+      if (!isDesktopApp) {
+        window.location.href = `gsvoffice://call?type=${type}&partnerId=${partner?.id || ''}`;
         return;
       }
+
       if (partner && initiateCall) {
         initiateCall(partner.id, partnerName, type);
       } else {
@@ -1170,11 +1245,7 @@ export default function ChatPage() {
     user.id === '20000000-0000-0000-0000-000000000001'
   );
 
-  const handshakeRequired = activeConv?.type === 'private' && partner && 
-    !partnerIsAdmin && !userIsAdmin &&
-    (partner as any).departmentId !== (user as any)?.departmentId && 
-    (partner as any).department_id !== (user as any)?.department_id && 
-    !approvedHandshakes.includes((partner as any).id);
+  const handshakeRequired = false; // Cross-department calling is now allowed globally without handshakes.
 
   const partnerCallLogs = (callHistory || []).filter((log: any) => 
     log.name?.toLowerCase() === partnerName?.toLowerCase()
@@ -1405,6 +1476,79 @@ export default function ChatPage() {
       )}
 
       {/* Message Forwarding Selection Dialog */}
+      {showNoteEditor && (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card card-body" style={{ width: '600px', maxWidth: '90vw', display: 'flex', flexDirection: 'column', gap: '14px', background: 'var(--bg-card)' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              📝 Create Note
+            </h3>
+            
+            <div>
+              <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px', display: 'block' }}>File Name (with extension)</label>
+              <input 
+                type="text" 
+                className="form-control" 
+                value={noteFileName}
+                onChange={e => setNoteFileName(e.target.value)}
+                placeholder="e.g. script.py, config.json, notes.txt"
+                style={{ width: '100%', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+              />
+            </div>
+            
+            <div style={{ flex: 1, minHeight: '250px', display: 'flex', flexDirection: 'column' }}>
+              <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px', display: 'block' }}>Content</label>
+              <textarea 
+                className="form-control"
+                value={noteContent}
+                onChange={e => setNoteContent(e.target.value)}
+                placeholder="Start typing your note or code here..."
+                style={{ 
+                  flex: 1, 
+                  width: '100%', 
+                  resize: 'vertical',
+                  minHeight: '250px',
+                  fontFamily: 'monospace',
+                  fontSize: '13px',
+                  background: 'var(--bg-secondary)', 
+                  border: '1px solid var(--border-color)', 
+                  color: 'var(--text-primary)' 
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+              <button className="btn btn-ghost" onClick={() => setShowNoteEditor(false)}>Cancel</button>
+              <button className="btn btn-primary" disabled={!noteContent.trim() || !noteFileName.trim()} onClick={() => {
+                const blob = new Blob([noteContent], { type: 'text/plain' });
+                const file = new window.File([blob], noteFileName, { type: 'text/plain' });
+                
+                const ext = noteFileName.split('.').pop()?.toLowerCase() || '';
+                let type = 'file';
+                if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) type = 'photo';
+                else if (['mp4', 'mov', 'avi', 'mkv'].includes(ext)) type = 'video';
+                else if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) type = 'music';
+
+                const newStagedFile = {
+                  name: file.name,
+                  size: (file.size / 1024).toFixed(1) + ' KB',
+                  blob: file,
+                  type: type
+                };
+
+                setStagedFiles(prev => [...prev, newStagedFile]);
+                toast.success(`Note "${noteFileName}" staged successfully! 📝`);
+                
+                setShowNoteEditor(false);
+                setNoteContent('');
+                setNoteFileName('note.txt');
+              }}>
+                Save & Stage
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {forwardingMsg && (
         <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="card card-body" style={{ width: '360px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -1951,33 +2095,23 @@ export default function ChatPage() {
                   <CheckSquare size={18} />
                 </button>
                 {(() => {
-                  let isOffline = false;
-                  if (activeConv && activeConv.type === 'private') {
-                    const partnerName = activeConv.name?.replace('DM with ', '');
-                    const partnerUser = otherUsers.find(
-                      (u: any) => u.fullName?.toLowerCase() === partnerName?.toLowerCase() || u.loginId?.toLowerCase() === partnerName?.toLowerCase()
-                    );
-                    isOffline = partnerUser ? !partnerUser.isOnline : true;
-                  }
                   return (
                     <>
                       <button 
                         className="btn btn-ghost btn-icon" 
                         onClick={() => handleCallHandshake('audio')} 
-                        disabled={isOffline}
-                        title={isOffline ? "Teammate offline" : "Audio Handshake"}
-                        style={{ opacity: isOffline ? 0.4 : 1, cursor: isOffline ? 'not-allowed' : 'pointer' }}
+                        title="Audio Handshake"
+                        style={{ cursor: 'pointer' }}
                       >
-                        <Phone size={18} style={{ color: isOffline ? 'var(--text-tertiary)' : 'var(--brand-primary)' }} />
+                        <Phone size={18} style={{ color: 'var(--brand-primary)' }} />
                       </button>
                       <button 
                         className="btn btn-ghost btn-icon" 
                         onClick={() => handleCallHandshake('video')} 
-                        disabled={isOffline}
-                        title={isOffline ? "Teammate offline" : "Video Resonance"}
-                        style={{ opacity: isOffline ? 0.4 : 1, cursor: isOffline ? 'not-allowed' : 'pointer' }}
+                        title="Video Resonance"
+                        style={{ cursor: 'pointer' }}
                       >
-                        <Video size={18} style={{ color: isOffline ? 'var(--text-tertiary)' : 'var(--brand-primary)' }} />
+                        <Video size={18} style={{ color: 'var(--brand-primary)' }} />
                       </button>
                     </>
                   );
@@ -2104,7 +2238,7 @@ export default function ChatPage() {
           ) : (
             <>
               {/* Messages list */}
-              <div className={styles.messagesArea}>
+              <div className={styles.messagesArea} onDragOver={handleDragOver} onDrop={handleDrop}>
                 {sortedMessages.map((msg: any, i: number) => {
                   const isOwn = msg.sender_id === user?.id || msg.sender?.id === user?.id;
                   const senderName = msg.sender_name || msg.sender?.fullName || 'System Teammate';
@@ -2352,46 +2486,6 @@ export default function ChatPage() {
                         </div>
                       )}
  
-                      {/* Reactions Overlay Panel on Hover */}
-                      <div style={{ display: 'flex', gap: '10px', marginTop: '6px', borderTop: '1px solid var(--border-color)', paddingTop: '4px', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', gap: '4px' }}>
-                          {['👍', '❤️', '😂', '😮', '🙏'].map(e => (
-                            <span
-                              key={e}
-                              onClick={() => handleReaction(msg.id || i.toString(), e)}
-                              style={{ cursor: 'pointer', fontSize: '18px', padding: '2px' }}
-                            >
-                              {e}
-                            </span>
-                          ))}
-                        </div>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <span title="Copy Message Text" onClick={() => {
-                            const copied = copyTextToClipboard(msg.content);
-                            if (copied) toast.success('Message content copied to clipboard.');
-                            else toast.error('Failed to copy message content.');
-                          }} style={{ display: 'inline-flex', cursor: 'pointer', color: isOwn ? 'var(--wa-own-text)' : 'var(--wa-other-text)' }}>
-                            <Copy size={18} />
-                          </span>
-                          <span title="Pin Message" onClick={() => setPinnedMessage(msg)} style={{ display: 'inline-flex', cursor: 'pointer', color: isOwn ? 'var(--wa-own-text)' : 'var(--wa-other-text)' }}>
-                            <Pin size={18} />
-                          </span>
-                          <span title="Forward Message" onClick={() => setForwardingMsg(msg)} style={{ display: 'inline-flex', cursor: 'pointer', color: isOwn ? 'var(--wa-own-text)' : 'var(--wa-other-text)' }}>
-                            <ArrowRight size={18} />
-                          </span>
-                          {isOwn && (
-                            <span title="Delete Message" onClick={() => {
-                              setConfirmModal({
-                                title: 'Delete Message',
-                                message: 'Are you sure you want to delete this message permanently?',
-                                onConfirm: () => deleteMessageMutation.mutate(msg.id)
-                              });
-                            }} style={{ display: 'inline-flex', cursor: 'pointer', color: 'var(--brand-danger)' }}>
-                              <Trash2 size={18} />
-                            </span>
-                          )}
-                        </div>
-                      </div>
 
                       {/* Displayed active reactions bubbles */}
                       {reactions.length > 0 && (
@@ -2607,6 +2701,12 @@ export default function ChatPage() {
                         });
                       }}>
                         📁 SMB Folder Share
+                      </div>
+                      <div className="dropdown-item" onClick={() => {
+                        setShowAttachmentsDropdown(false);
+                        setShowNoteEditor(true);
+                      }}>
+                        📝 Create Note
                       </div>
                     </div>
                   )}

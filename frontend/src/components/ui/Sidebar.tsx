@@ -109,7 +109,7 @@ export function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose, hidden
       <div className={styles.logo}>
         {!collapsed && (
           <div className={styles.logoIcon}>
-            <img src={logoImg} alt="GSV Logo" style={{ width: '32px', height: '32px', objectFit: 'contain' }} />
+            <img src={logoImg} alt="GSV Logo" style={{ width: '48px', height: '48px', objectFit: 'contain', marginLeft: '-8px' }} />
           </div>
         )}
         {!collapsed && <span className={styles.logoText}>GSV Office</span>}
@@ -138,13 +138,6 @@ export function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose, hidden
                     to={item.to}
                     className={({ isActive }) => `${styles.navItem} ${isActive ? styles.active : ''}`}
                     onClick={(e) => {
-                      // Intercept Team Chat click when on Remote Desktop page — toggle floating chat instead
-                      if (item.to === '/chat' && location.pathname.startsWith('/remote-desktop')) {
-                        e.preventDefault();
-                        window.dispatchEvent(new CustomEvent('gsv-toggle-floating-chat'));
-                        onMobileClose();
-                        return;
-                      }
                       onMobileClose();
                     }}
                     title={collapsed ? item.label + (isLocked ? ' (Locked)' : '') : undefined}

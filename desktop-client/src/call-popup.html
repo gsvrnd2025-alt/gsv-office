@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Incoming Call</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: transparent;
+      overflow: hidden;
+    }
+    .popup-container {
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+      color: white;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      height: 100%;
+      box-sizing: border-box;
+      backdrop-filter: blur(10px);
+      -webkit-app-region: drag; /* make it draggable */
+    }
+    .avatar {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #6366f1, #a855f7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      font-weight: bold;
+      margin-bottom: 12px;
+      box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4); }
+      70% { box-shadow: 0 0 0 15px rgba(99, 102, 241, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+    }
+    .name {
+      font-size: 18px;
+      font-weight: 800;
+      margin: 0 0 4px 0;
+    }
+    .type {
+      font-size: 12px;
+      color: rgba(255,255,255,0.6);
+      margin: 0 0 20px 0;
+    }
+    .actions {
+      display: flex;
+      gap: 16px;
+      width: 100%;
+      justify-content: center;
+      -webkit-app-region: no-drag;
+    }
+    .btn {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.2s;
+    }
+    .btn:hover {
+      transform: scale(1.1);
+    }
+    .btn-reject {
+      background: #ef4444;
+      box-shadow: 0 4px 10px rgba(239, 68, 68, 0.3);
+    }
+    .btn-accept {
+      background: #22c55e;
+      box-shadow: 0 4px 10px rgba(34, 197, 94, 0.3);
+      animation: bounce 1s infinite;
+    }
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-5px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="popup-container">
+    <div class="avatar" id="avatar">?</div>
+    <h3 class="name" id="callerName">Unknown</h3>
+    <p class="type" id="callType">Incoming Call...</p>
+    <div class="actions">
+      <button class="btn btn-reject" id="btnReject" title="Reject">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
+      </button>
+      <button class="btn btn-accept" id="btnAccept" title="Accept">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+      </button>
+    </div>
+  </div>
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    ipcRenderer.on('call-data', (event, data) => {
+      document.getElementById('callerName').textContent = data.callerName || 'Teammate';
+      document.getElementById('avatar').textContent = (data.callerName || '?').charAt(0).toUpperCase();
+      document.getElementById('callType').textContent = `Incoming ${data.type === 'video' ? 'Video' : 'Voice'} Call...`;
+    });
+
+    document.getElementById('btnAccept').addEventListener('click', () => {
+      ipcRenderer.send('call-action-response', 'accept');
+    });
+
+    document.getElementById('btnReject').addEventListener('click', () => {
+      ipcRenderer.send('call-action-response', 'reject');
+    });
+  </script>
+</body>
+</html>
