@@ -52,9 +52,14 @@ export function AppLayout() {
   const activeRoomIdRef = useRef<string>('');
   const callTimerRef = useRef<any>(null);
 
+  const activeCallRef = useRef(false);
+  const incomingCallRef = useRef<any>(null);
+
   useEffect(() => { localStreamRef.current = localStream; }, [localStream]);
   useEffect(() => { socketRef.current = webrtcSocket; }, [webrtcSocket]);
   useEffect(() => { callTypeRef.current = callType; }, [callType]);
+  useEffect(() => { activeCallRef.current = activeCall; }, [activeCall]);
+  useEffect(() => { incomingCallRef.current = incomingCall; }, [incomingCall]);
 
   // Fetch users directory for caller lookup
   const { data: usersData } = useQuery({
@@ -114,6 +119,10 @@ export function AppLayout() {
 
     socket.on('call:incoming', (data) => {
       // data: { roomId, callerId, type }
+      if (activeCallRef.current || incomingCallRef.current) {
+        socket.emit('call:busy', { callerId: data.callerId, roomId: data.roomId });
+        return;
+      }
       const callerName = findUserName(data.callerId);
       setIncomingCall({
         roomId: data.roomId,
@@ -203,6 +212,11 @@ export function AppLayout() {
 
     socket.on('call:participant-left', () => {
       toast.error('The call was terminated.');
+      hangUpCall();
+    });
+
+    socket.on('call:busy', () => {
+      toast.error('The teammate is currently busy in another call.');
       hangUpCall();
     });
 
@@ -444,6 +458,16 @@ export function AppLayout() {
     };
   }, [isDraggingCall]);
 
+  const [showInviteModal, setShowInviteModal] = useState(false);
+
+  const inviteParticipantToCall = (userId: string) => {
+    if (activeRoomIdRef.current && webrtcSocket) {
+      webrtcSocket.emit('call:invite-participant', { calleeId: userId, roomId: activeRoomIdRef.current, type: callType });
+      toast.success('Invitation sent to join the call.');
+      setShowInviteModal(false);
+    }
+  };
+
   const isChatPage = location.pathname.startsWith('/chat');
   const pathParts = location.pathname.split('/');
   const activeConversationId = (isChatPage && pathParts[2]) ? pathParts[2] : null;
@@ -620,6 +644,18 @@ export function AppLayout() {
           <div style={{ display: 'flex', gap: '10px' }}>
             <button
               onMouseDown={(e) => e.stopPropagation()}
+              onClick={() => setShowInviteModal(true)}
+              style={{
+                width: '36px', height: '36px', borderRadius: '50%', border: 'none',
+                background: 'rgba(255,255,255,0.08)', color: '#fff',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }}
+              title="Add Participant"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+            </button>
+            <button
+              onMouseDown={(e) => e.stopPropagation()}
               onClick={() => {
                 if (localStreamRef.current) {
                   const audioTrack = localStreamRef.current.getAudioTracks()[0];
@@ -651,6 +687,34 @@ export function AppLayout() {
             >
               <PhoneOff size={16} />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Invite Modal */}
+      {showInviteModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000
+        }}>
+          <div style={{ background: 'var(--bg-card)', padding: '24px', borderRadius: '16px', width: '320px', display: 'flex', flexDirection: 'column', gap: '16px', color: 'var(--text-primary)' }}>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>Add Participant</h3>
+            <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-tertiary)' }}>Select a teammate to invite to the ongoing resonance.</p>
+            <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {users.filter((u: any) => u.id !== useAuthStore.getState().user?.id && u.id !== callPartnerId).map((u: any) => (
+                <button
+                  key={u.id}
+                  onClick={() => inviteParticipantToCall(u.id)}
+                  style={{
+                    background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '8px',
+                    padding: '8px 12px', textAlign: 'left', cursor: 'pointer', color: 'var(--text-primary)'
+                  }}
+                >
+                  {u.fullName}
+                </button>
+              ))}
+            </div>
+            <button className="btn btn-secondary" onClick={() => setShowInviteModal(false)}>Cancel</button>
           </div>
         </div>
       )}

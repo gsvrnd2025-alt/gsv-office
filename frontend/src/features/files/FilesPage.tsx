@@ -313,6 +313,20 @@ export default function FilesPage() {
     return !!grant;
   };
 
+  const isReadOnly = (item: any, isFolder: boolean) => {
+    if (!user) return true;
+    if (user.role?.name === 'Super Admin') return false;
+    if (item.ownerId === user.id) return false;
+    
+    if (isFolder) {
+      const grant = accessRequests.find((r: any) => r.folderId === item.id && r.requesterId === user.id && r.status === 'approved');
+      if (grant && grant.permission === 'read') return true;
+    } else {
+      return true;
+    }
+    return true; 
+  };
+
   const handleDoubleClickFolder = (folder: any) => {
     if (hasAccess(folder)) {
       setFolderId(folder.id);
@@ -682,16 +696,20 @@ export default function FilesPage() {
           borderRadius: '8px', boxShadow: '0 10px 25px rgba(0,0,0,0.3)', zIndex: 1100,
           display: 'flex', flexDirection: 'column', padding: '4px', minWidth: '150px'
         }} onMouseLeave={() => setContextMenu(null)}>
-          <div className="dropdown-item" onClick={() => {
-            setRenamingItem({ id: contextMenu.item.id, type: contextMenu.itemType, name: contextMenu.item.name || contextMenu.item.originalName });
-            setContextMenu(null);
-          }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Plus size={13} /> Rename</div>
-          
-          <div className="dropdown-item" onClick={() => {
-            setClipboardItem({ id: contextMenu.item.id, type: contextMenu.itemType, action: 'cut' });
-            setContextMenu(null);
-            toast.success('Cut to clipboard');
-          }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Scissors size={13} /> Cut</div>
+          {!isReadOnly(contextMenu.item, contextMenu.itemType === 'folder') && (
+            <>
+              <div className="dropdown-item" onClick={() => {
+                setRenamingItem({ id: contextMenu.item.id, type: contextMenu.itemType, name: contextMenu.item.name || contextMenu.item.originalName });
+                setContextMenu(null);
+              }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Plus size={13} /> Rename</div>
+              
+              <div className="dropdown-item" onClick={() => {
+                setClipboardItem({ id: contextMenu.item.id, type: contextMenu.itemType, action: 'cut' });
+                setContextMenu(null);
+                toast.success('Cut to clipboard');
+              }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Scissors size={13} /> Cut</div>
+            </>
+          )}
 
           <div className="dropdown-item" onClick={() => {
             setClipboardItem({ id: contextMenu.item.id, type: contextMenu.itemType, action: 'copy' });
@@ -754,22 +772,24 @@ export default function FilesPage() {
             </>
           )}
 
-          <div className="dropdown-item" onClick={() => {
-            const isFolder = contextMenu.itemType === 'folder';
-            const name = contextMenu.item.name || contextMenu.item.originalName;
-            setConfirmModal({
-              title: `Delete ${isFolder ? 'Folder' : 'File'}`,
-              message: `Are you sure you want to delete "${name}" permanently?`,
-              onConfirm: () => {
-                if (isFolder) {
-                  deleteFolderMutation.mutate(contextMenu.item.id);
-                } else {
-                  deleteMutation.mutate(contextMenu.item.id);
+          {!isReadOnly(contextMenu.item, contextMenu.itemType === 'folder') && (
+            <div className="dropdown-item" onClick={() => {
+              const isFolder = contextMenu.itemType === 'folder';
+              const name = contextMenu.item.name || contextMenu.item.originalName;
+              setConfirmModal({
+                title: `Delete ${isFolder ? 'Folder' : 'File'}`,
+                message: `Are you sure you want to delete "${name}" permanently?`,
+                onConfirm: () => {
+                  if (isFolder) {
+                    deleteFolderMutation.mutate(contextMenu.item.id);
+                  } else {
+                    deleteMutation.mutate(contextMenu.item.id);
+                  }
                 }
-              }
-            });
-            setContextMenu(null);
-          }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer', color: 'var(--brand-danger)' }}><Trash2 size={13} /> Delete</div>
+              });
+              setContextMenu(null);
+            }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer', color: 'var(--brand-danger)' }}><Trash2 size={13} /> Delete</div>
+          )}
         </div>
       )}
 

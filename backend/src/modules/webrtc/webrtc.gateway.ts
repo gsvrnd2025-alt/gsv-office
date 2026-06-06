@@ -60,6 +60,18 @@ export class WebrtcGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return { roomId };
   }
 
+  @SubscribeMessage('call:invite-participant')
+  handleInviteParticipant(@ConnectedSocket() client: Socket, @MessageBody() data: { calleeId: string; roomId: string; type: string }) {
+    this.server.to(`user:${data.calleeId}`).emit('call:incoming', {
+      roomId: data.roomId, callerId: client.data?.userId, type: data.type,
+    });
+  }
+
+  @SubscribeMessage('call:busy')
+  handleCallBusy(@ConnectedSocket() client: Socket, @MessageBody() data: { callerId: string; roomId: string }) {
+    this.server.to(`user:${data.callerId}`).emit('call:busy', { roomId: data.roomId });
+  }
+
   @SubscribeMessage('call:join')
   handleCallJoin(@ConnectedSocket() client: Socket, @MessageBody() data: { roomId: string }) {
     const room = this.rooms.get(data.roomId);

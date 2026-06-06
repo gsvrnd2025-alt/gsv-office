@@ -61,3 +61,8 @@ gsv-office-catalog/
 **uploads/*.zip
 **uploads/*.mp4
 **uploads/*.mkv
+
+# Android build tools and JDK (large binary files - do not commit)
+frontend/android/
+*.jdk
+*.jre

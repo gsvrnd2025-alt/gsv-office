@@ -1834,7 +1834,7 @@ export default function RemoteDesktopPage() {
     const isDesktopApp = !!(window as any).gsvDesktop;
     if (!isDesktopApp) {
       window.location.href = `gsvoffice://remote?action=connect&target=${encodeURIComponent(targetPhone)}`;
-      toast.info('Opening GSV Desktop App...');
+      toast('Opening GSV Desktop App...', { icon: 'ℹ️' });
       return;
     }
 
@@ -1900,7 +1900,7 @@ export default function RemoteDesktopPage() {
 
     if (!isDesktopApp) {
       window.location.href = `gsvoffice://remote?action=accept&callerId=${incomingRequestData.callerId}`;
-      toast.info('Opening GSV Desktop App to share screen...');
+      toast('Opening GSV Desktop App to share screen...', { icon: 'ℹ️' });
       rejectRequest('redirected_to_app');
       return;
     }
@@ -2026,7 +2026,7 @@ export default function RemoteDesktopPage() {
 
     if (!isDesktopApp) {
       window.location.href = 'gsvoffice://remote?action=host';
-      toast.info('Opening GSV Desktop App to share screen...');
+      toast('Opening GSV Desktop App to share screen...', { icon: 'ℹ️' });
       return;
     }
 
