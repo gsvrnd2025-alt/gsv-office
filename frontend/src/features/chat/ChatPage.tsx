@@ -626,8 +626,8 @@ export default function ChatPage() {
           return chatApi.sendMessage(conversationId!, {
             content: payload.content,
             type: 'folder',
-            folderId,
-            fileName,
+            folderId: folderId,
+            fileName: fileName,
           }).then(r => r.data?.data || r.data);
         } else {
           // Multiple standard file uploads loop (up to 30 files)
@@ -3364,9 +3364,30 @@ export default function ChatPage() {
             );
           })()}
 
-          {(msgContextMenu.msg.file_url || msgContextMenu.msg.fileUrl) && (
-            <div className="dropdown-item" onClick={() => {
-              handleSaveToPC(msgContextMenu.msg.file_name || msgContextMenu.msg.fileName || 'file', '', msgContextMenu.msg.file_url || msgContextMenu.msg.fileUrl);
+          {(msgContextMenu.msg.file_url || msgContextMenu.msg.fileUrl || msgContextMenu.msg.type === 'folder') && (
+            <div className="dropdown-item" onClick={async () => {
+              if (msgContextMenu.msg.type === 'folder') {
+                const fid = msgContextMenu.msg.folder_id || msgContextMenu.msg.folderId || msgContextMenu.msg.file_id || msgContextMenu.msg.fileId;
+                if (fid) {
+                  const toastId = toast.loading(`Preparing folder archive for download...`);
+                  try {
+                    const response = await filesApi.downloadFolder(fid);
+                    const url = window.URL.createObjectURL(new Blob([response.data]));
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.setAttribute('download', `${msgContextMenu.msg.file_name || msgContextMenu.msg.fileName || 'Archive'}.zip`);
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    window.URL.revokeObjectURL(url);
+                    toast.success(`Downloaded successfully!`, { id: toastId });
+                  } catch (err: any) {
+                    toast.error(`Failed to download folder: ${err.message || 'Server error'}`, { id: toastId });
+                  }
+                }
+              } else {
+                handleSaveToPC(msgContextMenu.msg.file_name || msgContextMenu.msg.fileName || 'file', '', msgContextMenu.msg.file_url || msgContextMenu.msg.fileUrl);
+              }
               setMsgContextMenu(null);
             }} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', padding: '8px 12px', cursor: 'pointer', fontWeight: 600 }}>
               <Download size={15} /> Copy to PC (Download)
@@ -3396,12 +3417,29 @@ export default function ChatPage() {
             <Pin size={15} /> Bookmark File
           </div>
 
-          {(msgContextMenu.msg.file_id || msgContextMenu.msg.fileId) && (
+          {(msgContextMenu.msg.file_id || msgContextMenu.msg.fileId || msgContextMenu.msg.type === 'folder') && (
             <div className="dropdown-item" onClick={() => {
-              handleSaveToCloud(msgContextMenu.msg.file_id || msgContextMenu.msg.fileId);
+              const fid = msgContextMenu.msg.type === 'folder' 
+                ? (msgContextMenu.msg.folder_id || msgContextMenu.msg.folderId || msgContextMenu.msg.file_id || msgContextMenu.msg.fileId)
+                : (msgContextMenu.msg.file_id || msgContextMenu.msg.fileId);
+              if (fid) {
+                handleSaveToCloud(fid);
+              }
               setMsgContextMenu(null);
             }} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', padding: '8px 12px', cursor: 'pointer', fontWeight: 600 }}>
               <Sparkles size={15} /> Save to Cloud
+            </div>
+          )}
+
+          {msgContextMenu.msg.type === 'folder' && (
+            <div className="dropdown-item" onClick={() => {
+              const fid = msgContextMenu.msg.folder_id || msgContextMenu.msg.folderId || msgContextMenu.msg.file_id || msgContextMenu.msg.fileId;
+              if (fid) {
+                navigate(`/files?folderId=${fid}`);
+              }
+              setMsgContextMenu(null);
+            }} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', padding: '8px 12px', cursor: 'pointer', fontWeight: 600 }}>
+              <Folder size={15} /> Open in Cloud Files
             </div>
           )}
 

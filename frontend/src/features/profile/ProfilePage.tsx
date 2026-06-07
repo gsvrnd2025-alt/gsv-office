@@ -6,6 +6,8 @@ import { authApi, usersApi } from '../../api';
 import { useThemeStore } from '../../store/theme.store';
 import { SoundManager } from '../../utils/sound';
 import toast from 'react-hot-toast';
+import { Capacitor } from '@capacitor/core';
+import { Download } from 'lucide-react';
 
 export default function ProfilePage() {
   const { user, updateUser, logout } = useAuthStore();
@@ -222,6 +224,23 @@ export default function ProfilePage() {
               <label style={{ cursor: 'pointer' }}>
                 <input type="checkbox" defaultChecked /> <span style={{ fontSize: '13px', marginLeft: '4px' }}>Enabled</span>
               </label>
+            </div>
+
+            {/* Manual Update Trigger */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', background: 'var(--bg-secondary)', borderRadius: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <Download size={20} style={{ color: 'var(--brand-primary)' }} />
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 600 }}>App Update</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>Current Version: {typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'}</div>
+                </div>
+              </div>
+              <button className="btn btn-primary btn-sm" onClick={() => {
+                const targetUrl = Capacitor.isNativePlatform() ? '/downloads/GSVOffice-Android.apk' : '/downloads/GSVOffice-Setup.exe';
+                const fullUrl = targetUrl.startsWith('http') ? targetUrl : `${window.location.origin}${targetUrl}`;
+                window.open(fullUrl, '_system');
+                toast.success('Download started...');
+              }}>Update App</button>
             </div>
           </div>
         )}
