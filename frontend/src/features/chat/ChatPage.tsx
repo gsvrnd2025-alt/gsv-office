@@ -29,7 +29,8 @@ import {
   Download, Folder, Volume2, ChevronRight, ChevronLeft, X, Users2,
   Pin, ArrowRight, Mic, Sparkles, Copy, Trash2, Menu, CheckSquare, Info, StickyNote
 } from 'lucide-react';
-import { chatApi, usersApi, filesApi } from '../../api';
+import { filesApi, chatApi, usersApi, aiApi } from '../../api';
+import Editor from '@monaco-editor/react';
 import { useAuthStore } from '../../store/auth.store';
 import { SoundManager } from '../../utils/sound';
 import { copyTextToClipboard } from '../../utils/clipboard';
@@ -347,6 +348,7 @@ export default function ChatPage() {
   const [previewTextContent, setPreviewTextContent] = useState<string>('');
   const [loadingTextContent, setLoadingTextContent] = useState<boolean>(false);
   const [showNoteEditor, setShowNoteEditor] = useState(false);
+  const [showExtDropdown, setShowExtDropdown] = useState(false);
   const [noteFileName, setNoteFileName] = useState('note.txt');
   const [noteContent, setNoteContent] = useState('');
   const [showScratchpad, setShowScratchpad] = useState(false);
@@ -592,6 +594,7 @@ export default function ChatPage() {
           let folderId = undefined;
           let fileName = undefined;
           
+          let toastId: string | undefined;
           try {
             staged.files.forEach((file: File) => {
               fd.append('files', file);
@@ -600,10 +603,15 @@ export default function ChatPage() {
             fd.append('relativePaths', JSON.stringify(relativePaths));
             const folderName = staged.name.split('/')[0] || 'Uploaded_Folder';
             fd.append('folderName', folderName);
+            
+            toastId = toast.loading(`Uploading Folder: 0%`);
             const uploadRes = await filesApi.uploadFolder(fd, (progressEvent: any) => {
               const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
               setUploadProgressPercent(percent);
+              if (toastId) toast.loading(`Uploading Folder: ${percent}%`, { id: toastId });
             });
+            if (toastId) toast.success('Folder uploaded successfully!', { id: toastId });
+            
             const fileData = uploadRes.data?.data || uploadRes.data;
             if (fileData) {
               folderId = fileData.id;
@@ -611,7 +619,8 @@ export default function ChatPage() {
             }
           } catch (err) {
             console.error('Folder upload failed in chat propagation:', err);
-            toast.error('Folder upload failed.');
+            if (toastId) toast.error('Folder upload failed.', { id: toastId });
+            else toast.error('Folder upload failed.');
           }
 
           return chatApi.sendMessage(conversationId!, {
@@ -1491,14 +1500,39 @@ export default function ChatPage() {
             
             <div>
               <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px', display: 'block' }}>File Name (with extension)</label>
-              <input 
-                type="text" 
-                className="form-control" 
-                value={noteFileName}
-                onChange={e => setNoteFileName(e.target.value)}
-                placeholder="e.g. script.py, config.json, notes.txt"
-                style={{ width: '100%', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
-              />
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <input 
+                  type="text" 
+                  className="form-control" 
+                  value={noteFileName}
+                  onChange={e => setNoteFileName(e.target.value)}
+                  placeholder="e.g. script.py, config.json, notes.txt"
+                  style={{ flex: 1, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                />
+                <div style={{ position: 'relative' }}>
+                  <button className="btn btn-ghost btn-icon" onClick={() => setShowExtDropdown(!showExtDropdown)}>
+                    <MoreVertical size={18} />
+                  </button>
+                  {showExtDropdown && (
+                    <div style={{ position: 'absolute', right: 0, top: '100%', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '4px', zIndex: 10, display: 'flex', flexDirection: 'column', gap: '2px', width: '80px', boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}>
+                      {['.txt', '.py', '.json', '.js', '.ts', '.md', '.html', '.css', '.yaml'].map(ext => (
+                        <div 
+                          key={ext}
+                          onClick={() => {
+                            const name = noteFileName.includes('.') ? noteFileName.substring(0, noteFileName.lastIndexOf('.')) : noteFileName || 'note';
+                            setNoteFileName(name + ext);
+                            setShowExtDropdown(false);
+                          }}
+                          style={{ padding: '6px 12px', fontSize: '12px', cursor: 'pointer', borderRadius: '4px', color: 'var(--text-primary)' }}
+                          className="hover-glass"
+                        >
+                          {ext}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
             
             <div style={{ flex: 1, minHeight: '250px', display: 'flex', flexDirection: 'column' }}>
@@ -1523,8 +1557,11 @@ export default function ChatPage() {
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
-              <button className="btn btn-ghost" onClick={() => setShowNoteEditor(false)}>Cancel</button>
-              <button className="btn btn-primary" disabled={!noteContent.trim() || !noteFileName.trim()} onClick={() => {
+              <button className="btn btn-ghost" onClick={() => {
+                setShowNoteEditor(false);
+                setShowExtDropdown(false);
+              }}>Cancel</button>
+              <button className="btn btn-primary" disabled={!noteContent.trim() || !noteFileName.trim() || sendMutation.isPending} onClick={() => {
                 const blob = new Blob([noteContent], { type: 'text/plain' });
                 const file = new window.File([blob], noteFileName, { type: 'text/plain' });
                 
@@ -1541,14 +1578,15 @@ export default function ChatPage() {
                   type: type
                 };
 
-                setStagedFiles(prev => [...prev, newStagedFile]);
-                toast.success(`Note "${noteFileName}" staged successfully! 📝`);
+                sendMutation.mutate({ content: '', type: type, files: [newStagedFile] });
+                toast.success(`Note "${noteFileName}" sent successfully! 🚀`);
                 
                 setShowNoteEditor(false);
+                setShowExtDropdown(false);
                 setNoteContent('');
                 setNoteFileName('note.txt');
               }}>
-                Save & Stage
+                <Send size={16} style={{ marginRight: '6px' }} /> Send Note
               </button>
             </div>
           </div>
@@ -1640,15 +1678,26 @@ export default function ChatPage() {
                 );
               } else if (isText) {
                 return (
-                  <div style={{ width: '90%', height: '85%', background: '#1e1e1e', borderRadius: '8px', padding: '20px', overflow: 'auto', border: '1px solid #333', textAlign: 'left' }} onClick={(e) => e.stopPropagation()}>
+                  <div style={{ width: '90%', height: '85%', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }} onClick={(e) => e.stopPropagation()}>
                     {loadingTextContent ? (
-                      <div style={{ color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                      <div style={{ color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', background: '#1e1e1e' }}>
                         Loading file content...
                       </div>
                     ) : (
-                      <pre style={{ margin: 0, color: '#d4d4d4', fontFamily: 'monospace', fontSize: '13px', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                        {previewTextContent}
-                      </pre>
+                      <Editor
+                        height="100%"
+                        width="100%"
+                        language={(previewFile.name.split('.').pop() || 'text').toLowerCase()}
+                        theme="vs-dark"
+                        value={previewTextContent}
+                        options={{
+                          readOnly: true,
+                          minimap: { enabled: true },
+                          scrollBeyondLastLine: false,
+                          fontSize: 14,
+                          wordWrap: 'on'
+                        }}
+                      />
                     )}
                   </div>
                 );

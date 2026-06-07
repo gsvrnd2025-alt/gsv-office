@@ -13,5 +13,7 @@ contextBridge.exposeInMainWorld('gsvDesktop', {
   showAndFocus: () => ipcRenderer.invoke('show-and-focus'),
   getDeviceId: () => ipcRenderer.invoke('get-device-id'),
   showIncomingCallPopup: (data) => ipcRenderer.invoke('show-incoming-call-popup', data),
-  closeIncomingCallPopup: () => ipcRenderer.invoke('close-incoming-call-popup')
+  closeIncomingCallPopup: () => ipcRenderer.invoke('close-incoming-call-popup'),
+  copyFolderToClipboard: (payload) => ipcRenderer.invoke('copy-folder-to-clipboard', payload),
+  downloadAndInstallUpdate: (payload) => ipcRenderer.invoke('download-and-install-update', payload)
 });

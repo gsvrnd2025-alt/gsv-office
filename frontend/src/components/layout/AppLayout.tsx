@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Sidebar } from '../ui/Sidebar';
 import { Topbar } from '../ui/Topbar';
 import { useThemeStore } from '../../store/theme.store';
-import { chatApi, usersApi } from '../../api';
+import { chatApi, usersApi, authApi } from '../../api';
 import { SoundManager } from '../../utils/sound';
 import FloatingStickyNotes from './FloatingStickyNotes';
 import styles from './AppLayout.module.css';
@@ -61,6 +61,13 @@ export function AppLayout() {
   useEffect(() => { activeCallRef.current = activeCall; }, [activeCall]);
   useEffect(() => { incomingCallRef.current = incomingCall; }, [incomingCall]);
 
+  // Fix Remote Desktop navigation hang
+  useEffect(() => {
+    if (location.pathname !== '/remote-desktop') {
+      setIsRemoteDesktopExpanded(false);
+    }
+  }, [location.pathname]);
+
   // Fetch users directory for caller lookup
   const { data: usersData } = useQuery({
     queryKey: ['users-directory'],
@@ -70,8 +77,13 @@ export function AppLayout() {
   });
   const users = usersData?.data ? usersData.data : (Array.isArray(usersData) ? usersData : []);
 
+  const usersRef = useRef<any[]>([]);
+  useEffect(() => {
+    usersRef.current = users;
+  }, [users]);
+
   const findUserName = (userId: string): string => {
-    const found = users.find((u: any) => u.id === userId);
+    const found = usersRef.current.find((u: any) => u.id === userId);
     return found ? found.fullName : 'Teammate';
   };
 
@@ -88,10 +100,19 @@ export function AppLayout() {
       qc.invalidateQueries({ queryKey: ['conversations'] });
     });
 
+    let lastRefreshAttempt = 0;
     socket.on('connect_error', async (err) => {
-      console.warn('Presence socket connection error, attempting token refresh:', err.message);
+      console.warn('Presence socket connection error:', err.message);
+      
+      const now = Date.now();
+      if (now - lastRefreshAttempt < 30000) {
+        console.log('Presence socket token refresh throttled.');
+        return;
+      }
+      lastRefreshAttempt = now;
+
       try {
-        await chatApi.getConversations();
+        await authApi.me();
         const freshToken = useAuthStore.getState().accessToken;
         if (freshToken && freshToken !== (socket.auth as any).token) {
           (socket.auth as any).token = freshToken;
@@ -220,11 +241,21 @@ export function AppLayout() {
       hangUpCall();
     });
 
+    socket.on('call:dismissed_elsewhere', () => {
+      if (ringIntervalRef.current) clearInterval(ringIntervalRef.current);
+      setIncomingCall(null);
+      
+      // Also close popup if open
+      if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.closeIncomingCallPopup === 'function') {
+        (window as any).gsvDesktop.closeIncomingCallPopup();
+      }
+    });
+
     return () => {
       window.removeEventListener('gsv-call-action', handlePopupAction);
       socket.disconnect();
     };
-  }, [accessToken, users]);
+  }, [accessToken]);
 
   // Call history helpers
   const addCallLog = (status: 'incoming' | 'outgoing' | 'missed' | 'rejected', name: string, duration: string) => {
@@ -472,11 +503,12 @@ export function AppLayout() {
   const pathParts = location.pathname.split('/');
   const activeConversationId = (isChatPage && pathParts[2]) ? pathParts[2] : null;
 
-  // Background polling for unread chat sum across all conversations (polls every 5s)
+  // Background polling for unread chat sum across all conversations (polls every 30s)
+  // Real-time updates are handled by WebSocket presence events; polling is just a fallback
   const { data: conversations = [] } = useQuery({
     queryKey: ['global-conversations-unread'],
     queryFn: () => chatApi.getConversations().then(r => r.data?.data || r.data || []),
-    refetchInterval: 5000,
+    refetchInterval: 30000,
   });
 
   const prevUnreadCountSumRef = useRef(0);

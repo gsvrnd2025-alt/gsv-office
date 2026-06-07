@@ -21,22 +21,46 @@ const path = require('path');
 const PROJECT_ROOT = 'C:\\Users\\GSVPC_F2\\Documents\\A gsv office plugin';
 const CATALOG_DIR = path.join(PROJECT_ROOT, 'gsv-office-catalog');
 
+function promptSync(message) {
+  process.stdout.write(message);
+  const buffer = Buffer.alloc(1024);
+  let bytesRead = 0;
+  try {
+    bytesRead = fs.readSync(0, buffer, 0, 1024, null);
+  } catch (err) {
+    return '';
+  }
+  return buffer.toString('utf8', 0, bytesRead).trim();
+}
+
 function run(cmd, opts = {}) {
   console.log(`\n▶ ${cmd}`);
-  try {
-    const result = execSync(cmd, {
-      cwd: opts.cwd || PROJECT_ROOT,
-      stdio: 'inherit',
-      shell: true,
-      ...opts
-    });
-    return result;
-  } catch (e) {
-    if (opts.ignoreError) {
-      console.log(`  ⚠️  Ignored error: ${e.message}`);
-      return null;
+  while (true) {
+    try {
+      const result = execSync(cmd, {
+        cwd: opts.cwd || PROJECT_ROOT,
+        stdio: 'inherit',
+        shell: true,
+        ...opts
+      });
+      return result;
+    } catch (e) {
+      if (opts.ignoreError) {
+        console.log(`  ⚠️  Ignored error: ${e.message}`);
+        return null;
+      }
+      console.error(`\n❌ Error executing command: ${cmd}`);
+      console.error(`Error details: ${e.message}`);
+      
+      const answer = promptSync('\n⚠️  An error occurred during deployment. Do you want to retry this step? (yes/no): ');
+      if (answer.toLowerCase() === 'yes' || answer.toLowerCase() === 'y') {
+        console.log('🔄 Retrying command...');
+        continue;
+      } else {
+        console.log('🛑 Aborting deployment.');
+        process.exit(1);
+      }
     }
-    throw e;
   }
 }
 

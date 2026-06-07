@@ -129,6 +129,7 @@ export const filesApi = {
   renameFolder: (id: string, name: string) => api.post(`/files/folders/${id}/rename`, { name }),
   moveOrCopy: (data: { itemType: 'file' | 'folder'; itemId: string; targetFolderId: string | null; action: 'move' | 'copy' }) => api.post('/files/move-or-copy', data),
   shareToUser: (data: { itemType: 'file' | 'folder'; itemId: string; targetUserId: string; action: 'move' | 'copy' }) => api.post('/files/share-to-user', data),
+  downloadFolder: (id: string) => api.get(`/files/folders/${id}/download`, { responseType: 'blob' }),
 };
 
 export const ticketsApi = {

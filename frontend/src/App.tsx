@@ -98,6 +98,8 @@ function GuestRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+import { UpdateChecker } from './components/ui/UpdateChecker';
+
 export default function App() {
   const { isAuthenticated, setUser, logout } = useAuthStore();
 
@@ -181,6 +183,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <UpdateChecker />
       <Suspense fallback={<LoadingScreen />}>
         <Routes>
           {/* Auth routes */}

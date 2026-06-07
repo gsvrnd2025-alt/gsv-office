@@ -1546,8 +1546,17 @@ export default function RemoteDesktopPage() {
         addGlobalLog('Secure signaling socket tunnel online.', setTerminalLogs);
       });
 
+      let lastRefreshAttempt = 0;
       s.on('connect_error', async (err) => {
-        addGlobalLog(`Socket connection error: ${err.message}. Attempting to refresh token...`, setTerminalLogs);
+        addGlobalLog(`Socket connection error: ${err.message}.`, setTerminalLogs);
+        
+        const now = Date.now();
+        if (now - lastRefreshAttempt < 30000) {
+          addGlobalLog('Token refresh throttled for WebRTC socket.', setTerminalLogs);
+          return;
+        }
+        lastRefreshAttempt = now;
+
         try {
           await usersApi.getDirectory();
           const freshToken = useAuthStore.getState().accessToken;

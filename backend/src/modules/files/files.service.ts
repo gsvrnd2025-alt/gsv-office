@@ -314,8 +314,9 @@ export class FilesService implements OnModuleInit {
     };
 
     const savedFiles = [];
+    const filesToInsert = [];
     
-    // 2. Save each file under the correct folder
+    // 2. Resolve folders and prepare file data
     for (let i = 0; i < dto.files.length; i++) {
       const file = dto.files[i];
       const relPath = pathsArr[i] || file.originalname || '';
@@ -323,20 +324,47 @@ export class FilesService implements OnModuleInit {
       try {
         const fileFolderId = await getOrCreateFolderForPath(relPath);
         const fileName = path.basename(relPath) || file.originalname;
+        const ext = path.extname(fileName).replace('.', '');
 
-        const saved = await this.saveFile({
+        filesToInsert.push({
           name: file.filename,
           originalName: fileName,
           mimeType: file.mimetype,
           size: file.size,
+          extension: ext,
           storagePath: file.path,
           storageUrl: `/uploads/${file.filename}`,
           ownerId: dto.ownerId,
-          folderId: fileFolderId
+          folderId: fileFolderId,
+          conversationId: null
         });
-        savedFiles.push(saved);
       } catch (err) {
-        console.error(`Failed to save folder file ${relPath}:`, err);
+        console.error(`Failed to prepare folder file ${relPath}:`, err);
+      }
+    }
+
+    // 3. Batch insert in chunks of 50
+    const CHUNK_SIZE = 50;
+    for (let i = 0; i < filesToInsert.length; i += CHUNK_SIZE) {
+      const chunk = filesToInsert.slice(i, i + CHUNK_SIZE);
+      const values = [];
+      const queryParams = [];
+      let paramIndex = 1;
+
+      for (const f of chunk) {
+        values.push(`($${paramIndex}, $${paramIndex+1}, $${paramIndex+2}, $${paramIndex+3}, $${paramIndex+4}, $${paramIndex+5}, $${paramIndex+6}, $${paramIndex+7}, $${paramIndex+8}, $${paramIndex+9})`);
+        queryParams.push(f.name, f.originalName, f.mimeType, f.size, f.extension, f.storagePath, f.storageUrl, f.ownerId, f.folderId, f.conversationId);
+        paramIndex += 10;
+      }
+
+      if (values.length > 0) {
+        const query = `INSERT INTO files (name, original_name, mime_type, size, extension, storage_path, storage_url, owner_id, folder_id, conversation_id) VALUES ${values.join(', ')} RETURNING *`;
+        try {
+          const inserted = await this.dataSource.query(query, queryParams);
+          savedFiles.push(...inserted);
+        } catch (err) {
+          console.error('Batch insert failed:', err);
+        }
       }
     }
 
@@ -571,5 +599,76 @@ export class FilesService implements OnModuleInit {
       [status, requestId]
     );
     return { success: true };
+  }
+
+  async downloadFolderArchive(folderId: string, userId: string) {
+    const [folder] = await this.dataSource.query(`
+      SELECT f.name, f.owner_id FROM folders f
+      LEFT JOIN folder_access_requests far ON far.folder_id = f.id AND far.requester_id = $2 AND far.status = 'approved'
+      WHERE f.id = $1 AND f.deleted_at IS NULL
+      AND (f.owner_id = $2 OR far.id IS NOT NULL OR EXISTS (
+        SELECT 1 FROM users WHERE id = $2 AND role_id IN (SELECT id FROM roles WHERE name IN ('Super Admin', 'Admin'))
+      ))
+      LIMIT 1
+    `, [folderId, userId]);
+
+    if (!folder) {
+      throw new Error('Folder not found or access denied');
+    }
+
+    const archiver = require('archiver');
+    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    // Fetch all nested folders using recursive CTE
+    const subfolders = await this.dataSource.query(`
+      WITH RECURSIVE subfolders AS (
+        SELECT id, name, parent_id, name::text AS relative_path
+        FROM folders
+        WHERE id = $1 AND deleted_at IS NULL
+        
+        UNION ALL
+        
+        SELECT f.id, f.name, f.parent_id, (sf.relative_path || '/' || f.name) AS relative_path
+        FROM folders f
+        INNER JOIN subfolders sf ON f.parent_id = sf.id
+        WHERE f.deleted_at IS NULL
+      )
+      SELECT sf.id, sf.name, sf.relative_path
+      FROM subfolders sf
+    `, [folderId]);
+
+    const folderIds = subfolders.map((f: any) => f.id);
+    if (folderIds.length === 0) {
+      archive.finalize();
+      return { stream: archive, filename: folder.name };
+    }
+
+    // Map folder ID to its relative zip path
+    const folderMap = new Map<string, string>();
+    for (const sf of subfolders) {
+      folderMap.set(sf.id, sf.relative_path);
+    }
+
+    // Query all files belonging to these folders
+    const files = await this.dataSource.query(`
+      SELECT id, name, original_name, storage_path, folder_id
+      FROM files
+      WHERE folder_id = ANY($1) AND deleted_at IS NULL
+    `, [folderIds]);
+
+    // Add each file to the archive
+    for (const file of files) {
+      const parentPath = folderMap.get(file.folder_id) || '';
+      const zipFilePath = parentPath ? `${parentPath}/${file.original_name}` : file.original_name;
+      
+      if (fs.existsSync(file.storage_path)) {
+        archive.file(file.storage_path, { name: zipFilePath });
+      }
+    }
+
+    // Trigger finalize asynchronously
+    archive.finalize();
+
+    return { stream: archive, filename: folder.name };
   }
 }

@@ -16,6 +16,9 @@ export default defineConfig({
       '@types': path.resolve(__dirname, './src/types'),
     },
   },
+  define: {
+    __APP_VERSION__: JSON.stringify(process.env.npm_package_version || '1.0.0'),
+  },
   server: {
     port: 5173,
     proxy: {

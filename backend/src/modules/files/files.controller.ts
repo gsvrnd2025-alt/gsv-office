@@ -155,4 +155,21 @@ export class FilesController {
   async reviewAccessRequest(@Body() dto: any) {
     return this.svc.reviewAccessRequest(dto);
   }
+
+  @Get('folders/:id/download')
+  @RequirePermissions(['files', 'read'])
+  async downloadFolder(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('id') userId: string,
+    @Res() res: Response
+  ) {
+    try {
+      const { stream, filename } = await this.svc.downloadFolderArchive(id, userId);
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}.zip"`);
+      res.setHeader('Content-Type', 'application/zip');
+      stream.pipe(res);
+    } catch (err) {
+      res.status(500).json({ message: err.message || 'Failed to download folder archive' });
+    }
+  }
 }

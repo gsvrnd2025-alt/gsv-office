@@ -8,6 +8,7 @@ import {
   Folder, Lock, Unlock, Check, X, ShieldAlert, Key, Users, Copy, RefreshCw,
   Scissors, Clipboard, CheckSquare, Info
 } from 'lucide-react';
+import Editor from '@monaco-editor/react';
 import { filesApi, usersApi } from '../../api';
 import { useAuthStore } from '../../store/auth.store';
 import toast from 'react-hot-toast';
@@ -283,14 +284,18 @@ export default function FilesPage() {
     fd.append('folderName', folderName);
     if (folderId) fd.append('folderId', folderId);
 
+    let toastId: string | undefined;
     try {
+      toastId = toast.loading(`Uploading "${folderName}": 0%`);
       await filesApi.uploadFolder(fd, (progressEvent: any) => {
         const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
         setUploadProgressPercent(percent);
+        if (toastId) toast.loading(`Uploading "${folderName}": ${percent}%`, { id: toastId });
       });
-      toast.success(`Folder "${folderName}" uploaded successfully!`);
+      if (toastId) toast.success(`Folder "${folderName}" uploaded successfully!`, { id: toastId });
     } catch (err) {
-      toast.error('Folder upload failed.');
+      if (toastId) toast.error('Folder upload failed.', { id: toastId });
+      else toast.error('Folder upload failed.');
     }
     setUploading(false);
     setUploadProgressPercent(null);
@@ -371,6 +376,24 @@ export default function FilesPage() {
 
   const handleDuplicate = (name: string) => {
     toast.success(`👯 Duplicated folder hierarchy for: ${name}`);
+  };
+
+  const handleDownloadFolder = async (id: string, name: string) => {
+    const toastId = toast.loading(`Preparing folder "${name}" download...`);
+    try {
+      const response = await filesApi.downloadFolder(id);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${name}.zip`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success(`Downloaded "${name}" successfully!`, { id: toastId });
+    } catch (err: any) {
+      toast.error(`Failed to download folder: ${err.message || 'Server error'}`, { id: toastId });
+    }
   };
 
   const handleTransfer = (folderName: string, targetUser: string) => {
@@ -661,15 +684,26 @@ export default function FilesPage() {
             ) : previewFile.mimeType?.startsWith('audio/') ? (
               <audio controls src={previewFile.storageUrl} style={{ width: '80%' }} />
             ) : ['json', 'js', 'jsx', 'ts', 'tsx', 'py', 'java', 'html', 'css', 'txt', 'md', 'xml', 'yaml', 'yml', 'sh', 'bat', 'ini', 'log'].includes((previewFile.extension || previewFile.originalName?.split('.').pop() || '').toLowerCase()) || previewFile.mimeType?.startsWith('text/') || previewFile.mimeType === 'application/json' ? (
-              <div style={{ width: '100%', height: '100%', background: '#1e1e1e', borderRadius: '8px', padding: '20px', overflow: 'auto', border: '1px solid #333' }}>
+              <div style={{ width: '100%', height: '100%', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
                 {loadingTextContent ? (
-                  <div style={{ color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                  <div style={{ color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', background: '#1e1e1e' }}>
                     <div className="spinner" style={{ marginRight: '8px' }} /> Loading file content...
                   </div>
                 ) : (
-                  <pre style={{ margin: 0, color: '#d4d4d4', textAlign: 'left', fontFamily: 'monospace', fontSize: '13px', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                    {previewTextContent}
-                  </pre>
+                  <Editor
+                    height="100%"
+                    width="100%"
+                    language={(previewFile.extension || previewFile.originalName?.split('.').pop() || 'text').toLowerCase()}
+                    theme="vs-dark"
+                    value={previewTextContent}
+                    options={{
+                      readOnly: true,
+                      minimap: { enabled: true },
+                      scrollBeyondLastLine: false,
+                      fontSize: 14,
+                      wordWrap: 'on'
+                    }}
+                  />
                 )}
               </div>
             ) : (
@@ -769,6 +803,36 @@ export default function FilesPage() {
               <div className="dropdown-item" onClick={() => { handleOpenPreview(contextMenu.item); setContextMenu(null); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><ChevronRight size={13} /> Preview</div>
               <div className="dropdown-item" onClick={() => { window.open(contextMenu.item.storageUrl, '_blank'); setContextMenu(null); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}>🔗 Open in New Tab</div>
               <a href={contextMenu.item.storageUrl} download={contextMenu.item.originalName} className="dropdown-item" onClick={() => setContextMenu(null)} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer', color: 'inherit', textDecoration: 'none' }}><Download size={13} /> Copy to PC (Download)</a>
+            </>
+          )}
+
+          {contextMenu.itemType === 'folder' && (
+            <>
+              <div className="dropdown-item" onClick={() => { handleDownloadFolder(contextMenu.item.id, contextMenu.item.name); setContextMenu(null); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Download size={13} /> Copy to PC (Zip Download)</div>
+              {(window as any).gsvDesktop && (
+                <div className="dropdown-item" onClick={async () => { 
+                  const toastId = toast.loading('Copying folder to PC... 📁');
+                  try {
+                    const token = useAuthStore.getState().accessToken;
+                    const res = await (window as any).gsvDesktop.copyFolderToClipboard({
+                      folderId: contextMenu.item.id,
+                      folderName: contextMenu.item.name || contextMenu.item.originalName || 'Folder',
+                      serverUrl: window.location.origin,
+                      token: token
+                    });
+                    if (res?.success) {
+                      toast.success(`Folder copied to PC successfully! Saved at: ${res.path}`, { id: toastId });
+                    } else {
+                      toast.error(`Copy failed: ${res?.error || 'Unknown error'}`, { id: toastId });
+                    }
+                  } catch (err: any) {
+                    toast.error(`Copy error: ${err.message}`, { id: toastId });
+                  }
+                  setContextMenu(null); 
+                }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}>
+                  <Folder size={13} /> Copy Folder to PC (Direct)
+                </div>
+              )}
             </>
           )}
 

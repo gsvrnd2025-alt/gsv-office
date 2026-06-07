@@ -73,12 +73,15 @@ export class WebrtcGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('call:join')
-  handleCallJoin(@ConnectedSocket() client: Socket, @MessageBody() data: { roomId: string }) {
+  handleCallJoin(@ConnectedSocket() client: Socket, @MessageBody() data: { roomId: string; callerId?: string }) {
     const room = this.rooms.get(data.roomId);
     if (room) {
       room.add(client.id);
       client.join(data.roomId);
       client.to(data.roomId).emit('call:participant-joined', { socketId: client.id });
+      
+      // Notify other active sockets of this user that the call was answered elsewhere
+      client.broadcast.to(`user:${client.data.userId}`).emit('call:dismissed_elsewhere', { roomId: data.roomId });
     }
   }
 
@@ -86,6 +89,9 @@ export class WebrtcGateway implements OnGatewayConnection, OnGatewayDisconnect {
   handleCallLeave(@ConnectedSocket() client: Socket, @MessageBody() data: { roomId: string }) {
     client.leave(data.roomId);
     client.to(data.roomId).emit('call:participant-left', { socketId: client.id });
+    
+    // If the call was rejected without joining, also notify other devices
+    client.broadcast.to(`user:${client.data.userId}`).emit('call:dismissed_elsewhere', { roomId: data.roomId });
     
     const room = this.rooms.get(data.roomId);
     if (room) {

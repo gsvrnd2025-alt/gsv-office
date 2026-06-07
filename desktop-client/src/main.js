@@ -224,7 +224,7 @@ function updateTrayMenu() {
     {
       label: '🖥️  Open GSV Office',
       click: () => openMainWindow(),
-      enabled: isServerOnline
+      enabled: true
     },
     {
       label: '🌐 Open in Browser',
@@ -268,7 +268,8 @@ function createMainWindow(showWindow = true) {
       contextIsolation: true,
       webSecurity: true,
       allowRunningInsecureContent: false,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.js'),
+      backgroundThrottling: false
     },
     show: false,
     backgroundColor: '#0f172a',
@@ -376,29 +377,8 @@ function createMainWindow(showWindow = true) {
 
 // ─── Open or focus main window ────────────────────────────────────────────────
 function openMainWindow() {
-  if (!isServerOnline) {
-    dialog.showMessageBox({
-      type: 'warning',
-      title: 'GSV Office',
-      message: 'Server is offline',
-      detail: `Cannot connect to:\n${config.serverUrl}\n\nPlease check your network or configure the server IP in Settings.`,
-      buttons: ['Configure Settings', 'Open Anyway', 'Cancel']
-    }).then(({ response }) => {
-      if (response === 0) {
-        openSettingsWindow();
-      } else if (response === 1) {
-        if (mainWindow) {
-          mainWindow.show();
-          mainWindow.focus();
-        } else {
-          createMainWindow(true);
-        }
-      }
-    });
-    return;
-  }
-
   if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show();
     mainWindow.focus();
   } else {
@@ -719,6 +699,88 @@ ipcMain.handle('close-incoming-call-popup', async () => {
   return { success: true };
 });
 
+ipcMain.handle('copy-folder-to-clipboard', async (event, { folderId, folderName, serverUrl, token }) => {
+  const { exec } = require('child_process');
+  
+  try {
+    const tempDir = path.join(app.getPath('temp'), 'GSVOfficeClipboard');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    // Clear previous folder with same name
+    const destPath = path.join(tempDir, folderName);
+    if (fs.existsSync(destPath)) {
+      fs.rmSync(destPath, { recursive: true, force: true });
+    }
+    
+    // Download zip file
+    const zipPath = path.join(tempDir, `gsv_folder_${folderId}.zip`);
+    if (fs.existsSync(zipPath)) {
+      fs.unlinkSync(zipPath);
+    }
+    
+    const url = new URL(`${serverUrl}/api/files/folders/${folderId}/download`);
+    const lib = url.protocol === 'https:' ? https : http;
+    
+    const fileStream = fs.createWriteStream(zipPath);
+    
+    await new Promise((resolve, reject) => {
+      const req = lib.get({
+        hostname: url.hostname,
+        port: url.port || (url.protocol === 'https:' ? 443 : 80),
+        path: url.pathname + url.search,
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      }, (res) => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`Server returned status code ${res.statusCode}`));
+          return;
+        }
+        res.pipe(fileStream);
+        fileStream.on('finish', () => {
+          fileStream.close();
+          resolve();
+        });
+      });
+      req.on('error', (err) => {
+        reject(err);
+      });
+    });
+    
+    // Extract using PowerShell
+    await new Promise((resolve, reject) => {
+      const cmd = `powershell -NoProfile -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${tempDir}' -Force"`;
+      exec(cmd, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+    
+    // Clean up zip file
+    try { fs.unlinkSync(zipPath); } catch (e) {}
+    
+    // Write to clipboard
+    const { clipboard } = require('electron');
+    clipboard.write({
+      filenames: [destPath]
+    });
+    
+    // Show notification
+    new Notification({
+      title: 'GSV Office',
+      body: `Folder "${folderName}" copied to clipboard! You can paste it anywhere on your PC.`,
+      icon: assetPath('icon.ico')
+    }).show();
+    
+    return { success: true };
+  } catch (err) {
+    console.error('Failed to copy folder to clipboard:', err);
+    return { success: false, reason: err.message };
+  }
+});
+
 ipcMain.on('call-action-response', (event, action) => {
   if (callPopupWindow) {
     callPopupWindow.close();
@@ -732,6 +794,51 @@ ipcMain.on('call-action-response', (event, action) => {
   if (action === 'accept') {
     openMainWindow();
   }
+});
+
+ipcMain.handle('download-and-install-update', async (event, { exeUrl }) => {
+  const { exec } = require('child_process');
+  
+  return new Promise((resolve) => {
+    try {
+      const isHttps = exeUrl.startsWith('https');
+      const client = isHttps ? require('https') : require('http');
+      const tempPath = path.join(app.getPath('temp'), 'GSVOffice-Update.exe');
+      
+      const file = fs.createWriteStream(tempPath);
+      client.get(exeUrl, (response) => {
+        if (response.statusCode !== 200) {
+          resolve({ success: false, error: `Failed to download: HTTP ${response.statusCode}` });
+          return;
+        }
+
+        response.pipe(file);
+
+        file.on('finish', () => {
+          file.close(() => {
+            // Execute the installer
+            exec(`"${tempPath}"`, (error) => {
+              if (error) {
+                console.error('Installer execution failed:', error);
+                // Cannot reject after resolving, but if exec fails after resolve, it's out of band.
+                // Normally exec detaches or runs the installer. We just quit.
+              }
+            });
+            resolve({ success: true });
+            setTimeout(() => {
+              app.quit();
+            }, 1000);
+          });
+        });
+      }).on('error', (err) => {
+        fs.unlink(tempPath, () => {});
+        resolve({ success: false, error: err.message });
+      });
+    } catch (err) {
+      console.error('Download update failed:', err);
+      resolve({ success: false, error: err.message });
+    }
+  });
 });
 
 // ─── Deep Link Handling Helper ────────────────────────────────────────────────
@@ -799,10 +906,29 @@ app.whenReady().then(() => {
   });
 
   // Start health check loop
+  let consecutiveFailures = 0;
   const startHealthChecks = () => {
-    checkServer(online => updateTrayStatus(online));
+    checkServer(online => {
+      if (online) {
+        consecutiveFailures = 0;
+        updateTrayStatus(true);
+      } else {
+        consecutiveFailures = 1;
+        updateTrayStatus(false);
+      }
+    });
     checkInterval = setInterval(() => {
-      checkServer(online => updateTrayStatus(online));
+      checkServer(online => {
+        if (online) {
+          consecutiveFailures = 0;
+          updateTrayStatus(true);
+        } else {
+          consecutiveFailures++;
+          if (consecutiveFailures >= 3) {
+            updateTrayStatus(false);
+          }
+        }
+      });
     }, 30000); // every 30 seconds
   };
 
