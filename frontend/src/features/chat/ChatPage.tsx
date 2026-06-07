@@ -29,7 +29,7 @@ import {
   Download, Folder, Volume2, ChevronRight, ChevronLeft, X, Users2,
   Pin, ArrowRight, Mic, Sparkles, Copy, Trash2, Menu, CheckSquare, Info, StickyNote
 } from 'lucide-react';
-import { filesApi, chatApi, usersApi, aiApi } from '../../api';
+import { filesApi, chatApi, usersApi } from '../../api';
 import Editor from '@monaco-editor/react';
 import { useAuthStore } from '../../store/auth.store';
 import { SoundManager } from '../../utils/sound';
