@@ -546,7 +546,7 @@ export default function FilesPage() {
       className="page-enter" 
       style={{ display: 'flex', flexDirection: 'column', gap: '24px', position: 'relative' }} 
       {...getRootProps({
-        onDrop: (e) => {
+        onDropCapture: (e) => {
           const items = Array.from(e.dataTransfer.items || []);
           for (const item of items) {
             if (item.kind === 'file') {
@@ -554,7 +554,7 @@ export default function FilesPage() {
               if (entry && entry.isDirectory) {
                 e.preventDefault();
                 e.stopPropagation();
-                toast.error("Folder drops are not allowed on the main files view. Please use the 'Upload Folder' button instead.");
+                toast.error("Folder drops are not supported. Please compress your folder into a .zip or .tar archive before uploading.");
                 return;
               }
             }

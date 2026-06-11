@@ -1823,7 +1823,7 @@ export default function ChatPage() {
           // It's a folder, but reading all files recursively without a library is complex.
           // For now, we will fallback to the input type="file" webkitdirectory method 
           // or just prompt the user to use the folder button.
-          toast.error("Folder drops are not fully supported yet. Please use the 'Attach Folder' button instead.");
+          toast.error("Folder drops are not supported. Please compress your folder into a .zip or .tar archive before uploading.");
           return;
         } else {
           const file = item.getAsFile();
