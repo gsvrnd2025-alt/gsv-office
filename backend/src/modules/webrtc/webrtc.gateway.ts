@@ -50,13 +50,27 @@ export class WebrtcGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   @SubscribeMessage('call:initiate')
   handleCallInitiate(@ConnectedSocket() client: Socket, @MessageBody() data: any) {
-    const roomId = uuid();
-    this.rooms.set(roomId, new Set([client.id]));
+    const roomId = data.groupId ? `group:${data.groupId}` : uuid();
+    let room = this.rooms.get(roomId);
+    if (!room) {
+      room = new Set<string>();
+      this.rooms.set(roomId, room);
+    }
+    room.add(client.id);
     client.join(roomId);
-    // Notify callee
-    this.server.to(`user:${data.calleeId}`).emit('call:incoming', {
-      roomId, callerId: client.data?.userId, type: data.type,
-    });
+
+    // Notify callee(s)
+    if (data.calleeIds && Array.isArray(data.calleeIds)) {
+      for (const calleeId of data.calleeIds) {
+        this.server.to(`user:${calleeId}`).emit('call:incoming', {
+          roomId, callerId: client.data?.userId, groupId: data.groupId, type: data.type,
+        });
+      }
+    } else if (data.calleeId) {
+      this.server.to(`user:${data.calleeId}`).emit('call:incoming', {
+        roomId, callerId: client.data?.userId, type: data.type,
+      });
+    }
     return { roomId };
   }
 
@@ -74,15 +88,17 @@ export class WebrtcGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   @SubscribeMessage('call:join')
   handleCallJoin(@ConnectedSocket() client: Socket, @MessageBody() data: { roomId: string; callerId?: string }) {
-    const room = this.rooms.get(data.roomId);
-    if (room) {
-      room.add(client.id);
-      client.join(data.roomId);
-      client.to(data.roomId).emit('call:participant-joined', { socketId: client.id });
-      
-      // Notify other active sockets of this user that the call was answered elsewhere
-      client.broadcast.to(`user:${client.data.userId}`).emit('call:dismissed_elsewhere', { roomId: data.roomId });
+    let room = this.rooms.get(data.roomId);
+    if (!room) {
+      room = new Set<string>();
+      this.rooms.set(data.roomId, room);
     }
+    room.add(client.id);
+    client.join(data.roomId);
+    client.to(data.roomId).emit('call:participant-joined', { socketId: client.id });
+    
+    // Notify other active sockets of this user that the call was answered elsewhere
+    client.broadcast.to(`user:${client.data.userId}`).emit('call:dismissed_elsewhere', { roomId: data.roomId });
   }
 
   @SubscribeMessage('call:leave')

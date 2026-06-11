@@ -223,6 +223,7 @@ export default function ChatPage() {
     sidebarCollapsed, 
     setSidebarCollapsed,
     initiateCall,
+    initiateGroupCall,
     chatSocket,
     callHistory = [],
     setCallHistory,
@@ -1869,17 +1870,26 @@ export default function ChatPage() {
   };
 
   const handleCallHandshake = (type: 'audio' | 'video') => {
-    if (activeConv && activeConv.type === 'private') {
-      const partnerName = activeConv.name?.replace('DM with ', '');
-      const partnerUser = otherUsers.find(
-        (u: any) => u.fullName.toLowerCase() === partnerName?.toLowerCase() || u.loginId.toLowerCase() === partnerName?.toLowerCase()
-      );
-      
-      const targetPartner = partnerUser || partner;
-      if (targetPartner && initiateCall) {
-        initiateCall(targetPartner.id, partnerName || targetPartner.fullName, type);
-      } else {
-        toast.error('Calling services are unavailable.');
+    if (activeConv) {
+      if (activeConv.type === 'private') {
+        const partnerName = activeConv.name?.replace('DM with ', '');
+        const partnerUser = otherUsers.find(
+          (u: any) => u.fullName.toLowerCase() === partnerName?.toLowerCase() || u.loginId.toLowerCase() === partnerName?.toLowerCase()
+        );
+        
+        const targetPartner = partnerUser || partner;
+        if (targetPartner && initiateCall) {
+          initiateCall(targetPartner.id, partnerName || targetPartner.fullName, type);
+        } else {
+          toast.error('Calling services are unavailable.');
+        }
+      } else if (activeConv.type === 'group') {
+        const memberIds = activeConv.members?.map((m: any) => m.id) || [];
+        if (initiateGroupCall) {
+          initiateGroupCall(activeConv.id, activeConv.name || 'Group Call', memberIds, type);
+        } else {
+          toast.error('Calling services are unavailable.');
+        }
       }
     }
   };
@@ -2841,9 +2851,35 @@ export default function ChatPage() {
                       onClick={() => navigate(`/chat/${conv.id}`)}
                       style={{
                         borderRadius: '8px', margin: '4px 8px', padding: '8px 12px',
-                        borderLeft: conv.id === conversationId ? '4px solid #6366f1' : '4px solid transparent'
+                        borderLeft: conv.id === conversationId ? '4px solid #6366f1' : '4px solid transparent',
+                        position: 'relative'
                       }}
                     >
+                      {/* Hover delete button for direct chats */}
+                      {conv.type === 'private' && (
+                        <button
+                          type="button"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (confirm(`Delete this chat conversation? (This will hide it from your list)`)) {
+                              try {
+                                await chatApi.deleteConversation(conv.id, false);
+                                toast.success('Chat deleted.');
+                                qc.invalidateQueries({ queryKey: ['conversations'] });
+                                if (conversationId === conv.id) {
+                                  navigate('/chat');
+                                }
+                              } catch (err: any) {
+                                toast.error(err.response?.data?.message || err.message || 'Failed to delete chat');
+                              }
+                            }
+                          }}
+                          className={styles.hoverDeleteBtn}
+                          title="Delete Chat"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
                       <div className={`${styles.convAvatar} ${conv.type === 'group' || conv.type === 'department' || conv.type === 'broadcast' ? styles.groupAvatar : ''}`} style={{ background: 'var(--gradient-brand)' }}>
                         {conv.type === 'group' || conv.type === 'department' || conv.type === 'broadcast' ? (
                           conv.type === 'broadcast' ? <Users2 size={16} /> : <Hash size={16} />
@@ -4168,6 +4204,33 @@ export default function ChatPage() {
                   >
                     🗑️ Clear Chat History
                   </button>
+                  {activeConv?.type === 'private' && (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--brand-danger)', border: '1px solid rgba(239, 68, 68, 0.2)', width: '100%', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' }}
+                      onClick={() => {
+                        setConfirmModal({
+                          title: 'Delete Chat?',
+                          message: 'Are you sure you want to delete this conversation? This will remove the chat from your sidebar. You can start it again from Teammates.',
+                          iconType: 'trash',
+                          confirmText: 'Delete Chat',
+                          brandColor: 'var(--brand-danger)',
+                          onConfirm: async () => {
+                            try {
+                              await chatApi.deleteConversation(activeConv.id, false);
+                              toast.success('Chat deleted.');
+                              qc.invalidateQueries({ queryKey: ['conversations'] });
+                              navigate('/chat');
+                            } catch (err: any) {
+                              toast.error(err.response?.data?.message || err.message || 'Failed to delete chat');
+                            }
+                          }
+                        });
+                      }}
+                    >
+                      🗑️ Delete Chat
+                    </button>
+                  )}
                   {isCurrentUserAdmin && activeConv?.type === 'group' && (
                     <button
                       className="btn btn-secondary btn-sm"
@@ -4405,6 +4468,11 @@ export default function ChatPage() {
                                       Admin
                                     </span>
                                   )}
+                                  {m.role === 'blocked' && (
+                                    <span style={{ fontSize: '9px', color: 'var(--brand-danger)', fontWeight: 600 }}>
+                                      Blocked
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                               
@@ -4416,6 +4484,7 @@ export default function ChatPage() {
                                     className="btn btn-ghost btn-xs"
                                     style={{ fontSize: '10px', padding: '2px 4px', height: '20px' }}
                                     onClick={() => handleUpdateMemberRole(m.id, isAdmin ? 'member' : 'admin')}
+                                    disabled={m.role === 'blocked'}
                                   >
                                     {isAdmin ? 'Demote' : 'Promote'}
                                   </button>
@@ -4430,6 +4499,19 @@ export default function ChatPage() {
                                     }}
                                   >
                                     Remove
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn btn-ghost btn-xs text-warning"
+                                    style={{ fontSize: '10px', padding: '2px 4px', height: '20px', color: m.role === 'blocked' ? 'var(--brand-primary)' : 'var(--brand-warning)' }}
+                                    onClick={() => {
+                                      const nextRole = m.role === 'blocked' ? 'member' : 'blocked';
+                                      if (confirm(`${m.role === 'blocked' ? 'Unblock' : 'Block'} ${m.fullName} in this group?`)) {
+                                        handleUpdateMemberRole(m.id, nextRole);
+                                      }
+                                    }}
+                                  >
+                                    {m.role === 'blocked' ? 'Unblock' : 'Block'}
                                   </button>
                                 </div>
                               )}

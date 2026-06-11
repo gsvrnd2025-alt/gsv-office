@@ -290,6 +290,14 @@ export class ChatService implements OnModuleInit {
   }
 
   async sendMessage(dto: { conversationId: string; senderId: string; content: string; type?: string; fileId?: string; folderId?: string; replyToId?: string }) {
+    const [membership] = await this.dataSource.query(
+      `SELECT role, left_at FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
+      [dto.conversationId, dto.senderId]
+    );
+    if (membership && (membership.role === 'blocked' || membership.left_at !== null)) {
+      throw new Error('You are blocked from sending messages in this group.');
+    }
+
     let mappedType = dto.type || 'text';
     if (mappedType === 'photo') mappedType = 'image';
     if (mappedType === 'music') mappedType = 'audio';
@@ -755,7 +763,7 @@ export class ChatService implements OnModuleInit {
   }
 
   async changeMemberRole(conversationId: string, targetUserId: string, newRole: string, requestingUserId: string) {
-    if (newRole !== 'admin' && newRole !== 'member') {
+    if (newRole !== 'admin' && newRole !== 'member' && newRole !== 'blocked') {
       throw new Error('Invalid role specified');
     }
 
@@ -775,7 +783,11 @@ export class ChatService implements OnModuleInit {
       );
 
       const [targetUser] = await manager.query(`SELECT full_name FROM users WHERE id = $1`, [targetUserId]);
-      systemContent = `${targetUser?.full_name || 'Teammate'} is now an ${newRole === 'admin' ? 'Admin' : 'Member'}.`;
+      if (newRole === 'blocked') {
+        systemContent = `${targetUser?.full_name || 'Teammate'} has been blocked by the admin.`;
+      } else {
+        systemContent = `${targetUser?.full_name || 'Teammate'} is now a ${newRole === 'admin' ? 'group admin' : 'group member'}.`;
+      }
 
       await manager.query(
         `INSERT INTO messages (conversation_id, sender_id, content, type)

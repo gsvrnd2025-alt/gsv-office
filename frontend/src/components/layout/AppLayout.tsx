@@ -31,9 +31,25 @@ export function AppLayout() {
 
   const [callHistory, setCallHistory] = useState<any[]>([]);
 
+  const [iceServers, setIceServers] = useState<any[]>([
+    { urls: 'stun:stun.l.google.com:19302' }
+  ]);
+
   useEffect(() => {
     if (accessToken) {
       webrtcApi.getCallLogs().then(res => setCallHistory(res.data?.data || res.data || [])).catch(console.error);
+      
+      // Load COTURN configuration dynamically
+      webrtcApi.getConfig().then(res => {
+        if (res.data?.iceServers) {
+          setIceServers([
+            ...res.data.iceServers,
+            { urls: 'stun:stun.l.google.com:19302' }
+          ]);
+        }
+      }).catch(err => {
+        console.error('Failed to load WebRTC COTURN config, using fallback STUN', err);
+      });
     }
   }, [accessToken]);
   const [callPartnerName, setCallPartnerName] = useState('');
@@ -47,7 +63,8 @@ export function AppLayout() {
   const [isDraggingCall, setIsDraggingCall] = useState(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
 
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const remoteAudiosRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
   const socketRef = useRef<any>(null);
   const callTypeRef = useRef<'audio' | 'video'>('audio');
@@ -221,17 +238,31 @@ export function AppLayout() {
     setWebrtcSocket(socket);
 
     socket.on('call:incoming', (data) => {
-      // data: { roomId, callerId, type }
+      // data: { roomId, callerId, type, groupId }
       if (activeCallRef.current || incomingCallRef.current) {
         socket.emit('call:busy', { callerId: data.callerId, roomId: data.roomId });
         return;
       }
       const callerName = findUserName(data.callerId);
+      
+      let displayName = callerName;
+      if (data.groupId) {
+        const globalConvs = qc.getQueryData<any[]>(['global-conversations-unread']) || [];
+        const conversations = qc.getQueryData<any[]>(['conversations']) || [];
+        const groupConv = globalConvs.find((c: any) => c.id === data.groupId) || conversations.find((c: any) => c.id === data.groupId);
+        if (groupConv) {
+          displayName = `${groupConv.name} (${callerName})`;
+        } else {
+          displayName = `Group Call (${callerName})`;
+        }
+      }
+
       setIncomingCall({
         roomId: data.roomId,
         callerId: data.callerId,
-        callerName,
-        type: data.type || 'audio'
+        callerName: displayName,
+        type: data.type || 'audio',
+        groupId: data.groupId
       });
 
       // Play ringing sound loop
@@ -245,11 +276,11 @@ export function AppLayout() {
       if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.showIncomingCallPopup === 'function') {
         (window as any).gsvDesktop.showIncomingCallPopup({
           roomId: data.roomId,
-          callerName,
+          callerName: displayName,
           type: data.type || 'audio'
         });
       } else if (Notification.permission === 'granted') {
-        new Notification(`Incoming Call from ${callerName}`, {
+        new Notification(`Incoming Call: ${displayName}`, {
           body: 'Open GSV Office to answer this secure voice call.'
         });
       }
@@ -282,10 +313,11 @@ export function AppLayout() {
       const pc = await setupPeerConnection(data.roomId, false, data.from);
       if (pc) {
         await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-        for (const candidate of iceCandidatesQueueRef.current) {
-          try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch (e) {}
+        const queue = iceCandidatesQueueRef.current.filter(c => c.from === data.from);
+        for (const item of queue) {
+          try { await pc.addIceCandidate(new RTCIceCandidate(item.candidate)); } catch (e) {}
         }
-        iceCandidatesQueueRef.current = [];
+        iceCandidatesQueueRef.current = iceCandidatesQueueRef.current.filter(c => c.from !== data.from);
 
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
@@ -295,27 +327,46 @@ export function AppLayout() {
 
     socket.on('webrtc:answer', async (data) => {
       // Received by the caller
-      if (peerConnectionRef.current) {
-        await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
-        for (const candidate of iceCandidatesQueueRef.current) {
-          try { await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate)); } catch (e) {}
+      const pc = peerConnectionsRef.current.get(data.from);
+      if (pc) {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+        const queue = iceCandidatesQueueRef.current.filter(c => c.from === data.from);
+        for (const item of queue) {
+          try { await pc.addIceCandidate(new RTCIceCandidate(item.candidate)); } catch (e) {}
         }
-        iceCandidatesQueueRef.current = [];
+        iceCandidatesQueueRef.current = iceCandidatesQueueRef.current.filter(c => c.from !== data.from);
       }
     });
 
     socket.on('webrtc:ice-candidate', async (data) => {
-      const pc = peerConnectionRef.current;
+      const pc = peerConnectionsRef.current.get(data.from);
       if (pc && pc.remoteDescription) {
         try { await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch (e) {}
       } else {
-        iceCandidatesQueueRef.current.push(data.candidate);
+        iceCandidatesQueueRef.current.push({ from: data.from, candidate: data.candidate });
       }
     });
 
-    socket.on('call:participant-left', () => {
-      toast.error('The call was terminated.');
-      hangUpCall();
+    socket.on('call:participant-left', (data) => {
+      if (data && data.socketId) {
+        const existingAudio = remoteAudiosRef.current.get(data.socketId);
+        if (existingAudio) {
+          existingAudio.pause();
+          existingAudio.srcObject = null;
+          remoteAudiosRef.current.delete(data.socketId);
+        }
+        const pc = peerConnectionsRef.current.get(data.socketId);
+        if (pc) {
+          pc.close();
+          peerConnectionsRef.current.delete(data.socketId);
+        }
+        toast('A participant left the call.');
+      }
+      
+      if (peerConnectionsRef.current.size === 0) {
+        toast.error('The call was terminated.');
+        hangUpCall();
+      }
     });
 
     socket.on('call:busy', () => {
@@ -365,10 +416,14 @@ export function AppLayout() {
   // WebRTC Connection Logic
   const setupPeerConnection = async (roomId: string, isCaller: boolean, targetSocketId: string) => {
     try {
+      if (peerConnectionsRef.current.has(targetSocketId)) {
+        return peerConnectionsRef.current.get(targetSocketId);
+      }
+
       const pc = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        iceServers: iceServers
       });
-      peerConnectionRef.current = pc;
+      peerConnectionsRef.current.set(targetSocketId, pc);
 
       let stream = localStreamRef.current;
       if (!stream) {
@@ -385,10 +440,19 @@ export function AppLayout() {
       };
 
       pc.oniceconnectionstatechange = () => {
-        console.log('ICE Connection State:', pc.iceConnectionState);
+        console.log('ICE Connection State for', targetSocketId, ':', pc.iceConnectionState);
         if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
-          if (activeCallRef.current || incomingCallRef.current) {
-            toast.error('Call disconnected due to network issues.');
+          const existingAudio = remoteAudiosRef.current.get(targetSocketId);
+          if (existingAudio) {
+            existingAudio.pause();
+            existingAudio.srcObject = null;
+            remoteAudiosRef.current.delete(targetSocketId);
+          }
+          pc.close();
+          peerConnectionsRef.current.delete(targetSocketId);
+          
+          if (peerConnectionsRef.current.size === 0 && activeCallRef.current) {
+            toast.error('All connections disconnected.');
             hangUpCall();
           }
         }
@@ -396,10 +460,20 @@ export function AppLayout() {
 
       pc.ontrack = (event) => {
         if (event.streams[0]) {
-          setRemoteStream(event.streams[0]);
-          if (remoteAudioRef.current) {
-            remoteAudioRef.current.srcObject = event.streams[0];
+          const remoteStr = event.streams[0];
+          setRemoteStream(remoteStr);
+          
+          const oldAudio = remoteAudiosRef.current.get(targetSocketId);
+          if (oldAudio) {
+            oldAudio.pause();
+            oldAudio.srcObject = null;
           }
+
+          const audio = document.createElement('audio');
+          audio.srcObject = remoteStr;
+          audio.autoplay = true;
+          remoteAudiosRef.current.set(targetSocketId, audio);
+          audio.play().catch(e => console.error('Remote audio element play failed:', e));
         }
       };
 
@@ -455,7 +529,54 @@ export function AppLayout() {
 
     if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
     callTimeoutRef.current = setTimeout(() => {
-      if (callingState === 'calling') {
+      if (callingState === 'calling' && peerConnectionsRef.current.size === 0) {
+        toast.error('No answer.');
+        hangUpCall();
+      }
+    }, 30000);
+  };
+
+  const initiateGroupCall = async (groupId: string, groupName: string, memberIds: string[], type: 'audio' | 'video' = 'audio') => {
+    if (!webrtcSocket) {
+      toast.error('Signaling socket not connected.');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: type === 'video' });
+      setLocalStream(stream);
+      localStreamRef.current = stream;
+    } catch (err) {
+      toast.error('Could not access microphone. Call blocked.');
+      return;
+    }
+
+    setCallingState('calling');
+    setActiveCall(true);
+    setCallPartnerName(groupName);
+    setCallPartnerId(groupId);
+    setCallType(type);
+
+    addCallLog('outgoing', groupName, '00:00', undefined, type);
+
+    if (ringIntervalRef.current) clearInterval(ringIntervalRef.current);
+    SoundManager.playRing(3.0);
+    ringIntervalRef.current = setInterval(() => {
+      SoundManager.playRing(3.0);
+    }, 4000);
+
+    const myUserId = useAuthStore.getState().user?.id;
+    const targetCalleeIds = memberIds.filter(id => id !== myUserId);
+
+    webrtcSocket.emit('call:initiate', { groupId, calleeIds: targetCalleeIds, type }, (response: any) => {
+      if (response && response.roomId) {
+        activeRoomIdRef.current = response.roomId;
+      }
+    });
+
+    if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
+    callTimeoutRef.current = setTimeout(() => {
+      if (callingState === 'calling' && peerConnectionsRef.current.size === 0) {
         toast.error('No answer.');
         hangUpCall();
       }
@@ -525,10 +646,14 @@ export function AppLayout() {
     setLocalStream(null);
     setRemoteStream(null);
 
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.close();
-      peerConnectionRef.current = null;
-    }
+    peerConnectionsRef.current.forEach(pc => pc.close());
+    peerConnectionsRef.current.clear();
+
+    remoteAudiosRef.current.forEach(audio => {
+      audio.pause();
+      audio.srcObject = null;
+    });
+    remoteAudiosRef.current.clear();
 
     if (callingState === 'connected' && callDuration > 0) {
       updateLastCallDuration(callDuration);
@@ -875,6 +1000,7 @@ export function AppLayout() {
             webrtcSocket,
             chatSocket,
             initiateCall,
+            initiateGroupCall,
             activeCall,
             setActiveCall,
             callingState,

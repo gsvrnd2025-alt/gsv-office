@@ -620,3 +620,27 @@
     display: none !important;
   }
 }
+
+.hoverDeleteBtn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(239, 68, 68, 0.1);
+  border: none;
+  border-radius: 4px;
+  padding: 4px;
+  color: var(--brand-danger);
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+.hoverDeleteBtn:hover {
+  background: var(--brand-danger);
+  color: #fff;
+}
+.convItem:hover .hoverDeleteBtn {
+  display: flex !important;
+}
