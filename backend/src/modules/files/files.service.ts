@@ -2,7 +2,6 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as archiver from 'archiver';
 
 @Injectable()
 export class FilesService implements OnModuleInit {
@@ -650,7 +649,8 @@ export class FilesService implements OnModuleInit {
       throw new Error('Folder not found or access denied');
     }
 
-    const archive = archiver.create('zip', { zlib: { level: 6 } });
+    const { ZipArchive } = require('archiver');
+    const archive = new ZipArchive({ zlib: { level: 6 } });
 
     // Fetch all nested folders using recursive CTE
     const subfolders = await this.dataSource.query(`
