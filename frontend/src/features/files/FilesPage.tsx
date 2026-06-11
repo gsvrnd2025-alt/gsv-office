@@ -123,6 +123,7 @@ export default function FilesPage() {
     brandColor?: string;
   } | null>(null);
   const folderUploadInputRef = useRef<HTMLInputElement>(null);
+  const [folderInputKey, setFolderInputKey] = useState(0);
 
   // CRUD & Clipboard states
   const [clipboardItem, setClipboardItem] = useState<{ id: string; type: 'file' | 'folder'; action: 'cut' | 'copy' } | null>(null);
@@ -293,6 +294,7 @@ export default function FilesPage() {
     const MAX_FOLDER_SIZE_MB = 5000; // 5 GB limit
     if (totalSizeMB > MAX_FOLDER_SIZE_MB) {
       toast.error(`Folder size (${totalSizeMB.toFixed(1)} MB) exceeds the folder upload limit of ${MAX_FOLDER_SIZE_MB} MB. Please compress the folder into a .zip file before uploading.`);
+      setFolderInputKey(prev => prev + 1);
       return;
     }
 
@@ -540,7 +542,26 @@ export default function FilesPage() {
   const shouldShowFolders = categoryFilter === 'all';
 
   return (
-    <div className="page-enter" style={{ display: 'flex', flexDirection: 'column', gap: '24px', position: 'relative' }} {...getRootProps()}>
+    <div 
+      className="page-enter" 
+      style={{ display: 'flex', flexDirection: 'column', gap: '24px', position: 'relative' }} 
+      {...getRootProps({
+        onDrop: (e) => {
+          const items = Array.from(e.dataTransfer.items || []);
+          for (const item of items) {
+            if (item.kind === 'file') {
+              const entry = item.webkitGetAsEntry();
+              if (entry && entry.isDirectory) {
+                e.preventDefault();
+                e.stopPropagation();
+                toast.error("Folder drops are not allowed on the main files view. Please use the 'Upload Folder' button instead.");
+                return;
+              }
+            }
+          }
+        }
+      })}
+    >
       <input {...getInputProps()} />
 
       {isDragActive && (
@@ -985,6 +1006,7 @@ export default function FilesPage() {
                 <FolderOpen size={15} /> Upload Folder {uploading && uploadProgressPercent === null && <div className="spinner" />}
               </button>
               <input 
+                key={folderInputKey}
                 type="file" 
                 ref={folderUploadInputRef} 
                 {...{ webkitdirectory: "", directory: "", multiple: true } as any} 
@@ -998,7 +1020,7 @@ export default function FilesPage() {
                     const MAX_FOLDER_FILES = 10000;
                     if (rawFiles.length > MAX_FOLDER_FILES) {
                       toast.error(`Folder contains too many files (${rawFiles.length.toLocaleString()}). For directories with more than ${MAX_FOLDER_FILES} files (like code projects), please compress them into a .zip or .tar archive before uploading.`);
-                      e.target.value = '';
+                      setFolderInputKey(prev => prev + 1);
                       return;
                     }
                     setTimeout(() => {

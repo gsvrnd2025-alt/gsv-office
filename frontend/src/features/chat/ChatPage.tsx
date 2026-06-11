@@ -963,6 +963,7 @@ export default function ChatPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const [folderInputKey, setFolderInputKey] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const handleSaveToCloud = async (fileId: string) => {
@@ -1676,7 +1677,7 @@ export default function ChatPage() {
       const MAX_FOLDER_FILES = 10000;
       if (rawFiles.length > MAX_FOLDER_FILES) {
         toast.error(`Folder contains too many files (${rawFiles.length.toLocaleString()}). For directories with more than ${MAX_FOLDER_FILES} files (like code projects), please compress them into a .zip or .tar archive before uploading.`);
-        e.target.value = '';
+        setFolderInputKey(prev => prev + 1);
         return;
       }
     }
@@ -1697,7 +1698,7 @@ export default function ChatPage() {
           const MAX_FOLDER_SIZE_MB = 5000; // 5 GB limit for folders in chat
           if (totalSizeMB > MAX_FOLDER_SIZE_MB) {
             toast.error(`Folder size (${totalSizeMB.toFixed(1)} MB) exceeds the folder upload limit of ${MAX_FOLDER_SIZE_MB} MB. Please compress the folder into a .zip file before uploading.`);
-            e.target.value = '';
+            setFolderInputKey(prev => prev + 1);
             return;
           }
 
@@ -3970,6 +3971,7 @@ export default function ChatPage() {
 
                 <input type="file" ref={fileInputRef} style={{ display: 'none' }} multiple accept={uploadAccept === '*' ? undefined : uploadAccept} onChange={e => handleFileUpload(e, false)} />
                 <input
+                  key={folderInputKey}
                   type="file"
                   ref={folderInputRef}
                   style={{ display: 'none' }}
