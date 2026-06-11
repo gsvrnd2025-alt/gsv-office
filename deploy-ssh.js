@@ -183,8 +183,8 @@ function runDockerCompose(conn) {
     `cp ${REMOTE_APP_DIR}/.env ${TRUENAS_CONFIG_DIR}/templates/rendered/.env`,
     // 4. Set permissions for served download binaries
     `chmod -R 755 ${REMOTE_APP_DIR}/downloads || true`,
-    // 5. Patch rendered docker-compose file on TrueNAS to include downloads volume mount
-    `python3 -c "import os; fp='/mnt/.ix-apps/app_configs/gsv-office/versions/1.0.0/templates/rendered/docker-compose.yaml'; (lambda c: open(fp, 'w').write(c.replace('    - uploads_data:/var/www/uploads:ro', '    - /mnt/GSVR_Movies/apps/gsv-office/downloads:/var/www/downloads:ro\\\\n    - uploads_data:/var/www/uploads:ro')))(open(fp).read()) if os.path.exists(fp) else None"`,
+    // 5. Restore rendered docker-compose file from user_config.yaml template
+    `cp ${TRUENAS_CONFIG_DIR}/user_config.yaml ${TRUENAS_CONFIG_DIR}/templates/rendered/docker-compose.yaml`,
     // 6. Pre-pull images to ensure smooth startup
     `docker image pull ghcr.io/gsvrnd2025-alt/gsv-office-api:${deployVersion}`,
     `docker image pull ghcr.io/gsvrnd2025-alt/gsv-office-nginx:${deployVersion}`,
