@@ -1,0 +1,7 @@
+node_modules/
+android/
+.git/
+.env
+dist/downloads/
+public/downloads/
+downloads/

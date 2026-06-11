@@ -55,6 +55,11 @@ export const authApi = {
   rejectForgotPassword: (id: string) => api.post(`/auth/forgot-password/reject/${id}`),
 };
 
+export const auditApi = {
+  getLogs: (params?: any) => api.get('/audit', { params }),
+  getLogById: (id: string) => api.get(`/audit/${id}`),
+};
+
 export const usersApi = {
   getAll: (params?: any) => api.get('/users', { params }),
   getDirectory: () => api.get('/users/directory'), // For remote desktop - no admin perm needed
@@ -110,6 +115,12 @@ export const chatApi = {
   addMember: (id: string, userId: string) => api.post(`/chat/conversations/${id}/members`, { userId }),
   deleteConversation: (id: string, clearForEveryone: boolean) => api.delete(`/chat/conversations/${id}`, { params: { clearForEveryone: String(clearForEveryone) } }),
   updateConversation: (id: string, data: any) => api.patch(`/chat/conversations/${id}`, data),
+  inviteMember: (id: string, inviteeId: string) => api.post(`/chat/conversations/${id}/invitations`, { inviteeId }),
+  getInvitations: () => api.get('/chat/invitations'),
+  acceptInvitation: (id: string) => api.post(`/chat/invitations/${id}/accept`),
+  rejectInvitation: (id: string) => api.post(`/chat/invitations/${id}/reject`),
+  removeMember: (id: string, userId: string) => api.delete(`/chat/conversations/${id}/members/${userId}`),
+  changeMemberRole: (id: string, userId: string, role: string) => api.post(`/chat/conversations/${id}/members/${userId}/role`, { role }),
 };
 
 export const filesApi = {
@@ -117,8 +128,8 @@ export const filesApi = {
   getFiles: (params?: any) => api.get('/files', { params }),
   getShared: () => api.get('/files/shared'),
   createFolder: (data: any) => api.post('/files/folders', data),
-  upload: (formData: FormData, onUploadProgress?: (progressEvent: any) => void) => api.post('/files/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress }),
-  uploadFolder: (formData: FormData, onUploadProgress?: (progressEvent: any) => void) => api.post('/files/upload-folder', formData, { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress }),
+  upload: (formData: FormData, onUploadProgress?: (progressEvent: any) => void) => api.post('/files/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress, timeout: 0 }),
+  uploadFolder: (formData: FormData, onUploadProgress?: (progressEvent: any) => void) => api.post('/files/upload-folder', formData, { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress, timeout: 0 }),
   delete: (id: string) => api.delete(`/files/${id}`),
   deleteFolder: (id: string) => api.delete(`/files/folders/${id}`),
   getAccessRequests: () => api.get('/files/access-requests'),
@@ -198,4 +209,6 @@ export const securityApi = {
 
 export const webrtcApi = {
   getConfig: () => api.get('/webrtc/config'),
+  saveCallLog: (data: any) => api.post('/webrtc/call-logs', data),
+  getCallLogs: () => api.get('/webrtc/call-logs'),
 };

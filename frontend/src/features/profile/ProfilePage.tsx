@@ -235,12 +235,28 @@ export default function ProfilePage() {
                   <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>Current Version: {typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'}</div>
                 </div>
               </div>
-              <button className="btn btn-primary btn-sm" onClick={() => {
-                const targetUrl = Capacitor.isNativePlatform() ? '/downloads/GSVOffice-Android.apk' : '/downloads/GSVOffice-Setup.exe';
-                const fullUrl = targetUrl.startsWith('http') ? targetUrl : `${window.location.origin}${targetUrl}`;
-                window.open(fullUrl, '_system');
-                toast.success('Download started...');
-              }}>Update App</button>
+              <button className="btn btn-primary btn-sm" onClick={async () => {
+                if ((window as any).gsvDesktop) {
+                  toast.loading('Downloading update...', { id: 'update-toast' });
+                  try {
+                    const targetUrl = '/downloads/GSVOffice-Setup.exe';
+                    const fullUrl = targetUrl.startsWith('http') ? targetUrl : `${window.location.origin}${targetUrl}`;
+                    const res = await (window as any).gsvDesktop.downloadAndInstallUpdate({ exeUrl: fullUrl });
+                    if (res?.success) {
+                      toast.success('Download complete! Restarting to install...', { id: 'update-toast' });
+                    } else {
+                      toast.error(`Update failed: ${res?.error || 'Unknown error'}`, { id: 'update-toast' });
+                    }
+                  } catch (err: any) {
+                    toast.error(`Update error: ${err.message}`, { id: 'update-toast' });
+                  }
+                } else {
+                  const targetUrl = Capacitor.isNativePlatform() ? '/downloads/GSVOffice-Android.apk' : '/downloads/GSVOffice-Setup.exe';
+                  const fullUrl = targetUrl.startsWith('http') ? targetUrl : `${window.location.origin}${targetUrl}`;
+                  window.open(fullUrl, '_system');
+                  toast.success('Download started...');
+                }
+              }}>Check for Updates</button>
             </div>
           </div>
         )}

@@ -66,3 +66,12 @@ gsv-office-catalog/
 frontend/android/
 *.jdk
 *.jre
+
+# Binary client installers
+downloads/*.exe
+downloads/*.apk
+downloads/*.dmg
+downloads/gsv-office-client
+frontend/public/downloads/*.exe
+frontend/public/downloads/*.apk
+frontend/public/downloads/*.dmg

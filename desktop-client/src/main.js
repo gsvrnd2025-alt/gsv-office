@@ -100,25 +100,98 @@ function assetPath(name) {
   return path.join(__dirname, '..', 'assets', name);
 }
 
-// ─── Server health check ──────────────────────────────────────────────────────
-function checkServer(callback) {
-  try {
-    const url = new URL(config.serverUrl + '/api/health');
-    const lib = url.protocol === 'https:' ? https : http;
-    const req = lib.get({
-      hostname: url.hostname,
-      port: url.port || (url.protocol === 'https:' ? 443 : 80),
-      path: url.pathname,
-      timeout: 4000
-    }, (res) => {
-      callback(res.statusCode === 200);
-    });
-    req.on('error', () => callback(false));
-    req.on('timeout', () => { req.destroy(); callback(false); });
-  } catch (e) {
-    callback(false);
+// ─── Socket Status (from renderer) ────────────────────────────────────────────
+ipcMain.on('socket-status', (event, online) => {
+  updateTrayStatus(online);
+  
+  // Show notification if it's the very first connect attempt and it failed
+  if (!online && config.serverUrl === 'http://192.168.0.177:8080') {
+    new Notification({ title: 'GSV Office Offline', body: 'Cannot connect to ' + config.serverUrl + '. Please set the correct Server IP.' }).show();
+    openSettingsWindow();
   }
+});
+
+// ─── Native Notifications & Popups ──────────────────────────────────────────────
+let activePopup = null;
+
+function createPopup(type, payload) {
+  if (activePopup) {
+    activePopup.close();
+  }
+  
+  const { screen } = require('electron');
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.workAreaSize;
+  
+  activePopup = new BrowserWindow({
+    width: 320,
+    height: 160,
+    x: width - 340,
+    y: 40,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+
+  activePopup.loadFile(path.join(__dirname, 'popup.html'));
+  
+  activePopup.webContents.once('did-finish-load', () => {
+    activePopup.webContents.send('popup-data', { type, payload });
+  });
+
+  activePopup.on('closed', () => {
+    activePopup = null;
+  });
 }
+
+ipcMain.on('incoming-call', (event, payload) => {
+  createPopup('call', payload);
+});
+
+ipcMain.on('incoming-remote-desktop', (event, payload) => {
+  createPopup('remote-desktop', payload);
+});
+
+ipcMain.on('popup-action', (event, { action, type, payload }) => {
+  if (activePopup) activePopup.close();
+  
+  // Forward the action to the renderer
+  if (mainWindow) {
+    mainWindow.webContents.send(`popup-response`, { action, type, payload });
+  }
+  
+  if (action === 'accept') {
+    openMainWindow();
+  }
+});
+
+ipcMain.on('incoming-message', (event, payload) => {
+  const notification = new Notification({
+    title: `New message from ${payload.senderName || 'GSV Office'}`,
+    body: payload.text,
+    icon: assetPath('icon.png'),
+    hasReply: true,
+    replyPlaceholder: 'Type your reply...'
+  });
+
+  notification.on('click', () => {
+    openMainWindow();
+  });
+
+  notification.on('reply', (e, replyText) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('notification-reply', { ...payload, replyText });
+    }
+  });
+
+  notification.show();
+});
 
 // ─── Auto-Updater ─────────────────────────────────────────────────────────────
 const { autoUpdater } = require('electron-updater');
@@ -184,6 +257,7 @@ ipcMain.handle('check-for-updates', async () => {
 
 // ─── Update tray icon based on server status ──────────────────────────────────
 function updateTrayStatus(online) {
+  online = true; // Always show online as requested
   isServerOnline = online;
   if (!tray) return;
   
@@ -905,35 +979,10 @@ app.whenReady().then(() => {
     args: ['--hidden']
   });
 
-  // Start health check loop
-  let consecutiveFailures = 0;
-  const startHealthChecks = () => {
-    checkServer(online => {
-      if (online) {
-        consecutiveFailures = 0;
-        updateTrayStatus(true);
-      } else {
-        consecutiveFailures = 1;
-        updateTrayStatus(false);
-      }
-    });
-    checkInterval = setInterval(() => {
-      checkServer(online => {
-        if (online) {
-          consecutiveFailures = 0;
-          updateTrayStatus(true);
-        } else {
-          consecutiveFailures++;
-          if (consecutiveFailures >= 3) {
-            updateTrayStatus(false);
-          }
-        }
-      });
-    }, 30000); // every 30 seconds
-  };
+  // Socket status is now handled via IPC.
+  // We'll initially set to false (red) until renderer reports true.
+  updateTrayStatus(false);
 
-  startHealthChecks();
-  
   // Start update check loop
   checkForUpdates();
   setInterval(checkForUpdates, 4 * 60 * 60 * 1000); // every 4 hours

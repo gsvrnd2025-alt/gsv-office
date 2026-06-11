@@ -26,12 +26,79 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Send, Plus, Search, MessageSquare, Hash, Phone, Video,
   MoreVertical, Smile, Paperclip, CheckCheck, Check, File, Image,
-  Download, Folder, Volume2, ChevronRight, ChevronLeft, X, Users2,
-  Pin, ArrowRight, Mic, Sparkles, Copy, Trash2, Menu, CheckSquare, Info, StickyNote
+  Download, Folder, FolderOpen, Volume2, ChevronRight, ChevronLeft, X, Users2, CheckCircle,
+  Pin, ArrowRight, ArrowLeft, Mic, Sparkles, Copy, Trash2, Menu, CheckSquare, Info, StickyNote, ChevronDown,
+  Bold, Italic, List, Code, Maximize2, Minimize2
 } from 'lucide-react';
+
+const FILE_EXTENSIONS = [
+  { ext: 'txt', name: 'Plain Text (.txt)' },
+  { ext: 'md', name: 'Markdown (.md)' },
+  { ext: 'py', name: 'Python (.py)' },
+  { ext: 'js', name: 'JavaScript (.js)' },
+  { ext: 'jsx', name: 'React JS (.jsx)' },
+  { ext: 'ts', name: 'TypeScript (.ts)' },
+  { ext: 'tsx', name: 'React TS (.tsx)' },
+  { ext: 'html', name: 'HTML (.html)' },
+  { ext: 'css', name: 'CSS (.css)' },
+  { ext: 'json', name: 'JSON (.json)' },
+  { ext: 'java', name: 'Java (.java)' },
+  { ext: 'c', name: 'C Source (.c)' },
+  { ext: 'cpp', name: 'C++ Source (.cpp)' },
+  { ext: 'cs', name: 'C# Source (.cs)' },
+  { ext: 'go', name: 'Go (.go)' },
+  { ext: 'rs', name: 'Rust (.rs)' },
+  { ext: 'php', name: 'PHP (.php)' },
+  { ext: 'rb', name: 'Ruby (.rb)' },
+  { ext: 'sh', name: 'Shell Script (.sh)' },
+  { ext: 'bat', name: 'Batch File (.bat)' },
+  { ext: 'ps1', name: 'PowerShell (.ps1)' },
+  { ext: 'sql', name: 'SQL Query (.sql)' },
+  { ext: 'xml', name: 'XML (.xml)' },
+  { ext: 'yaml', name: 'YAML (.yaml)' },
+  { ext: 'yml', name: 'YAML (.yml)' },
+  { ext: 'ino', name: 'Arduino (.ino)' },
+  { ext: 'log', name: 'Log File (.log)' },
+  { ext: 'ini', name: 'Configuration (.ini)' },
+  { ext: 'conf', name: 'Config (.conf)' },
+  
+  { ext: 'doc', name: 'Word Document (.doc)' },
+  { ext: 'docx', name: 'Word Document (.docx)' },
+  { ext: 'xls', name: 'Excel Sheet (.xls)' },
+  { ext: 'xlsx', name: 'Excel Sheet (.xlsx)' },
+  { ext: 'ppt', name: 'PowerPoint (.ppt)' },
+  { ext: 'pptx', name: 'PowerPoint (.pptx)' },
+  { ext: 'pdf', name: 'PDF (.pdf)' },
+  { ext: 'rtf', name: 'Rich Text (.rtf)' },
+  { ext: 'csv', name: 'CSV Data (.csv)' },
+  
+  { ext: 'zip', name: 'ZIP Archive (.zip)' },
+  { ext: 'rar', name: 'RAR Archive (.rar)' },
+  { ext: '7z', name: '7-Zip Archive (.7z)' },
+  { ext: 'tar', name: 'TAR Archive (.tar)' },
+  { ext: 'gz', name: 'GZIP Archive (.gz)' },
+  
+  { ext: 'mp3', name: 'Audio MP3 (.mp3)' },
+  { ext: 'wav', name: 'Audio WAV (.wav)' },
+  { ext: 'ogg', name: 'Audio OGG (.ogg)' },
+  { ext: 'm4a', name: 'Audio M4A (.m4a)' },
+  
+  { ext: 'mp4', name: 'Video MP4 (.mp4)' },
+  { ext: 'mkv', name: 'Video MKV (.mkv)' },
+  { ext: 'avi', name: 'Video AVI (.avi)' },
+  { ext: 'mov', name: 'Video MOV (.mov)' },
+  { ext: 'webm', name: 'Video WebM (.webm)' },
+  
+  { ext: 'png', name: 'Image PNG (.png)' },
+  { ext: 'jpg', name: 'Image JPG (.jpg)' },
+  { ext: 'jpeg', name: 'Image JPEG (.jpeg)' },
+  { ext: 'gif', name: 'Image GIF (.gif)' },
+  { ext: 'svg', name: 'Image SVG (.svg)' }
+];
 import { filesApi, chatApi, usersApi } from '../../api';
 import Editor from '@monaco-editor/react';
 import { useAuthStore } from '../../store/auth.store';
+import logoImg from '../../assets/gsvlogo.png';
 import { SoundManager } from '../../utils/sound';
 import { copyTextToClipboard } from '../../utils/clipboard';
 import toast from 'react-hot-toast';
@@ -62,6 +129,28 @@ const normalizeMessage = (m: any) => {
     fileSize: m.file_size !== undefined ? m.file_size : m.fileSize,
     mimeType: m.mime_type !== undefined ? m.mime_type : m.mimeType,
     folderId: m.folder_id !== undefined ? m.folder_id : m.folderId,
+  };
+};
+
+const normalizeFile = (f: any) => {
+  if (!f) return f;
+  const rawUrl = f.storage_url !== undefined ? f.storage_url : f.storageUrl;
+  const fullUrl = rawUrl ? getFullUrl(rawUrl) : rawUrl;
+  return {
+    ...f,
+    originalName: f.original_name !== undefined ? f.original_name : f.originalName,
+    mimeType: f.mime_type !== undefined ? f.mime_type : f.mimeType,
+    sizeBytes: f.size !== undefined ? Number(f.size) : f.sizeBytes,
+    size: f.size !== undefined ? Number(f.size) : f.size,
+    storagePath: f.storage_path !== undefined ? f.storage_path : f.storagePath,
+    storageUrl: fullUrl,
+    ownerId: f.owner_id !== undefined ? f.owner_id : f.ownerId,
+    folderId: f.folder_id !== undefined ? f.folder_id : f.folderId,
+    conversationId: f.conversation_id !== undefined ? f.conversation_id : f.conversationId,
+    deletedAt: f.deleted_at !== undefined ? f.deleted_at : f.deletedAt,
+    createdAt: f.created_at !== undefined ? f.created_at : f.createdAt,
+    updatedAt: f.updated_at !== undefined ? f.updated_at : f.updatedAt,
+    ownerName: f.owner_name !== undefined ? f.owner_name : f.ownerName,
   };
 };
 
@@ -117,6 +206,14 @@ function DraggableRow({ children, className, style }: any) {
   );
 }
 
+function formatBytes(bytes: number) {
+  if (!bytes) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+}
+
 export default function ChatPage() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
@@ -126,8 +223,10 @@ export default function ChatPage() {
     sidebarCollapsed, 
     setSidebarCollapsed,
     initiateCall,
+    chatSocket,
     callHistory = [],
-    setCallHistory
+    setCallHistory,
+    onlineUsers = new Set()
   } = useOutletContext<any>() || {};
   const { user } = useAuthStore();
   const qc = useQueryClient();
@@ -138,6 +237,7 @@ export default function ChatPage() {
   const [activeFilter, setActiveFilter] = useState<'all' | 'channels' | 'dms' | 'groups' | 'online' | 'teammates' | 'bookmarks'>('all');
   const [selectedMessages, setSelectedMessages] = useState<string[]>([]);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [activeDropdownMsgId, setActiveDropdownMsgId] = useState<string | null>(null);
   const [forwardingMsgsList, setForwardingMsgsList] = useState<any[]>([]);
   const [uploadProgressPercent, setUploadProgressPercent] = useState<number | null>(null);
@@ -148,9 +248,14 @@ export default function ChatPage() {
   
   // Custom states
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
+  const [stagedFilesPendingConfirm, setStagedFilesPendingConfirm] = useState<StagedFile[]>([]);
+  const [showAttachConfirmModal, setShowAttachConfirmModal] = useState(false);
+  const [uploadStates, setUploadStates] = useState<Record<number, { status: 'queued' | 'uploading' | 'completed' | 'failed'; percent: number }>>({});
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
+  const [otherUploads, setOtherUploads] = useState<Record<string, { fileName: string; percent: number; senderName: string }>>({});
   const [showEmoji, setShowEmoji] = useState(false);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
   const [groupForm, setGroupForm] = useState({ name: '', description: '', members: [] as string[] });
 
   // Custom states for premium chat page
@@ -343,6 +448,11 @@ export default function ChatPage() {
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recordingTimerRef = useRef<any>(null);
 
+  // Chat Folder Browser State
+  const [chatBrowseFolderId, setChatBrowseFolderId] = useState<string | null>(null);
+  const [chatBrowseFolderName, setChatBrowseFolderName] = useState<string>('');
+  const [folderHistory, setFolderHistory] = useState<{ id: string | null; name: string }[]>([]);
+
   // Lightbox / File Preview Modal
   const [previewFile, setPreviewFile] = useState<{ url: string, name: string, type: string } | null>(null);
   const [previewTextContent, setPreviewTextContent] = useState<string>('');
@@ -380,6 +490,16 @@ export default function ChatPage() {
     }
   }, [previewFile]);
 
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
+    setShowScrollBottom(!isAtBottom);
+  };
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
   // Microphone permission query
   useEffect(() => {
     if (navigator.permissions && navigator.permissions.query) {
@@ -403,8 +523,282 @@ export default function ChatPage() {
   useEffect(() => {
     const handleClose = () => setMsgContextMenu(null);
     window.addEventListener('click', handleClose);
-    return () => window.removeEventListener('click', handleClose);
+
+    const handleSendToChat = (e: any) => {
+      setMessage((prev) => prev ? prev + '\n\n' + e.detail : e.detail);
+    };
+    window.addEventListener('send-note-to-chat', handleSendToChat);
+
+    return () => {
+      window.removeEventListener('click', handleClose);
+      window.removeEventListener('send-note-to-chat', handleSendToChat);
+    };
   }, []);
+
+  // Room subscription and instant message updates via socket
+  useEffect(() => {
+    if (!chatSocket || !conversationId) return;
+    
+    // Join conversation room
+    chatSocket.emit('join:conversation', { conversationId });
+    
+    // Listen for new messages
+    const handleNewMsg = (data: any) => {
+      if (data.conversationId === conversationId) {
+        qc.invalidateQueries({ queryKey: ['messages', conversationId] });
+      }
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+    };
+    
+    chatSocket.on('message:new', handleNewMsg);
+    
+    return () => {
+      chatSocket.emit('leave:conversation', { conversationId });
+      chatSocket.off('message:new', handleNewMsg);
+    };
+  }, [chatSocket, conversationId, qc]);
+
+  // Real-time upload progress tracking for other users
+  useEffect(() => {
+    if (!chatSocket) return;
+    
+    const handleUploadProgress = (data: any) => {
+      if (data.conversationId !== conversationId) return;
+      
+      setOtherUploads(prev => {
+        const next = { ...prev };
+        if (data.percent === null || data.percent >= 100) {
+          delete next[data.senderId];
+        } else {
+          next[data.senderId] = {
+            fileName: data.fileName,
+            percent: data.percent,
+            senderName: data.senderName
+          };
+        }
+        return next;
+      });
+    };
+    
+    chatSocket.on('chat:upload_progress', handleUploadProgress);
+    
+    return () => {
+      chatSocket.off('chat:upload_progress', handleUploadProgress);
+    };
+  }, [chatSocket, conversationId]);
+
+  const [showScratchpadMenu, setShowScratchpadMenu] = useState(false);
+  const [scratchpadTitle, setScratchpadTitle] = useState('');
+  const [selectedExtension, setSelectedExtension] = useState('txt');
+  const [extensionSearch, setExtensionSearch] = useState('');
+  const [isScratchpadMaximized, setIsScratchpadMaximized] = useState(false);
+  const [scratchpadPos, setScratchpadPos] = useState({ x: 150, y: 150 });
+  const [isDraggingScratchpad, setIsDraggingScratchpad] = useState(false);
+  const scratchpadDragStartRef = useRef({ mouseX: 0, mouseY: 0, popupX: 0, popupY: 0 });
+
+  const handleScratchpadHeaderMouseDown = (e: React.MouseEvent) => {
+    if (isScratchpadMaximized) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('button') || target.closest('input')) return;
+    
+    setIsDraggingScratchpad(true);
+    scratchpadDragStartRef.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      popupX: scratchpadPos.x,
+      popupY: scratchpadPos.y
+    };
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDraggingScratchpad) return;
+      const dx = e.clientX - scratchpadDragStartRef.current.mouseX;
+      const dy = e.clientY - scratchpadDragStartRef.current.mouseY;
+      
+      const newX = Math.max(0, Math.min(window.innerWidth - 330, scratchpadDragStartRef.current.popupX + dx));
+      const newY = Math.max(0, Math.min(window.innerHeight - 380, scratchpadDragStartRef.current.popupY + dy));
+      
+      setScratchpadPos({ x: newX, y: newY });
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingScratchpad(false);
+    };
+
+    if (isDraggingScratchpad) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDraggingScratchpad]);
+
+  const insertFormatting = (prefix: string, suffix: string = '') => {
+    const textarea = document.getElementById('scratchpad-textarea') as HTMLTextAreaElement;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = textarea.value;
+    const selectedText = text.substring(start, end);
+    const replacement = prefix + selectedText + suffix;
+    const newValue = text.substring(0, start) + replacement + text.substring(end);
+    setScratchpadText(newValue);
+    localStorage.setItem('gsv_scratchpad', newValue);
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + prefix.length, start + prefix.length + selectedText.length);
+    }, 50);
+  };
+
+  const handleSendScratchpadDirect = async () => {
+    if (!scratchpadText.trim()) {
+      toast.error('Scratchpad is empty.');
+      return;
+    }
+    if (!conversationId) {
+      toast.error('No active conversation selected.');
+      return;
+    }
+    try {
+      await sendMutation.mutateAsync({ content: scratchpadText });
+      toast.success('Note sent directly to chat! 🚀');
+      setShowScratchpad(false);
+    } catch (err) {
+      toast.error('Failed to send note.');
+    }
+  };
+
+  const handleInsertScratchpadToChat = () => {
+    if (!scratchpadText.trim()) {
+      toast.error('Scratchpad is empty.');
+      return;
+    }
+    setMessage(prev => prev ? prev + '\n' + scratchpadText : scratchpadText);
+    toast.success('Note inserted into chat input! 📝');
+    setShowScratchpad(false);
+  };
+
+  const sendScratchpadAsFile = async () => {
+    if (!scratchpadText.trim()) {
+      toast.error('Scratchpad content is empty.');
+      return;
+    }
+    if (!conversationId) {
+      toast.error('No active conversation selected.');
+      return;
+    }
+
+    const title = scratchpadTitle.trim() || 'note';
+    const filename = `${title}.${selectedExtension}`;
+    
+    const getMimeType = (ext: string) => {
+      const mimes: Record<string, string> = {
+        txt: 'text/plain',
+        md: 'text/markdown',
+        py: 'text/x-python',
+        js: 'application/javascript',
+        jsx: 'text/javascript',
+        ts: 'application/x-typescript',
+        tsx: 'text/typescript',
+        html: 'text/html',
+        css: 'text/css',
+        json: 'application/json',
+        java: 'text/x-java-source',
+        ino: 'text/plain',
+        log: 'text/plain',
+        doc: 'application/msword',
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        xls: 'application/vnd.ms-excel',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        pdf: 'application/pdf',
+        zip: 'application/zip',
+        mp3: 'audio/mpeg',
+        wav: 'audio/wav',
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        gif: 'image/gif'
+      };
+      return mimes[ext] || 'application/octet-stream';
+    };
+
+    const mime = getMimeType(selectedExtension);
+    const blob = new Blob([scratchpadText], { type: mime });
+    const file = new window.File([blob], filename, { type: mime });
+    
+    const formatBytes = (bytes: number) => {
+      if (bytes === 0) return '0 Bytes';
+      const k = 1024;
+      const dm = 2;
+      const sizes = ['Bytes', 'KB', 'MB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    };
+
+    const staged: StagedFile = {
+      name: filename,
+      size: formatBytes(blob.size),
+      blob: file,
+      type: 'file'
+    };
+
+    const toastId = toast.loading(`Uploading document "${filename}"...`);
+    try {
+      const fd = new FormData();
+      fd.append('file', staged.blob);
+      
+      const uploadRes = await filesApi.upload(fd, (progressEvent: any) => {
+        const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        if (chatSocket) {
+          chatSocket.emit('chat:upload_progress', {
+            conversationId,
+            fileName: filename,
+            percent,
+            senderName: user?.fullName || 'Teammate'
+          });
+        }
+      });
+      const fileData = uploadRes.data?.data || uploadRes.data;
+      if (!fileData) throw new Error('No file data returned');
+      
+      const fileId = fileData.id;
+      const fileUrl = fileData.storage_url || fileData.storageUrl || fileData.url;
+      const fileSize = fileData.size || fileData.sizeBytes;
+      const mimeType = fileData.mime_type || fileData.mimeType;
+      
+      await chatApi.sendMessage(conversationId!, {
+        content: '',
+        type: 'file',
+        fileId,
+        fileName: filename,
+        fileUrl,
+        fileSize,
+        mimeType
+      });
+      
+      toast.success(`Sent document "${filename}" to chat! 🚀`, { id: toastId });
+      setShowScratchpad(false);
+      
+      qc.invalidateQueries({ queryKey: ['messages', conversationId] });
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+    } catch (err: any) {
+      console.error(err);
+      toast.error(`Failed to send document: ${err.message || 'Server error'}`, { id: toastId });
+    } finally {
+      if (chatSocket) {
+        chatSocket.emit('chat:upload_progress', {
+          conversationId,
+          fileName: filename,
+          percent: null,
+          senderName: user?.fullName || 'Teammate'
+        });
+      }
+    }
+  };
+
 
   // 5. Message Reactions Store (Local mock state)
   const [messageReactions, setMessageReactions] = useState<Record<string, string[]>>({});
@@ -451,7 +845,11 @@ export default function ChatPage() {
         const toastId = toast.loading(`Downloading ${fileName}... 💾`);
         
         try {
-          const response = await fetch(targetUrl);
+          const response = await fetch(targetUrl, {
+            headers: {
+              'Authorization': `Bearer ${useAuthStore.getState().accessToken}`
+            }
+          });
           if (!response.ok) {
             throw new Error(`Server returned status: ${response.status}`);
           }
@@ -558,7 +956,7 @@ export default function ChatPage() {
   // React Queries
   const { data: conversations = [] } = useQuery({
     queryKey: ['conversations'],
-    queryFn: () => chatApi.getConversations().then(r => r.data?.data || r.data || []),
+    queryFn: () => chatApi.getConversations({ limit: 500 }).then(r => r.data?.data || r.data || []),
     refetchInterval: 5000,
   });
 
@@ -580,6 +978,64 @@ export default function ChatPage() {
     refetchInterval: 30000, // refresh every 30 seconds (directory changes rarely)
   });
 
+  const { data: invitations = [], refetch: refetchInvitations } = useQuery({
+    queryKey: ['group-invitations'],
+    queryFn: () => chatApi.getInvitations().then(r => r.data?.data || r.data || []),
+    refetchInterval: 5000,
+  });
+
+  const handleInviteMember = async (inviteeId: string) => {
+    if (!conversationId) return;
+    try {
+      await chatApi.inviteMember(conversationId, inviteeId);
+      toast.success('Group invitation sent! 📩');
+      setShowInviteModal(false);
+      refetchInvitations();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || 'Failed to send invitation');
+    }
+  };
+
+  const handleUpdateMemberRole = async (targetUserId: string, role: string) => {
+    if (!conversationId) return;
+    try {
+      await chatApi.changeMemberRole(conversationId, targetUserId, role);
+      toast.success(`Member role updated to ${role}.`);
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || 'Failed to update role');
+    }
+  };
+
+  const handleRemoveMember = async (targetUserId: string) => {
+    if (!conversationId) return;
+    try {
+      await chatApi.removeMember(conversationId, targetUserId);
+      toast.success('Member removed from group.');
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || 'Failed to remove member');
+    }
+  };
+
+  const { data: browseFiles = [], isLoading: loadingBrowseFiles } = useQuery({
+    queryKey: ['chat-browse-files', chatBrowseFolderId],
+    queryFn: () => {
+      if (!chatBrowseFolderId) return Promise.resolve([]);
+      return filesApi.getFiles({ folderId: chatBrowseFolderId }).then(r => r.data?.data || r.data || []);
+    },
+    enabled: !!chatBrowseFolderId
+  });
+
+  const { data: browseFolders = [], isLoading: loadingBrowseFolders } = useQuery({
+    queryKey: ['chat-browse-folders', chatBrowseFolderId],
+    queryFn: () => {
+      if (!chatBrowseFolderId) return Promise.resolve([]);
+      return filesApi.getFolders({ parentId: chatBrowseFolderId }).then(r => r.data?.data || r.data || []);
+    },
+    enabled: !!chatBrowseFolderId
+  });
+
   const users = usersData?.data ? usersData.data : (Array.isArray(usersData) ? usersData : []);
   const uniqueUsers: any[] = Array.from(new Map<any, any>(users.map((u: any) => [u.id, u])).values());
   const otherUsers: any[] = uniqueUsers.filter((u: any) => u.id !== user?.id);
@@ -588,29 +1044,92 @@ export default function ChatPage() {
   const sendMutation = useMutation({
     mutationFn: async (payload: { content: string; type?: string; files?: any[]; tempId?: string }) => {
       if (payload.files && payload.files.length > 0) {
+        const isCloudRef = payload.files.some(f => f.isCloudReference);
+        if (isCloudRef) {
+          const targetUserId = partner?.id || activeConv.members?.find((m: any) => m.id !== user?.id)?.id;
+          if (!targetUserId) throw new Error('Recipient teammate not found');
+          
+          let lastRes = null;
+          for (let i = 0; i < payload.files.length; i++) {
+            const staged = payload.files[i];
+            
+            const shareRes = await filesApi.shareToUser({
+              itemType: staged.type === 'folder' ? 'folder' : 'file',
+              itemId: staged.id,
+              targetUserId,
+              action: staged.shareAction || 'copy'
+            });
+
+            const newId = (shareRes.data as any)?.id || staged.id;
+            const contentText = i === 0 ? payload.content : '';
+
+            if (staged.type === 'folder') {
+              lastRes = await chatApi.sendMessage(conversationId!, {
+                content: contentText || '',
+                type: 'folder',
+                folderId: newId,
+                fileName: staged.name
+              }).then(r => r.data?.data || r.data);
+            } else {
+              lastRes = await chatApi.sendMessage(conversationId!, {
+                content: contentText || '',
+                type: staged.type || 'file',
+                fileId: newId,
+                fileName: staged.name,
+                fileUrl: staged.storageUrl,
+                fileSize: staged.rawSize ? Number(staged.rawSize) : undefined,
+                mimeType: staged.mimeType
+              }).then(r => r.data?.data || r.data);
+            }
+          }
+          return lastRes;
+        }
+
         if (payload.type === 'folder') {
+          console.log('[Upload Flow] Upload started');
+          const uploadStart = performance.now();
           const staged = payload.files[0];
           const fd = new FormData();
           let folderId = undefined;
           let fileName = undefined;
+          const folderName = staged.name ? (staged.name.split('/')[0] || 'Uploaded_Folder') : 'Uploaded_Folder';
           
+          setUploadStates({ 0: { status: 'uploading', percent: 0 } });
           let toastId: string | undefined;
           try {
+            console.log('[Upload Flow] Constructing FormData for folder files...');
+            const fdStart = performance.now();
             staged.files.forEach((file: File) => {
               fd.append('files', file);
             });
             const relativePaths = staged.files.map((file: any) => file.webkitRelativePath || file.name);
             fd.append('relativePaths', JSON.stringify(relativePaths));
-            const folderName = staged.name.split('/')[0] || 'Uploaded_Folder';
             fd.append('folderName', folderName);
+            console.log(`[Upload Flow] FormData construction finished. Time taken: ${(performance.now() - fdStart).toFixed(2)} ms`);
             
             toastId = toast.loading(`Uploading Folder: 0%`);
+            let lastProgressTime = 0;
             const uploadRes = await filesApi.uploadFolder(fd, (progressEvent: any) => {
               const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-              setUploadProgressPercent(percent);
-              if (toastId) toast.loading(`Uploading Folder: ${percent}%`, { id: toastId });
+              const now = performance.now();
+              if (percent === 0 || percent === 100 || now - lastProgressTime >= 200) {
+                lastProgressTime = now;
+                setUploadProgressPercent(percent);
+                setUploadStates({ 0: { status: 'uploading', percent } });
+                if (chatSocket) {
+                  chatSocket.emit('chat:upload_progress', {
+                    conversationId,
+                    fileName: folderName,
+                    percent,
+                    senderName: user?.fullName || 'Teammate'
+                  });
+                }
+                if (toastId) toast.loading(`Uploading Folder: ${percent}%`, { id: toastId });
+              }
             });
             if (toastId) toast.success('Folder uploaded successfully!', { id: toastId });
+            console.log(`[Upload Flow] Upload completed successfully. Total upload time: ${((performance.now() - uploadStart) / 1000).toFixed(2)} s`);
+            setUploadStates({ 0: { status: 'completed', percent: 100 } });
             
             const fileData = uploadRes.data?.data || uploadRes.data;
             if (fileData) {
@@ -618,9 +1137,20 @@ export default function ChatPage() {
               fileName = fileData.name || folderName;
             }
           } catch (err) {
-            console.error('Folder upload failed in chat propagation:', err);
+            console.error('[Upload Flow] Folder upload failed in chat propagation:', err);
+            setUploadStates({ 0: { status: 'failed', percent: 0 } });
             if (toastId) toast.error('Folder upload failed.', { id: toastId });
             else toast.error('Folder upload failed.');
+            throw new Error('Folder upload aborted');
+          } finally {
+            if (chatSocket) {
+              chatSocket.emit('chat:upload_progress', {
+                conversationId,
+                fileName: folderName,
+                percent: null,
+                senderName: user?.fullName || 'Teammate'
+              });
+            }
           }
 
           return chatApi.sendMessage(conversationId!, {
@@ -631,6 +1161,12 @@ export default function ChatPage() {
           }).then(r => r.data?.data || r.data);
         } else {
           // Multiple standard file uploads loop (up to 30 files)
+          const initialStates: any = {};
+          payload.files.forEach((_, idx) => {
+            initialStates[idx] = { status: 'queued', percent: 0 };
+          });
+          setUploadStates(initialStates);
+
           let lastRes = null;
           for (let i = 0; i < payload.files.length; i++) {
             setUploadProgress({ current: i + 1, total: payload.files.length });
@@ -638,6 +1174,11 @@ export default function ChatPage() {
             const fd = new FormData();
             fd.append('file', staged.blob);
             
+            setUploadStates(prev => ({
+              ...prev,
+              [i]: { status: 'uploading', percent: 0 }
+            }));
+
             let fileId = undefined;
             let fileName = undefined;
             let fileUrl = undefined;
@@ -645,9 +1186,26 @@ export default function ChatPage() {
             let mimeType = undefined;
 
             try {
+              let lastProgressTime = 0;
               const uploadRes = await filesApi.upload(fd, (progressEvent: any) => {
                 const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-                setUploadProgressPercent(percent);
+                const now = performance.now();
+                if (percent === 0 || percent === 100 || now - lastProgressTime >= 200) {
+                  lastProgressTime = now;
+                  setUploadProgressPercent(percent);
+                  setUploadStates(prev => ({
+                    ...prev,
+                    [i]: { status: 'uploading', percent }
+                  }));
+                  if (chatSocket) {
+                    chatSocket.emit('chat:upload_progress', {
+                      conversationId,
+                      fileName: staged.name,
+                      percent,
+                      senderName: user?.fullName || 'Teammate'
+                    });
+                  }
+                }
               });
               const fileData = uploadRes.data?.data || uploadRes.data;
               if (fileData) {
@@ -657,9 +1215,26 @@ export default function ChatPage() {
                 fileSize = fileData.size || fileData.sizeBytes;
                 mimeType = fileData.mime_type || fileData.mimeType;
               }
+              setUploadStates(prev => ({
+                ...prev,
+                [i]: { status: 'completed', percent: 100 }
+              }));
             } catch (err) {
               console.error(`File ${staged.name} upload failed:`, err);
+              setUploadStates(prev => ({
+                ...prev,
+                [i]: { status: 'failed', percent: 0 }
+              }));
               continue;
+            } finally {
+              if (chatSocket) {
+                chatSocket.emit('chat:upload_progress', {
+                  conversationId,
+                  fileName: staged.name,
+                  percent: null,
+                  senderName: user?.fullName || 'Teammate'
+                });
+              }
             }
 
             const contentText = i === 0 ? payload.content : '';
@@ -688,6 +1263,7 @@ export default function ChatPage() {
     onSuccess: (data, variables) => {
       setMessage('');
       setStagedFiles([]);
+      setUploadStates({});
       setUploadProgress(null);
       setUploadProgressPercent(null);
       if (variables.tempId) {
@@ -699,6 +1275,7 @@ export default function ChatPage() {
     onError: (err, variables) => {
       setUploadProgress(null);
       setUploadProgressPercent(null);
+      setUploadStates({});
       if (variables.tempId) {
         setSendingMessages(prev => prev.filter(m => m.id !== variables.tempId));
       }
@@ -728,7 +1305,7 @@ export default function ChatPage() {
       }
       
       qc.invalidateQueries({ queryKey: ['conversations'] });
-      if (newRoom && newRoom.id) navigate(`/chat/${newRoom.id}`);
+      if (newRoom && newRoom.id) navigate(`/chat/${newRoom.id}${window.location.search}`);
     },
     onError: (err: any, variables: any) => {
       if (variables.type === 'private') {
@@ -974,7 +1551,7 @@ export default function ChatPage() {
 
   // Moved bulk actions below sortedMessages
 
-  const startDM = async (targetUser: any) => {
+  const startDM = async (targetUser: any, preservedParams?: string) => {
     setActiveMainTab('chats');
     setSearch('');
     // Check locally first
@@ -986,7 +1563,7 @@ export default function ChatPage() {
     );
     
     if (existing) {
-      navigate(`/chat/${existing.id}`);
+      navigate(`/chat/${existing.id}${preservedParams || ''}`);
       return;
     }
 
@@ -999,50 +1576,160 @@ export default function ChatPage() {
     });
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, isFolder = false) => {
-    let files = Array.from(e.target.files || []);
-    if (files.length > 0) {
-      if (isFolder) {
-        const relativePath = (files[0] as any).webkitRelativePath || '';
-        const folderName = relativePath.split('/')[0] || 'Staged Folder';
-        const totalSize = files.reduce((acc, f) => acc + f.size, 0);
-        
-        const stagedFolder = {
-          name: `${folderName}/ (${files.length} files)`,
-          size: (totalSize / 1024 / 1024).toFixed(1) + ' MB',
-          blob: files[0],
-          files: files,
-          type: 'folder'
+  // Handle teammate file/folder sharing redirection and staging
+  useEffect(() => {
+    const shareItemId = searchParams.get('shareItemId');
+    const shareItemType = searchParams.get('shareItemType');
+    const targetUserId = searchParams.get('targetUserId');
+    const shareItemName = searchParams.get('name');
+    const shareAction = searchParams.get('action') || 'copy';
+
+    if (targetUserId && shareItemId && users.length > 0 && conversations.length > 0) {
+      const targetUser = users.find((u: any) => u.id === targetUserId);
+      if (!targetUser) return;
+
+      const currentDM = conversations.find(
+        (c: any) => c.type === 'private' && 
+          (c.members?.some((m: any) => m.id === targetUserId) ||
+           c.name?.toLowerCase().includes(targetUser.fullName.toLowerCase()) || 
+           c.name?.toLowerCase().includes(targetUser.loginId.toLowerCase()))
+      );
+
+      if (!currentDM || conversationId !== currentDM.id) {
+        startDM(targetUser, `?${searchParams.toString()}`);
+        return;
+      }
+
+      const ids = shareItemId.split(',');
+      const types = shareItemType?.split(',') || [];
+      const names = decodeURIComponent(shareItemName || '').split(',');
+
+      const stagedCloudRefs = ids.map((id, idx) => {
+        const type = types[idx] || 'file';
+        const name = names[idx] || 'Shared Item';
+        return {
+          id,
+          name,
+          type: type === 'folder' ? 'folder' : type,
+          size: 'Cloud File ☁️',
+          blob: null as any,
+          isCloudReference: true,
+          shareAction: shareAction
         };
-        setStagedFiles(prev => [...prev, stagedFolder]);
-        toast.success(`Folder "${folderName}" (${files.length} files) staged successfully! 📁`);
-      } else {
-        if (files.length > 30) {
-          toast.error("You can select a maximum of 30 files at a time. Slicing to the first 30 files.");
-          files = files.slice(0, 30);
-        }
-        if (stagedFiles.length + files.length > 30) {
-          toast.error("You can stage a maximum of 30 files total.");
-          return;
-        }
-        const staged = files.map(file => {
-          const ext = file.name.split('.').pop()?.toLowerCase() || '';
-          let type = 'file';
-          if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) type = 'photo';
-          else if (['mp4', 'mov', 'avi', 'mkv'].includes(ext)) type = 'video';
-          else if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) type = 'music';
-          
-          return {
-            name: file.name,
-            size: (file.size / 1024).toFixed(1) + ' KB',
-            blob: file,
-            type: type
-          };
-        });
-        setStagedFiles(prev => [...prev, ...staged]);
-        toast.success(`${files.length} file(s) staged.`);
+      });
+
+      setStagedFilesPendingConfirm(stagedCloudRefs);
+      setShowAttachConfirmModal(true);
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, conversationId, users, conversations]);
+
+  const confirmStagedAttachments = () => {
+    const queueStart = performance.now();
+    console.log('[Upload Flow] Upload queue created');
+    setStagedFiles(prev => [...prev, ...stagedFilesPendingConfirm]);
+    setStagedFilesPendingConfirm([]);
+    setShowAttachConfirmModal(false);
+    console.log(`[Upload Flow] Staged attachments confirmed. Time taken: ${(performance.now() - queueStart).toFixed(2)} ms`);
+    toast.success(`${stagedFilesPendingConfirm.length} item(s) staged.`);
+  };
+
+  const cancelStagedAttachments = () => {
+    setStagedFilesPendingConfirm([]);
+    setShowAttachConfirmModal(false);
+    toast.error('Staging cancelled.');
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, isFolder = false) => {
+    const startTime = performance.now();
+    console.log('[Upload Flow] Folder selected');
+    console.log('[Upload Flow] Folder scan start');
+    const rawFiles = e.target.files;
+    if (!rawFiles || rawFiles.length === 0) {
+      console.log('[Upload Flow] No files selected or folder empty');
+      return;
+    }
+
+    if (isFolder) {
+      const MAX_FOLDER_FILES = 10000;
+      if (rawFiles.length > MAX_FOLDER_FILES) {
+        toast.error(`Folder contains too many files (${rawFiles.length.toLocaleString()}). For directories with more than ${MAX_FOLDER_FILES} files (like code projects), please compress them into a .zip or .tar archive before uploading.`);
+        e.target.value = '';
+        return;
       }
     }
+
+    // Defer file parsing and size calculations to the next tick.
+    // This allows the browser to immediately close the file chooser and render any pending UI/loading states.
+    setTimeout(() => {
+      let files = Array.from(rawFiles);
+      const scanEndTime = performance.now();
+      console.log(`[Upload Flow] Folder scan end. Time taken: ${(scanEndTime - startTime).toFixed(2)} ms. Files count: ${files.length}`);
+
+      if (files.length > 0) {
+        if (isFolder) {
+          const totalSize = files.reduce((acc, f) => acc + f.size, 0);
+          const totalSizeMB = totalSize / 1024 / 1024;
+          console.log(`[Upload Flow] Total folder size: ${totalSizeMB.toFixed(2)} MB`);
+          
+          const MAX_FOLDER_SIZE_MB = 5000; // 5 GB limit for folders in chat
+          if (totalSizeMB > MAX_FOLDER_SIZE_MB) {
+            toast.error(`Folder size (${totalSizeMB.toFixed(1)} MB) exceeds the folder upload limit of ${MAX_FOLDER_SIZE_MB} MB. Please compress the folder into a .zip file before uploading.`);
+            e.target.value = '';
+            return;
+          }
+
+          const relativePath = (files[0] as any).webkitRelativePath || '';
+          const folderName = relativePath.split('/')[0] || 'Staged Folder';
+          
+          const stagedFolder = {
+            name: `${folderName}/ (${files.length} files)`,
+            size: totalSizeMB.toFixed(1) + ' MB',
+            blob: files[0],
+            files: files,
+            type: 'folder'
+          };
+          const previewStart = performance.now();
+          setStagedFilesPendingConfirm([stagedFolder]);
+          setShowAttachConfirmModal(true);
+          console.log(`[Upload Flow] Attachment preview rendered. Time taken: ${(performance.now() - previewStart).toFixed(2)} ms`);
+        } else {
+          const MAX_FILE_SIZE_MB = 5000; // 5 GB limit
+          const oversized = files.filter(f => f.size / 1024 / 1024 > MAX_FILE_SIZE_MB);
+          if (oversized.length > 0) {
+            toast.error(`File "${oversized[0].name}" exceeds the maximum allowed size of ${MAX_FILE_SIZE_MB} MB.`);
+            e.target.value = '';
+            return;
+          }
+
+          if (files.length > 30) {
+            toast.error("You can select a maximum of 30 files at a time. Slicing to the first 30 files.");
+            files = files.slice(0, 30);
+          }
+          if (stagedFiles.length + files.length > 30) {
+            toast.error("You can stage a maximum of 30 files total.");
+            return;
+          }
+          const staged = files.map(file => {
+            const ext = file.name.split('.').pop()?.toLowerCase() || '';
+            let type = 'file';
+            if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) type = 'photo';
+            else if (['mp4', 'mov', 'avi', 'mkv'].includes(ext)) type = 'video';
+            else if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) type = 'music';
+            
+            return {
+              name: file.name,
+              size: formatBytes(file.size),
+              rawSize: file.size,
+              blob: file,
+              type: type
+            };
+          });
+          setStagedFilesPendingConfirm(staged);
+          setShowAttachConfirmModal(true);
+        }
+      }
+    }, 0);
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
@@ -1055,6 +1742,13 @@ export default function ChatPage() {
       }
     }
     if (files.length > 0) {
+      const MAX_FILE_SIZE_MB = 5000; // 5 GB limit
+      const oversized = files.filter(f => f.size / 1024 / 1024 > MAX_FILE_SIZE_MB);
+      if (oversized.length > 0) {
+        toast.error(`Pasted file "${oversized[0].name || 'Asset'}" exceeds the maximum allowed size of ${MAX_FILE_SIZE_MB} MB.`);
+        return;
+      }
+
       let filesToStage = files;
       if (filesToStage.length > 30) {
         toast.error("You can paste a maximum of 30 files at a time. Slicing to the first 30 files.");
@@ -1073,13 +1767,14 @@ export default function ChatPage() {
         
         return {
           name: file.name || `Pasted_Asset_${Date.now()}.${ext || 'png'}`,
-          size: (file.size / 1024).toFixed(1) + ' KB',
+          size: formatBytes(file.size),
+          rawSize: file.size,
           blob: file,
           type: type
         };
       });
-      setStagedFiles(prev => [...prev, ...staged]);
-      toast.success(`${filesToStage.length} pasted file(s) staged successfully! 📋`);
+      setStagedFilesPendingConfirm(staged);
+      setShowAttachConfirmModal(true);
     }
   };
 
@@ -1095,7 +1790,6 @@ export default function ChatPage() {
     const items = Array.from(e.dataTransfer.items);
     if (items.length === 0) return;
 
-    let stagedFolder = null;
     let filesToStage: File[] = [];
 
     // Simple check for folder drop using webkitGetAsEntry
@@ -1116,6 +1810,13 @@ export default function ChatPage() {
     }
 
     if (filesToStage.length > 0) {
+      const MAX_FILE_SIZE_MB = 5000; // 5 GB limit
+      const oversized = filesToStage.filter(f => f.size / 1024 / 1024 > MAX_FILE_SIZE_MB);
+      if (oversized.length > 0) {
+        toast.error(`Dropped file "${oversized[0].name}" exceeds the maximum allowed size of ${MAX_FILE_SIZE_MB} MB.`);
+        return;
+      }
+
       if (filesToStage.length > 30) {
         toast.error("You can drop a maximum of 30 files at a time. Slicing to the first 30 files.");
         filesToStage = filesToStage.slice(0, 30);
@@ -1133,31 +1834,27 @@ export default function ChatPage() {
         
         return {
           name: file.name,
-          size: (file.size / 1024).toFixed(1) + ' KB',
+          size: formatBytes(file.size),
+          rawSize: file.size,
           blob: file,
           type: type
         };
       });
-      setStagedFiles(prev => [...prev, ...staged]);
-      toast.success(`${filesToStage.length} dropped file(s) staged successfully! 📥`);
+      setStagedFilesPendingConfirm(staged);
+      setShowAttachConfirmModal(true);
     }
   };
 
   const handleCallHandshake = (type: 'audio' | 'video') => {
-    const isDesktopApp = !!(window as any).gsvDesktop;
     if (activeConv && activeConv.type === 'private') {
       const partnerName = activeConv.name?.replace('DM with ', '');
       const partnerUser = otherUsers.find(
         (u: any) => u.fullName.toLowerCase() === partnerName?.toLowerCase() || u.loginId.toLowerCase() === partnerName?.toLowerCase()
       );
       
-      if (!isDesktopApp) {
-        window.location.href = `gsvoffice://call?type=${type}&partnerId=${partner?.id || ''}`;
-        return;
-      }
-
-      if (partner && initiateCall) {
-        initiateCall(partner.id, partnerName, type);
+      const targetPartner = partnerUser || partner;
+      if (targetPartner && initiateCall) {
+        initiateCall(targetPartner.id, partnerName || targetPartner.fullName, type);
       } else {
         toast.error('Calling services are unavailable.');
       }
@@ -1173,19 +1870,25 @@ export default function ChatPage() {
     if (activeFilter === 'groups') return c.type === 'group';
     if (activeFilter === 'online') {
       if (c.type !== 'private') return false;
-      const otherUserName = c.name?.replace('DM with ', '').trim().toLowerCase();
-      const isOnline = otherUsers.find((u: any) => u.fullName?.toLowerCase() === otherUserName)?.isOnline;
-      return !!isOnline;
+      const partner = c.members?.find((m: any) => m.id !== user?.id) ||
+                      otherUsers.find((u: any) => {
+                        const pName = c.name?.replace('DM with ', '').trim().toLowerCase();
+                        return u.fullName?.toLowerCase() === pName || u.loginId?.toLowerCase() === pName;
+                      });
+      return partner ? onlineUsers.has(partner.id) : false;
     }
     return true;
   });
 
   const sortedFilteredConvs = [...filteredConvs].sort((a: any, b: any) => {
     const isOnline = (c: any) => {
-      if (c.type !== 'private') return false;
-      const partnerName = c.name?.replace('DM with ', '').trim().toLowerCase();
-      const partner = otherUsers.find((u: any) => u.fullName?.toLowerCase() === partnerName || u.loginId?.toLowerCase() === partnerName);
-      return partner ? partner.isOnline : false;
+      if (c.type === 'group' || c.type === 'channel') return false;
+      const partner = c.members?.find((m: any) => m.id !== user?.id) ||
+                      otherUsers.find((u: any) => {
+                        const pName = c.name?.replace('DM with ', '').trim().toLowerCase();
+                        return u.fullName?.toLowerCase() === pName || u.loginId?.toLowerCase() === pName;
+                      });
+      return partner ? onlineUsers.has(partner.id) : false;
     };
 
     const aOnline = isOnline(a);
@@ -1204,12 +1907,25 @@ export default function ChatPage() {
     const result = [];
     for (const c of sortedFilteredConvs) {
       if (c.type === 'private') {
-        const partnerName = c.name?.replace('DM with ', '').trim().toLowerCase();
-        if (partnerName) {
-          if (seenPartners.has(partnerName)) {
+        const partner = c.members?.find((m: any) => m.id !== user?.id) ||
+                        otherUsers.find((u: any) => {
+                          const pName = c.name?.replace('DM with ', '').trim().toLowerCase();
+                          return u.fullName?.toLowerCase() === pName || u.loginId?.toLowerCase() === pName;
+                        });
+        const partnerId = partner?.id;
+        if (partnerId) {
+          if (seenPartners.has(partnerId)) {
             continue;
           }
-          seenPartners.add(partnerName);
+          seenPartners.add(partnerId);
+        } else {
+          const partnerName = c.name?.replace('DM with ', '').trim().toLowerCase();
+          if (partnerName) {
+            if (seenPartners.has(partnerName)) {
+              continue;
+            }
+            seenPartners.add(partnerName);
+          }
         }
       }
       result.push(c);
@@ -1219,12 +1935,14 @@ export default function ChatPage() {
   
   const displayedTeammates = otherUsers
     .filter((u: any) => {
-      if (activeFilter === 'online' && !u.isOnline) return false;
+      if (activeFilter === 'online' && !onlineUsers.has(u.id)) return false;
       return u.fullName?.toLowerCase().includes(search.toLowerCase()) || u.loginId?.toLowerCase().includes(search.toLowerCase());
     })
     .sort((a: any, b: any) => {
-      if (a.isOnline && !b.isOnline) return -1;
-      if (!a.isOnline && b.isOnline) return 1;
+      const aIsOnline = onlineUsers.has(a.id);
+      const bIsOnline = onlineUsers.has(b.id);
+      if (aIsOnline && !bIsOnline) return -1;
+      if (!aIsOnline && bIsOnline) return 1;
       return a.fullName?.localeCompare(b.fullName || '');
     });
   
@@ -1238,6 +1956,10 @@ export default function ChatPage() {
     name: 'Loading Chat...',
     description: 'Direct secure handshake channel',
   } : null);
+
+  const currentUserMember = activeConv?.members?.find((m: any) => m.id === user?.id);
+  const isCurrentUserAdmin = currentUserMember?.role === 'admin' || activeConv?.created_by === user?.id;
+
   const partner = activeConv?.type === 'private' 
     ? (activeConv.members?.find((m: any) => m.id !== user?.id) || 
        otherUsers.find((u: any) => {
@@ -1271,6 +1993,23 @@ export default function ChatPage() {
     const timeB = new Date(b.created_at || b.createdAt || 0).getTime();
     return timeA - timeB;
   });
+
+  const callMessages = partnerCallLogs.map((log: any, idx: number) => ({
+    id: `call-log-${idx}-${log.timestamp}`,
+    type: 'call',
+    content: JSON.stringify(log),
+    created_at: log.timestamp,
+    sender_id: log.status === 'incoming' || log.status === 'missed' ? partner?.id : user?.id,
+    sender: log.status === 'incoming' || log.status === 'missed' ? partner : user,
+    call_status: log.status
+  }));
+
+  sortedMessages = [...sortedMessages, ...callMessages].sort((a: any, b: any) => {
+    const timeA = new Date(a.created_at || a.createdAt || 0).getTime();
+    const timeB = new Date(b.created_at || b.createdAt || 0).getTime();
+    return timeA - timeB;
+  });
+
   if (clearTimestamp) {
     sortedMessages = sortedMessages.filter((m: any) => {
       const msgTime = new Date(m.created_at || m.createdAt || 0).getTime();
@@ -1463,7 +2202,7 @@ export default function ChatPage() {
   };
 
   return (
-    <div className={styles.chatLayout} style={{ animation: 'slideUp 0.3s ease', position: 'relative' }}>
+    <div className={`${styles.chatLayout} ${conversationId ? styles.chatOpen : ''}`} style={{ animation: 'slideUp 0.3s ease', position: 'relative' }}>
       
       {chatSidebarCollapsed && (!conversationId || !activeConv) && (
         <button
@@ -1573,7 +2312,8 @@ export default function ChatPage() {
 
                 const newStagedFile = {
                   name: file.name,
-                  size: (file.size / 1024).toFixed(1) + ' KB',
+                  size: formatBytes(file.size),
+                  rawSize: file.size,
                   blob: file,
                   type: type
                 };
@@ -1587,6 +2327,55 @@ export default function ChatPage() {
                 setNoteFileName('note.txt');
               }}>
                 <Send size={16} style={{ marginRight: '6px' }} /> Send Note
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAttachConfirmModal && stagedFilesPendingConfirm.length > 0 && (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card card-body" style={{ width: '450px', maxWidth: '90vw', display: 'flex', flexDirection: 'column', gap: '16px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', animation: 'scaleIn 0.2s ease' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '10px', margin: 0 }}>
+              📎 Stage Attachments?
+            </h3>
+            
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
+              Are you sure you want to attach these items to the conversation room?
+            </p>
+
+            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                <span style={{ color: 'var(--text-tertiary)' }}>Total Items:</span>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{stagedFilesPendingConfirm.length}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                <span style={{ color: 'var(--text-tertiary)' }}>Attachment Type:</span>
+                <span style={{ fontWeight: 700, color: 'var(--brand-primary)', textTransform: 'capitalize' }}>
+                  {stagedFilesPendingConfirm.some(f => f.type === 'folder') ? 'Folder Upload 📁' : 'Files 📄'}
+                </span>
+              </div>
+            </div>
+
+            {/* Scrollable list of files */}
+            <div style={{ maxHeight: '160px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: '6px', background: 'var(--bg-secondary)' }}>
+              {stagedFilesPendingConfirm.map((file, idx) => (
+                <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px', padding: '4px 0', borderBottom: idx < stagedFilesPendingConfirm.length - 1 ? '1px solid rgba(255,255,255,0.03)' : 'none' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '280px' }}>
+                    {file.type === 'folder' ? <Folder size={14} style={{ color: 'var(--brand-primary)' }} /> : <File size={14} style={{ color: 'var(--brand-primary)' }} />}
+                    <span>{file.name}</span>
+                  </span>
+                  <span style={{ color: 'var(--text-tertiary)', fontSize: '11px' }}>{file.size}</span>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '4px' }}>
+              <button className="btn btn-secondary" onClick={cancelStagedAttachments} style={{ padding: '8px 16px', fontSize: '13px' }}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={confirmStagedAttachments} style={{ padding: '8px 20px', fontSize: '13px', fontWeight: 600 }}>
+                Confirm Attachment
               </button>
             </div>
           </div>
@@ -1632,6 +2421,119 @@ export default function ChatPage() {
                 <button className="btn btn-ghost" onClick={() => { setForwardingMsg(null); setForwardTargets([]); }}>Cancel</button>
                 <button className="btn btn-primary" disabled={forwardTargets.length === 0} onClick={handleForwardMessage}>Forward</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Folder Browser Modal in Chat */}
+      {chatBrowseFolderId && (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card card-body" style={{ width: '500px', maxWidth: '95vw', background: 'var(--wa-bg-card, var(--bg-card))', border: '1px solid var(--border-color)', borderRadius: '16px', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '80vh' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                {folderHistory.length > 0 && (
+                  <button 
+                    style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', marginRight: '4px' }}
+                    onClick={() => {
+                      const prev = folderHistory[folderHistory.length - 1];
+                      setFolderHistory(history => history.slice(0, -1));
+                      setChatBrowseFolderId(prev.id);
+                      setChatBrowseFolderName(prev.name);
+                    }}
+                    title="Go Back"
+                  >
+                    <ArrowLeft size={18} />
+                  </button>
+                )}
+                <FolderOpen size={20} style={{ color: 'var(--brand-primary)', flexShrink: 0 }} />
+                <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {chatBrowseFolderName || 'Browse Folder'}
+                </h3>
+              </div>
+              <button style={{ background: 'transparent', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', padding: '4px' }} onClick={() => { setChatBrowseFolderId(null); setChatBrowseFolderName(''); setFolderHistory([]); }}>
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', minHeight: '200px', paddingRight: '4px' }}>
+              {loadingBrowseFiles || loadingBrowseFolders ? (
+                <div style={{ display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '10px', color: 'var(--text-secondary)' }}>
+                  <div className="spinner" />
+                  <span style={{ fontSize: '13px' }}>Loading folder items...</span>
+                </div>
+              ) : (browseFiles.length === 0 && browseFolders.length === 0) ? (
+                <div style={{ display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)', fontSize: '13px', flexDirection: 'column', gap: '8px', margin: '40px 0' }}>
+                  <FolderOpen size={36} style={{ opacity: 0.3 }} />
+                  <span>This folder is empty</span>
+                </div>
+              ) : (
+                <>
+                  {/* Render Subfolders */}
+                  {browseFolders.map((f: any) => (
+                    <div 
+                      key={f.id} 
+                      style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer', transition: 'background 0.2s' }}
+                      onClick={() => {
+                        setFolderHistory(prev => [...prev, { id: chatBrowseFolderId, name: chatBrowseFolderName }]);
+                        setChatBrowseFolderId(f.id);
+                        setChatBrowseFolderName(f.name);
+                      }}
+                      className="hover-glass"
+                    >
+                      <Folder size={18} style={{ color: 'var(--brand-primary)', flexShrink: 0 }} />
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                    </div>
+                  ))}
+
+                  {/* Render Files */}
+                  {browseFiles.map((file: any) => {
+                    const normalized = normalizeFile(file);
+                    const ext = normalized.originalName?.split('.').pop()?.toLowerCase() || '';
+                    let pType = 'file';
+                    if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) pType = 'photo';
+                    else if (['mp4', 'mov', 'avi', 'mkv'].includes(ext)) pType = 'video';
+                    else if (ext === 'pdf') pType = 'pdf';
+
+                    const fUrl = normalized.storageUrl || normalized.url || '#';
+
+                    return (
+                      <div 
+                        key={normalized.id} 
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderRadius: '10px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer', transition: 'background 0.2s' }}
+                        onClick={() => {
+                          setPreviewFile({ url: fUrl, name: normalized.originalName, type: pType });
+                        }}
+                        className="hover-glass"
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flex: 1 }}>
+                          {getFileIcon(normalized.originalName)}
+                          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                            <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{normalized.originalName}</span>
+                            <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{formatBytes(normalized.sizeBytes || normalized.size || 0)}</span>
+                          </div>
+                        </div>
+                        <button 
+                          style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '4px' }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSaveToPC(normalized.originalName, '', fUrl);
+                          }}
+                          title="Download File"
+                        >
+                          <Download size={16} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+            </div>
+            
+            <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
+              <button className="btn btn-secondary" onClick={() => { setChatBrowseFolderId(null); setChatBrowseFolderName(''); setFolderHistory([]); }}>
+                Close
+              </button>
             </div>
           </div>
         </div>
@@ -1729,8 +2631,8 @@ export default function ChatPage() {
             >
               <ChevronLeft size={16} style={{ color: 'var(--text-secondary)' }} />
             </button>
-            <MessageSquare size={18} style={{ color: 'var(--brand-primary)' }} />
-            Node Matrix
+            <img src={logoImg} alt="GSV Logo" style={{ width: '24px', height: '24px', objectFit: 'contain' }} />
+            GSVConnect
           </h2>
           <div style={{ display: 'flex', gap: '6px' }}>
             <button 
@@ -1828,6 +2730,57 @@ export default function ChatPage() {
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           {activeMainTab === 'chats' && (
             <div className={`${styles.sidebarSection} ${styles.activeConversationsSection}`} style={{ flex: '1', display: 'flex', flexDirection: 'column', minHeight: 0, borderBottom: 'none', padding: '4px 0' }}>
+              {invitations.length > 0 && (
+                <div style={{ padding: '8px 12px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--brand-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    📩 Pending Group Invites ({invitations.length})
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '150px', overflowY: 'auto' }}>
+                    {invitations.map((inv: any) => (
+                      <div key={inv.id} style={{ background: 'var(--bg-card)', padding: '8px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '11px' }}>
+                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{inv.conversation_name}</div>
+                        <div style={{ color: 'var(--text-secondary)', fontSize: '10px', marginTop: '2px' }}>Invited by {inv.inviter_name}</div>
+                        <div style={{ display: 'flex', gap: '4px', marginTop: '6px' }}>
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-xs"
+                            style={{ flex: 1, padding: '2px 4px', fontSize: '9px', background: '#00a884', border: 'none', height: '18px' }}
+                            onClick={async () => {
+                              try {
+                                await chatApi.acceptInvitation(inv.id);
+                                toast.success('Joined group!');
+                                refetchInvitations();
+                                qc.invalidateQueries({ queryKey: ['conversations'] });
+                                navigate(`/chat/${inv.conversation_id}`);
+                              } catch (err: any) {
+                                toast.error('Failed to accept invitation');
+                              }
+                            }}
+                          >
+                            Accept
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-xs"
+                            style={{ flex: 1, padding: '2px 4px', fontSize: '9px', height: '18px' }}
+                            onClick={async () => {
+                              try {
+                                await chatApi.rejectInvitation(inv.id);
+                                toast.success('Invitation declined');
+                                refetchInvitations();
+                              } catch (err: any) {
+                                toast.error('Failed to reject invitation');
+                              }
+                            }}
+                          >
+                            Decline
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className={styles.convList} style={{ overflowY: 'auto', flex: 1 }}>
                 {deduplicatedSortedConvs.length === 0 ? (
                   <div className={styles.emptyConvs}>
@@ -1864,7 +2817,7 @@ export default function ChatPage() {
                                 const other = conv.members?.find((m: any) => m.id !== user?.id);
                                 return other ? other.fullName : (conv.name || 'Secure DM');
                               }
-                              return conv.name || 'Secure Group';
+                              return conv.name || 'GSVConnect Group';
                             })()}
                           </span>
                           {conv.last_message_at && (
@@ -1906,8 +2859,8 @@ export default function ChatPage() {
                   <div style={{ fontSize: '12px', color: 'var(--wa-text-secondary)', padding: '16px', textAlign: 'center' }}>No teammates matching search</div>
                 ) : (
                   (() => {
-                    const onlineUsers = displayedTeammates.filter((u: any) => u.isOnline);
-                    const offlineUsers = displayedTeammates.filter((u: any) => !u.isOnline);
+                    const onlineUsersList = displayedTeammates.filter((u: any) => onlineUsers.has(u.id));
+                    const offlineUsers = displayedTeammates.filter((u: any) => !onlineUsers.has(u.id));
                     
                     const renderTeammate = (u: any) => (
                       <div
@@ -1915,25 +2868,25 @@ export default function ChatPage() {
                         onClick={() => startDM(u)}
                         className={styles.teammateRow}
                       >
-                        <div className={styles.teammateAvatar}>
+                        <div className={styles.teammateAvatar} style={{ position: 'relative' }}>
                           {initials(u.fullName)}
-                          {u.isOnline && (
-                            <span className={styles.statusDot} />
+                          {onlineUsers.has(u.id) && (
+                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--brand-success)', position: 'absolute', bottom: '0', right: '0', border: '2px solid var(--bg-primary)' }} />
                           )}
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.fullName}</span>
-                          <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{u.isOnline ? '🟢 Online' : '⚪ Offline'}</span>
+                        <div style={{ flex: 1, overflow: 'hidden' }}>
+                          <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{u.fullName}</div>
+                          <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{onlineUsers.has(u.id) ? '🟢 Online' : '⚪ Offline'}</span>
                         </div>
                       </div>
                     );
 
                     return (
                       <>
-                        {onlineUsers.length > 0 && (
+                        {onlineUsersList.length > 0 && (
                           <div style={{ marginBottom: '12px' }}>
-                            <div style={{ fontSize: '11px', fontWeight: 750, color: 'var(--brand-success)', padding: '6px 8px', letterSpacing: '0.5px' }}>🟢 ONLINE ({onlineUsers.length})</div>
-                            {onlineUsers.map(renderTeammate)}
+                            <div style={{ fontSize: '11px', fontWeight: 750, color: 'var(--brand-success)', padding: '6px 8px', letterSpacing: '0.5px' }}>🟢 ONLINE ({onlineUsersList.length})</div>
+                            {onlineUsersList.map(renderTeammate)}
                           </div>
                         )}
                         {offlineUsers.length > 0 && (
@@ -2020,7 +2973,15 @@ export default function ChatPage() {
           <div className={styles.chatHeader} style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
             <div className={styles.chatHeaderInfo}>
               <button 
-                className="btn btn-ghost btn-icon" 
+                className={`btn btn-ghost btn-icon ${styles['mobile-only-back-btn']}`} 
+                onClick={() => navigate('/chat')}
+                style={{ marginRight: '8px' }}
+                title="Back to Chats"
+              >
+                <ArrowLeft size={18} style={{ color: 'var(--text-secondary)' }} />
+              </button>
+              <button 
+                className={`btn btn-ghost btn-icon ${styles['desktop-only-btn']}`} 
                 onClick={() => setSidebarCollapsed && setSidebarCollapsed(!sidebarCollapsed)}
                 style={{ marginRight: '8px' }}
                 title="Toggle Sidebar"
@@ -2028,7 +2989,7 @@ export default function ChatPage() {
                 <Menu size={18} style={{ color: 'var(--text-secondary)' }} />
               </button>
               <button 
-                className="btn btn-ghost btn-icon" 
+                className={`btn btn-ghost btn-icon ${styles['desktop-only-btn']}`} 
                 onClick={() => setChatSidebarCollapsed(!chatSidebarCollapsed)}
                 style={{ marginRight: '8px' }}
                 title={chatSidebarCollapsed ? "Expand Conversation List" : "Collapse Conversation List"}
@@ -2044,12 +3005,12 @@ export default function ChatPage() {
               </div>
               <div>
                 <div className={styles.chatName}>
-                  {activeConv.type === 'private' ? partnerName : (activeConv.name || 'Secure Group')}
+                  {activeConv.type === 'private' ? partnerName : (activeConv.name || 'GSVConnect Group')}
                 </div>
                 <div className={styles.chatStatus}>
                   {activeConv.type === 'private' ? (
                     (() => {
-                      const isOnline = partner ? partner.isOnline : false;
+                      const isOnline = partner ? onlineUsers.has(partner.id) : false;
                       if (isOnline) {
                         return (
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -2149,26 +3110,22 @@ export default function ChatPage() {
                 >
                   <CheckSquare size={18} />
                 </button>
-                {Capacitor.isNativePlatform() && (
-                  <>
-                    <button 
-                      className="btn btn-ghost btn-icon" 
-                      onClick={() => handleCallHandshake('audio')} 
-                      title="Audio Handshake"
-                      style={{ cursor: 'pointer' }}
-                    >
-                      <Phone size={18} style={{ color: 'var(--brand-primary)' }} />
-                    </button>
-                    <button 
-                      className="btn btn-ghost btn-icon" 
-                      onClick={() => handleCallHandshake('video')} 
-                      title="Video Resonance"
-                      style={{ cursor: 'pointer' }}
-                    >
-                      <Video size={18} style={{ color: 'var(--brand-primary)' }} />
-                    </button>
-                  </>
-                )}
+                <button 
+                  className="btn btn-ghost btn-icon" 
+                  onClick={() => handleCallHandshake('audio')} 
+                  title="Audio Handshake"
+                  style={{ cursor: 'pointer' }}
+                >
+                  <Phone size={18} style={{ color: 'var(--brand-primary)' }} />
+                </button>
+                <button 
+                  className="btn btn-ghost btn-icon" 
+                  onClick={() => handleCallHandshake('video')} 
+                  title="Video Resonance"
+                  style={{ cursor: 'pointer' }}
+                >
+                  <Video size={18} style={{ color: 'var(--brand-primary)' }} />
+                </button>
               </div>
             </div>
           </div>
@@ -2291,7 +3248,7 @@ export default function ChatPage() {
           ) : (
             <>
               {/* Messages list */}
-              <div className={styles.messagesArea} onDragOver={handleDragOver} onDrop={handleDrop}>
+              <div className={styles.messagesArea} onScroll={handleScroll} onDragOver={handleDragOver} onDrop={handleDrop}>
                 {sortedMessages.map((msg: any, i: number) => {
                   const isOwn = msg.sender_id === user?.id || msg.sender?.id === user?.id;
                   const senderName = msg.sender_name || msg.sender?.fullName || 'System Teammate';
@@ -2518,8 +3475,11 @@ export default function ChatPage() {
                                   }}
                                   onClick={() => {
                                     const fid = msg.folder_id || msg.folderId || msg.file_id || msg.fileId;
+                                    const fName = msg.file_name || msg.fileName || "Uploaded_Folder";
                                     if (fid) {
-                                      navigate(`/files?folderId=${fid}`);
+                                      setChatBrowseFolderId(fid);
+                                      setChatBrowseFolderName(fName);
+                                      setFolderHistory([]);
                                     }
                                   }}
                                 >
@@ -2527,7 +3487,7 @@ export default function ChatPage() {
                                     <Folder size={18} style={{ color: 'var(--wa-accent)' }} />
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                       <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--wa-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.file_name || msg.fileName || "Uploaded_Folder/"}</div>
-                                      <div style={{ fontSize: '9px', color: 'var(--wa-text-secondary)' }}>Click to view in Cloud Files</div>
+                                      <div style={{ fontSize: '9px', color: 'var(--wa-text-secondary)' }}>Click to open folder in chat</div>
                                     </div>
                                   </div>
                                 </div>
@@ -2563,7 +3523,7 @@ export default function ChatPage() {
                                 const partnerUser = otherUsers.find(
                                   (u: any) => u.fullName?.toLowerCase() === partnerName?.toLowerCase() || u.loginId?.toLowerCase() === partnerName?.toLowerCase()
                                 );
-                                const isPartnerOnline = partnerUser ? partnerUser.isOnline : false;
+                                const isPartnerOnline = partnerUser ? onlineUsers.has(partnerUser.id) : false;
                                 if (!isPartnerOnline) {
                                   return <Check size={15} strokeWidth={2.5} style={{ color: 'var(--text-tertiary)', marginLeft: '4px' }} />;
                                 } else {
@@ -2585,6 +3545,44 @@ export default function ChatPage() {
               })}
             <div ref={messagesEndRef} />
           </div>
+
+          {showScrollBottom && (
+            <button
+              onClick={scrollToBottom}
+              style={{
+                position: 'absolute',
+                bottom: '90px',
+                right: '20px',
+                background: 'var(--bg-secondary, #1f2c34)',
+                color: 'var(--text-primary, #e9edef)',
+                border: '1px solid rgba(255,255,255,0.12)',
+                borderRadius: '50%',
+                width: '44px',
+                height: '44px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
+                zIndex: 20,
+                transition: 'all 0.2s ease',
+                animation: 'fadeInUp 0.25s ease',
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLButtonElement).style.background = 'var(--brand-primary, #00a884)';
+                (e.currentTarget as HTMLButtonElement).style.color = '#fff';
+                (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1.08)';
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLButtonElement).style.background = 'var(--bg-secondary, #1f2c34)';
+                (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary, #e9edef)';
+                (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)';
+              }}
+              title="Jump to latest messages"
+            >
+              <ChevronDown size={22} strokeWidth={2.5} />
+            </button>
+          )}
 
           {/* Bulk Action Bar */}
           {(isSelectionMode || selectedMessages.length > 0) && (
@@ -2616,27 +3614,94 @@ export default function ChatPage() {
 
           {/* Staged attachments file list */}
           {stagedFiles.length > 0 && (
-            <div style={{ background: 'var(--bg-card)', borderTop: '1px solid var(--border-color)', padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ background: 'var(--bg-card)', borderTop: '1px solid var(--border-color)', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--brand-primary)', textTransform: 'uppercase' }}>
-                  Staged SMB Upload Bundle ({stagedFiles.length}) {uploadProgressPercent !== null ? `(Uploading: ${uploadProgressPercent}%)` : ''}
-                </span>
-                <X size={12} style={{ color: 'var(--brand-danger)', cursor: 'pointer' }} onClick={() => setStagedFiles([])} />
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                {stagedFiles.map((file, idx) => (
-                  <span key={idx} style={{ background: 'var(--border-color)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '4px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-primary)' }}>
-                    {file.type === 'folder' ? <Folder size={12} style={{ color: '#6366f1' }} /> : <File size={12} style={{ color: '#6366f1' }} />}
-                    <span style={{ maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
-                    <X size={10} style={{ color: 'var(--brand-danger)', cursor: 'pointer' }} onClick={() => setStagedFiles(prev => prev.filter((_, fIdx) => fIdx !== idx))} />
+                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--brand-primary)', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>📋 staged attachments bundle</span>
+                  <span style={{ fontSize: '10px', background: 'rgba(99, 102, 241, 0.15)', padding: '2px 8px', borderRadius: '12px', color: 'var(--brand-primary)' }}>
+                    {stagedFiles.length} item(s)
                   </span>
-                ))}
+                </span>
+                {!sendMutation.isPending && (
+                  <X size={14} style={{ color: 'var(--brand-danger)', cursor: 'pointer' }} onClick={() => setStagedFiles([])} />
+                )}
               </div>
-              {uploadProgressPercent !== null && (
-                <div style={{ width: '100%', height: '6px', background: 'var(--bg-secondary)', borderRadius: '3px', overflow: 'hidden', marginTop: '6px' }}>
-                  <div style={{ width: `${uploadProgressPercent}%`, height: '100%', background: 'var(--brand-primary)', transition: 'width 0.2s ease-in-out' }} />
+
+              {sendMutation.isPending ? (
+                // Detailed Upload Timeline Progress
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '4px 0' }}>
+                  {stagedFiles.map((file, idx) => {
+                    const state = uploadStates[idx] || { status: 'queued', percent: 0 };
+                    return (
+                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(0,0,0,0.15)', borderRadius: '10px', padding: '10px 14px', border: '1px solid var(--border-color)', position: 'relative' }}>
+                        {/* Status Icon/Timeline Indicator */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', flexShrink: 0 }} title={state.status.toUpperCase()}>
+                          {state.status === 'queued' && (
+                            <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#64748b' }} />
+                          )}
+                          {state.status === 'uploading' && (
+                            <div style={{ width: '14px', height: '14px', border: '2px solid var(--border-color)', borderTopColor: 'var(--brand-primary)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                          )}
+                          {state.status === 'completed' && (
+                            <CheckCircle size={16} style={{ color: 'var(--brand-success)' }} />
+                          )}
+                          {state.status === 'failed' && (
+                            <X size={16} style={{ color: 'var(--brand-danger)' }} />
+                          )}
+                        </div>
+
+                        {/* File Details */}
+                        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '240px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              {file.type === 'folder' ? <Folder size={12} style={{ color: 'var(--brand-primary)' }} /> : <File size={12} style={{ color: 'var(--brand-primary)' }} />}
+                              <span>{file.name}</span>
+                            </span>
+                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 500 }}>
+                              {state.status === 'uploading' ? `Uploading ${state.percent}%` : state.status === 'queued' ? 'Queued' : state.status === 'completed' ? 'Completed' : 'Failed'}
+                            </span>
+                          </div>
+                          
+                          {/* Individual Progress bar */}
+                          {state.status === 'uploading' && (
+                            <div style={{ width: '100%', height: '4px', background: 'var(--bg-secondary)', borderRadius: '2px', overflow: 'hidden', marginTop: '6px' }}>
+                              <div style={{ width: `${state.percent}%`, height: '100%', background: 'var(--brand-primary)', transition: 'width 0.1s linear' }} />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                // Horizontal Staged Badges before sending
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  {stagedFiles.map((file, idx) => (
+                    <span key={idx} style={{ background: 'var(--border-color)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-primary)' }}>
+                      {file.type === 'folder' ? <Folder size={12} style={{ color: '#6366f1' }} /> : <File size={12} style={{ color: '#6366f1' }} />}
+                      <span style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{file.name}</span>
+                      <X size={10} style={{ color: 'var(--brand-danger)', cursor: 'pointer' }} onClick={() => setStagedFiles(prev => prev.filter((_, fIdx) => fIdx !== idx))} />
+                    </span>
+                  ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Other users upload progress */}
+          {Object.keys(otherUploads).length > 0 && (
+            <div style={{ background: 'var(--bg-card)', borderTop: '1px solid var(--border-color)', padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {Object.entries(otherUploads).map(([uId, up]: any) => (
+                <div key={uId} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: 'var(--brand-primary)' }}>
+                    <span>💬 <strong>{up.senderName}</strong> is sending <strong>{up.fileName}</strong>...</span>
+                    <span>{up.percent}%</span>
+                  </div>
+                  <div style={{ width: '100%', height: '4px', background: 'var(--bg-secondary)', borderRadius: '2px', overflow: 'hidden' }}>
+                    <div style={{ width: `${up.percent}%`, height: '100%', background: 'var(--brand-primary)', transition: 'width 0.1s linear' }} />
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
@@ -2718,37 +3783,18 @@ export default function ChatPage() {
                     type="button"
                     className="btn btn-ghost btn-icon"
                     title="Personal Ideas / Scratchpad"
-                    onClick={() => setShowScratchpad(!showScratchpad)}
+                    onClick={() => {
+                      setShowScratchpad(!showScratchpad);
+                      if (!showScratchpad) {
+                        setScratchpadPos({
+                          x: Math.max(20, (window.innerWidth - 330) / 2),
+                          y: Math.max(20, (window.innerHeight - 380) / 2)
+                        });
+                      }
+                    }}
                   >
                     <StickyNote size={20} style={{ color: showScratchpad ? 'var(--wa-accent)' : 'var(--text-secondary)' }} />
                   </button>
-                  {showScratchpad && (
-                    <div style={{
-                      position: 'absolute', bottom: '100%', left: 0, marginBottom: '12px', zIndex: 1000,
-                      background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px',
-                      width: '300px', height: '350px', display: 'flex', flexDirection: 'column',
-                      boxShadow: '0 10px 30px rgba(0,0,0,0.4)', overflow: 'hidden'
-                    }} className="animate-scale-in">
-                      <div style={{ padding: '10px 14px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                          <StickyNote size={14} color="var(--wa-accent)" /> 
-                          Personal Ideas
-                        </div>
-                        <button type="button" className="btn btn-ghost btn-icon btn-sm" onClick={() => setShowScratchpad(false)} style={{ width: '24px', height: '24px', minHeight: '24px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <X size={14} />
-                        </button>
-                      </div>
-                      <textarea
-                        value={scratchpadText}
-                        onChange={e => setScratchpadText(e.target.value)}
-                        placeholder="Type your brilliant ideas here... (Auto-saves locally)"
-                        style={{
-                          flex: 1, padding: '12px', background: 'transparent', border: 'none', resize: 'none',
-                          color: 'var(--text-primary)', fontSize: '13px', outline: 'none', fontFamily: 'inherit'
-                        }}
-                      />
-                    </div>
-                  )}
                 </div>
                 <div className="dropdown">
                   <button
@@ -2893,22 +3939,35 @@ export default function ChatPage() {
                 position: 'absolute', bottom: '80px', right: '20px', zIndex: 1100,
                 background: 'var(--bg-card)', border: '1.5px solid var(--brand-primary)',
                 boxShadow: '0 8px 32px rgba(99, 102, 241, 0.3)', borderRadius: '12px',
-                padding: '12px 18px', display: 'flex', alignItems: 'center', gap: '12px',
-                color: 'var(--text-primary)', backdropFilter: 'blur(8px)', animation: 'slideUp 0.3s ease'
+                padding: '12px 18px', display: 'flex', flexDirection: 'column', gap: '8px',
+                color: 'var(--text-primary)', backdropFilter: 'blur(8px)', animation: 'slideUp 0.3s ease',
+                minWidth: '240px'
               }}>
-                <div style={{ width: '18px', height: '18px', border: '2px solid var(--border-color)', borderTopColor: 'var(--brand-primary)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--brand-primary)' }}>
-                    {uploadProgress 
-                      ? `Uploading ${uploadProgress.current} of ${uploadProgress.total}`
-                      : `Uploading ${stagedFiles.length > 1 ? `${stagedFiles.length} Attachments` : 'Attachment'}`}
-                  </span>
-                  <span style={{ fontSize: '12px', fontWeight: 500, opacity: 0.9, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {uploadProgress
-                      ? stagedFiles[uploadProgress.current - 1]?.name
-                      : (stagedFiles.length > 1 ? `${stagedFiles.length} files staged` : stagedFiles[0]?.name)}
-                  </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ width: '18px', height: '18px', border: '2px solid var(--border-color)', borderTopColor: 'var(--brand-primary)', borderRadius: '50%', animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+                  <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                    <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--brand-primary)', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>
+                        {uploadProgress 
+                          ? `Uploading ${uploadProgress.current} of ${uploadProgress.total}`
+                          : `Uploading ${stagedFiles.length > 1 ? `${stagedFiles.length} Attachments` : 'Attachment'}`}
+                      </span>
+                      {uploadProgressPercent !== null && (
+                        <span>{uploadProgressPercent}%</span>
+                      )}
+                    </span>
+                    <span style={{ fontSize: '12px', fontWeight: 500, opacity: 0.9, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {uploadProgress
+                        ? stagedFiles[uploadProgress.current - 1]?.name
+                        : (stagedFiles.length > 1 ? `${stagedFiles.length} files staged` : stagedFiles[0]?.name)}
+                    </span>
+                  </div>
                 </div>
+                {uploadProgressPercent !== null && (
+                  <div style={{ width: '100%', height: '4px', background: 'rgba(0,0,0,0.2)', borderRadius: '2px', overflow: 'hidden' }}>
+                    <div style={{ width: `${uploadProgressPercent}%`, height: '100%', background: 'var(--brand-primary)', transition: 'width 0.1s linear' }} />
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -2949,10 +4008,10 @@ export default function ChatPage() {
                       <div style={{ marginTop: '4px' }}>
                         <span style={{
                           padding: '2px 8px', borderRadius: '12px', fontSize: '10px', fontWeight: 600,
-                          background: partner?.isOnline ? 'rgba(74, 222, 128, 0.15)' : 'rgba(148, 163, 184, 0.15)',
-                          color: partner?.isOnline ? 'var(--brand-success)' : 'var(--text-secondary)'
+                          background: (partner && onlineUsers.has(partner.id)) ? 'rgba(74, 222, 128, 0.15)' : 'rgba(148, 163, 184, 0.15)',
+                          color: (partner && onlineUsers.has(partner.id)) ? 'var(--brand-success)' : 'var(--text-secondary)'
                         }}>
-                          {partner?.isOnline ? '🟢 Online' : '⚪ Offline'}
+                          {(partner && onlineUsers.has(partner.id)) ? '🟢 Online' : '⚪ Offline'}
                         </span>
                       </div>
                     </div>
@@ -2963,7 +4022,7 @@ export default function ChatPage() {
                       {activeConv.name?.charAt(0).toUpperCase() || 'G'}
                     </div>
                     <div style={{ fontWeight: 700, fontSize: '16px', color: 'var(--text-primary)' }}>{activeConv.name}</div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{activeConv.description || 'Secure group resonance channel'}</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{activeConv.description || 'GSVConnect secure group channel'}</div>
                   </div>
                 )}
 
@@ -2988,6 +4047,33 @@ export default function ChatPage() {
                   >
                     🗑️ Clear Chat History
                   </button>
+                  {isCurrentUserAdmin && activeConv?.type === 'group' && (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      style={{ background: 'rgba(239, 68, 68, 0.15)', color: 'var(--brand-danger)', border: '1px solid rgba(239, 68, 68, 0.3)', width: '100%', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' }}
+                      onClick={() => {
+                        setConfirmModal({
+                          title: 'Delete Group for Everyone?',
+                          message: 'Are you sure you want to permanently delete this group? This action cannot be undone and will delete the conversation for all members.',
+                          iconType: 'trash',
+                          confirmText: 'Delete Group',
+                          brandColor: 'var(--brand-danger)',
+                          onConfirm: async () => {
+                            try {
+                              await chatApi.deleteConversation(activeConv.id, true);
+                              toast.success('Group deleted for everyone.');
+                              qc.invalidateQueries({ queryKey: ['conversations'] });
+                              navigate('/chat');
+                            } catch (err: any) {
+                              toast.error(err.response?.data?.message || err.message || 'Failed to delete group');
+                            }
+                          }
+                        });
+                      }}
+                    >
+                      💥 Delete Group for Everyone
+                    </button>
+                  )}
                 </div>
 
                 {/* Shared Files List block */}
@@ -3151,20 +4237,84 @@ export default function ChatPage() {
 
                     {/* Members list (Simulated or actual) */}
                     <div>
-                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
-                        👥 Active Members
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          👥 Active Members ({activeConv?.members?.length || 1})
+                        </div>
+                        {isCurrentUserAdmin && activeConv?.type === 'group' && (
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-icon btn-xs"
+                            onClick={() => setShowInviteModal(true)}
+                            title="Invite Member"
+                            style={{ padding: 0, width: '20px', height: '20px', color: 'var(--brand-primary)' }}
+                          >
+                            <Plus size={14} />
+                          </button>
+                        )}
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0' }}>
-                          <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'var(--gradient-brand)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 'bold' }}>ME</div>
-                          <span style={{ fontSize: '12px', fontWeight: 600 }}>{user?.fullName} (You)</span>
-                        </div>
-                        {otherUsers.slice(0, 3).map((u: any) => (
-                          <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0' }}>
-                            <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 'bold' }}>{initials(u.fullName)}</div>
-                            <span style={{ fontSize: '12px' }}>{u.fullName}</span>
-                          </div>
-                        ))}
+                        {activeConv?.members?.map((m: any) => {
+                          const isSelf = m.id === user?.id;
+                          const isAdmin = m.role === 'admin';
+                          return (
+                            <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                                <div style={{ 
+                                  width: '24px', 
+                                  height: '24px', 
+                                  borderRadius: '50%', 
+                                  background: isSelf ? 'var(--gradient-brand)' : 'var(--bg-secondary)', 
+                                  color: isSelf ? 'white' : 'var(--text-secondary)', 
+                                  display: 'flex', 
+                                  alignItems: 'center', 
+                                  justifyContent: 'center', 
+                                  fontSize: '10px', 
+                                  fontWeight: 'bold',
+                                  flexShrink: 0
+                                }}>
+                                  {isSelf ? 'ME' : initials(m.fullName)}
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                                  <span style={{ fontSize: '12px', fontWeight: isSelf ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {m.fullName} {isSelf && ' (You)'}
+                                  </span>
+                                  {isAdmin && (
+                                    <span style={{ fontSize: '9px', color: 'var(--brand-primary)', fontWeight: 600 }}>
+                                      Admin
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              
+                              {/* Admin actions */}
+                              {isCurrentUserAdmin && activeConv?.type === 'group' && !isSelf && (
+                                <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                                  <button
+                                    type="button"
+                                    className="btn btn-ghost btn-xs"
+                                    style={{ fontSize: '10px', padding: '2px 4px', height: '20px' }}
+                                    onClick={() => handleUpdateMemberRole(m.id, isAdmin ? 'member' : 'admin')}
+                                  >
+                                    {isAdmin ? 'Demote' : 'Promote'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn btn-ghost btn-xs text-danger"
+                                    style={{ fontSize: '10px', padding: '2px 4px', height: '20px', color: 'var(--brand-danger)' }}
+                                    onClick={() => {
+                                      if (confirm(`Remove ${m.fullName} from this group?`)) {
+                                        handleRemoveMember(m.id);
+                                      }
+                                    }}
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   </>
@@ -3179,10 +4329,10 @@ export default function ChatPage() {
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: '64px', marginBottom: '16px', animation: 'pulse 3s infinite' }}>💬</div>
             <h2 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: '24px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '8px', letterSpacing: '-0.5px' }}>
-              Welcome to Node Chat Matrix
+              Welcome to GSVConnect 🔒
             </h2>
             <p style={{ color: 'var(--text-secondary)', fontSize: '13px', maxWidth: '340px', margin: '0 auto', lineHeight: 1.6 }}>
-              Select a secure department room, custom group, or teammate directory from the left side matrix to start messaging.
+              Select a secure department room, custom group, or teammate from the sidebar to start messaging on GSVConnect.
             </p>
           </div>
         </div>
@@ -3257,6 +4407,70 @@ export default function ChatPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Invite Member Modal */}
+      {showInviteModal && (
+        <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && setShowInviteModal(false)}>
+          <div className="modal animate-scale-in" style={{ maxWidth: '440px', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid var(--border-color)' }}>
+              <h4 className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Plus size={18} style={{ color: 'var(--brand-primary)' }} />
+                Invite Member to Group
+              </h4>
+              <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setShowInviteModal(false)}>✕</button>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px', maxHeight: '300px', overflowY: 'auto' }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                Select a teammate to invite to **{activeConv?.name}**:
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {otherUsers.filter((u: any) => !activeConv?.members?.some((m: any) => m.id === u.id)).length === 0 ? (
+                  <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', textAlign: 'center', padding: '12px 0' }}>
+                    All teammates are already in this group.
+                  </div>
+                ) : (
+                  otherUsers
+                    .filter((u: any) => !activeConv?.members?.some((m: any) => m.id === u.id))
+                    .map((u: any) => (
+                      <div 
+                        key={u.id} 
+                        style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'space-between', 
+                          padding: '8px 12px', 
+                          background: 'var(--bg-secondary)', 
+                          borderRadius: '8px', 
+                          border: '1px solid var(--border-color)' 
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'var(--wa-accent)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 'bold' }}>
+                            {initials(u.fullName)}
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontSize: '13px', fontWeight: 600 }}>{u.fullName}</span>
+                            <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>@{u.loginId}</span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-xs"
+                          onClick={() => handleInviteMember(u.id)}
+                        >
+                          Invite
+                        </button>
+                      </div>
+                    ))
+                )}
+              </div>
+            </div>
+            <div className="modal-footer" style={{ borderTop: '1px solid var(--border-color)' }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowInviteModal(false)}>Cancel</button>
+            </div>
           </div>
         </div>
       )}
@@ -3432,15 +4646,44 @@ export default function ChatPage() {
           )}
 
           {msgContextMenu.msg.type === 'folder' && (
-            <div className="dropdown-item" onClick={() => {
-              const fid = msgContextMenu.msg.folder_id || msgContextMenu.msg.folderId || msgContextMenu.msg.file_id || msgContextMenu.msg.fileId;
-              if (fid) {
-                navigate(`/files?folderId=${fid}`);
-              }
-              setMsgContextMenu(null);
-            }} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', padding: '8px 12px', cursor: 'pointer', fontWeight: 600 }}>
-              <Folder size={15} /> Open in Cloud Files
-            </div>
+            <>
+              <div className="dropdown-item" onClick={async () => {
+                const fid = msgContextMenu.msg.folder_id || msgContextMenu.msg.folderId || msgContextMenu.msg.file_id || msgContextMenu.msg.fileId;
+                const fname = msgContextMenu.msg.file_name || msgContextMenu.msg.fileName || 'Shared_Folder';
+                if (fid) {
+                  const toastId = toast.loading(`Preparing folder "${fname}" download...`);
+                  try {
+                    const response = await filesApi.downloadFolder(fid);
+                    const url = window.URL.createObjectURL(new Blob([response.data]));
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.setAttribute('download', `${fname}.zip`);
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    window.URL.revokeObjectURL(url);
+                    toast.success(`Downloaded "${fname}" successfully!`, { id: toastId });
+                  } catch (err: any) {
+                    toast.error(`Failed to download folder: ${err.message || 'Server error'}`, { id: toastId });
+                  }
+                }
+                setMsgContextMenu(null);
+              }} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', padding: '8px 12px', cursor: 'pointer', fontWeight: 600 }}>
+                <Download size={15} /> Download Folder
+              </div>
+              <div className="dropdown-item" onClick={() => {
+                const fid = msgContextMenu.msg.folder_id || msgContextMenu.msg.folderId || msgContextMenu.msg.file_id || msgContextMenu.msg.fileId;
+                const fName = msgContextMenu.msg.file_name || msgContextMenu.msg.fileName || "Uploaded_Folder";
+                if (fid) {
+                  setChatBrowseFolderId(fid);
+                  setChatBrowseFolderName(fName);
+                  setFolderHistory([]);
+                }
+                setMsgContextMenu(null);
+              }} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', padding: '8px 12px', cursor: 'pointer', fontWeight: 600 }}>
+                <Folder size={15} /> Open Folder in Chat
+              </div>
+            </>
           )}
 
           <div className="dropdown-item" onClick={() => {
@@ -3592,6 +4835,372 @@ export default function ChatPage() {
                 🔄 Reload Page
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Draggable Scratchpad (Personal Ideas) */}
+      {showScratchpad && (
+        <div 
+          id="scratchpad-popup"
+          style={{
+            position: 'fixed',
+            left: isScratchpadMaximized ? '5vw' : `${scratchpadPos.x}px`,
+            top: isScratchpadMaximized ? '5vh' : `${scratchpadPos.y}px`,
+            width: isScratchpadMaximized ? '90vw' : '330px',
+            height: isScratchpadMaximized ? '90vh' : '380px',
+            background: 'var(--bg-card)', 
+            border: '1px solid var(--border-color)', 
+            borderRadius: '12px',
+            display: 'flex', 
+            flexDirection: 'column',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.4)', 
+            overflow: 'hidden',
+            zIndex: 1000,
+            transition: isDraggingScratchpad ? 'none' : 'width 0.2s ease, height 0.2s ease, left 0.2s ease, top 0.2s ease',
+          }} 
+          className="animate-scale-in"
+        >
+          {/* Header Row - Drag handle */}
+          <div 
+            onMouseDown={handleScratchpadHeaderMouseDown}
+            style={{
+              padding: '10px 14px',
+              background: 'var(--bg-secondary)',
+              borderBottom: '1px solid var(--border-color)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              cursor: isScratchpadMaximized ? 'default' : 'grab'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+              <StickyNote size={14} color="var(--wa-accent)" /> 
+              Personal Ideas
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <button 
+                type="button" 
+                className="btn btn-ghost btn-icon btn-sm" 
+                onClick={() => setIsScratchpadMaximized(!isScratchpadMaximized)} 
+                style={{ width: '24px', height: '24px', minHeight: '24px', padding: 0 }}
+                title={isScratchpadMaximized ? "Minimize" : "Maximize"}
+              >
+                {isScratchpadMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-ghost btn-icon btn-sm" 
+                onClick={() => setShowScratchpad(false)} 
+                style={{ width: '24px', height: '24px', minHeight: '24px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </div>
+
+          {/* Document Title Input */}
+          <div style={{ padding: '8px 12px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>File Name:</span>
+            <input
+              type="text"
+              value={scratchpadTitle}
+              onChange={e => setScratchpadTitle(e.target.value)}
+              placeholder="e.g. Stage One"
+              style={{
+                flex: 1,
+                background: 'transparent',
+                border: 'none',
+                borderBottom: '1px solid var(--border-color)',
+                color: 'var(--text-primary)',
+                fontSize: '12px',
+                outline: 'none',
+                padding: '2px 4px'
+              }}
+            />
+            <select
+              value={selectedExtension}
+              onChange={e => setSelectedExtension(e.target.value)}
+              style={{
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '6px',
+                color: 'var(--text-primary)',
+                fontSize: '11px',
+                fontWeight: 600,
+                outline: 'none',
+                padding: '2px 6px',
+                cursor: 'pointer'
+              }}
+            >
+              {FILE_EXTENSIONS.map(fe => (
+                <option key={fe.ext} value={fe.ext} style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>
+                  .{fe.ext}
+                </option>
+              ))}
+            </select>
+          </div>
+          
+          {/* Text Formatting Toolbar */}
+          <div style={{
+            padding: '6px 12px',
+            background: 'var(--bg-secondary)',
+            borderBottom: '1px solid var(--border-color)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <button
+              type="button"
+              onClick={() => insertFormatting('**', '**')}
+              title="Bold"
+              style={{
+                background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px',
+                color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                borderRadius: '4px'
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <Bold size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => insertFormatting('_', '_')}
+              title="Italic"
+              style={{
+                background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px',
+                color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                borderRadius: '4px'
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <Italic size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => insertFormatting('`', '`')}
+              title="Inline Code"
+              style={{
+                background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px',
+                color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                borderRadius: '4px'
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <Code size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => insertFormatting('```\n', '\n```')}
+              title="Code Block"
+              style={{
+                background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px',
+                color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                borderRadius: '4px', fontSize: '10px', fontWeight: 'bold'
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              Block
+            </button>
+            <button
+              type="button"
+              onClick={() => insertFormatting('- ')}
+              title="Bullet List"
+              style={{
+                background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px',
+                color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                borderRadius: '4px'
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <List size={14} />
+            </button>
+          </div>
+
+          <textarea
+            id="scratchpad-textarea"
+            value={scratchpadText}
+            onChange={e => setScratchpadText(e.target.value)}
+            placeholder="Type your brilliant ideas here... (Auto-saves locally)"
+            style={{
+              flex: 1, padding: '12px', background: 'transparent', border: 'none', resize: 'none',
+              color: 'var(--text-primary)', fontSize: '13px', outline: 'none', fontFamily: 'inherit'
+            }}
+          />
+
+          {/* Bottom Action Bar */}
+          <div style={{
+            padding: '8px 12px',
+            background: 'var(--bg-secondary)',
+            borderTop: '1px solid var(--border-color)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            position: 'relative'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              {/* Menu Dropdown */}
+              <div style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-icon btn-sm"
+                  title="Options"
+                  onClick={() => setShowScratchpadMenu(!showScratchpadMenu)}
+                  style={{ width: '28px', height: '28px', minHeight: '28px', padding: 0 }}
+                >
+                  <MoreVertical size={16} />
+                </button>
+                {showScratchpadMenu && (
+                  <div style={{
+                    position: 'absolute', bottom: '100%', left: 0, marginBottom: '8px', zIndex: 1100,
+                    background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.5)', width: '220px', display: 'flex', flexDirection: 'column',
+                    maxHeight: '320px', overflow: 'hidden'
+                  }} className="animate-scale-in">
+                    <div style={{ padding: '8px 12px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)', fontSize: '11px', fontWeight: 750, color: 'var(--text-secondary)', letterSpacing: '0.5px' }}>
+                      CHOOSE FILE EXTENSION
+                    </div>
+                    
+                    {/* Extension Search Input */}
+                    <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border-color)' }}>
+                      <input
+                        type="text"
+                        placeholder="Search extension..."
+                        value={extensionSearch}
+                        onChange={e => setExtensionSearch(e.target.value)}
+                        onClick={e => e.stopPropagation()}
+                        style={{
+                          width: '100%',
+                          background: 'rgba(0,0,0,0.2)',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: '6px',
+                          color: 'var(--text-primary)',
+                          fontSize: '11px',
+                          padding: '4px 8px',
+                          outline: 'none'
+                        }}
+                      />
+                    </div>
+                    
+                    {/* Scrollable Extensions List */}
+                    <div style={{ flex: 1, overflowY: 'auto', maxHeight: '180px' }}>
+                      {FILE_EXTENSIONS.filter(fe => 
+                        fe.ext.toLowerCase().includes(extensionSearch.toLowerCase()) || 
+                        fe.name.toLowerCase().includes(extensionSearch.toLowerCase())
+                      ).map(fe => {
+                        const isSelected = selectedExtension === fe.ext;
+                        return (
+                          <div
+                            key={fe.ext}
+                            onClick={() => {
+                              setSelectedExtension(fe.ext);
+                              toast.success(`Selected format: .${fe.ext}`);
+                            }}
+                            style={{
+                              padding: '6px 12px',
+                              fontSize: '12px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              background: isSelected ? 'rgba(0, 168, 132, 0.12)' : 'transparent',
+                              color: isSelected ? 'var(--brand-success)' : 'var(--text-primary)'
+                            }}
+                            className="dropdown-item"
+                          >
+                            <span>{fe.name}</span>
+                            {isSelected && <span style={{ fontSize: '10px' }}>🟢</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    
+                    {/* General Actions Section */}
+                    <div style={{ borderTop: '1px solid var(--border-color)', padding: '4px 0', background: 'var(--bg-secondary)' }}>
+                      <div
+                        onClick={handleInsertScratchpadToChat}
+                        style={{ padding: '6px 12px', fontSize: '12px', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                        className="dropdown-item"
+                      >
+                        <Plus size={12} /> Insert as Text to Input
+                      </div>
+                      <div
+                        onClick={() => {
+                          navigator.clipboard.writeText(scratchpadText);
+                          toast.success('Note copied to clipboard!');
+                          setShowScratchpadMenu(false);
+                        }}
+                        style={{ padding: '6px 12px', fontSize: '12px', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                        className="dropdown-item"
+                      >
+                        <Copy size={12} /> Copy to Clipboard
+                      </div>
+                      <div
+                        onClick={() => {
+                          setScratchpadText('');
+                          localStorage.setItem('gsv_scratchpad', '');
+                          toast.success('Scratchpad cleared.');
+                          setShowScratchpadMenu(false);
+                        }}
+                        style={{ padding: '6px 12px', fontSize: '12px', color: 'var(--brand-danger)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                        className="dropdown-item"
+                      >
+                        <Trash2 size={12} /> Clear Note
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                title="Clear Note"
+                onClick={() => {
+                  setScratchpadText('');
+                  localStorage.setItem('gsv_scratchpad', '');
+                  toast.success('Note cleared 🧹');
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', padding: '4px 6px', color: 'var(--brand-danger)', background: 'transparent', border: 'none' }}
+              >
+                <Trash2 size={12} /> Clear
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                title="Copy Note"
+                onClick={() => {
+                  navigator.clipboard.writeText(scratchpadText);
+                  toast.success('Note copied 📋');
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', padding: '4px 6px', color: 'var(--text-primary)', background: 'transparent', border: 'none' }}
+              >
+                <Copy size={12} /> Copy
+              </button>
+            </div>
+            {/* Send button (primary) */}
+            <button
+              type="button"
+              className="btn btn-primary btn-sm px-3"
+              style={{
+                background: 'var(--wa-accent, #00a884)',
+                borderColor: 'var(--wa-accent, #00a884)',
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '12px',
+                fontWeight: 600,
+                borderRadius: '8px'
+              }}
+              onClick={sendScratchpadAsFile}
+            >
+              <Send size={12} /> Send to Chat
+            </button>
           </div>
         </div>
       )}

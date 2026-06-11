@@ -46,17 +46,17 @@
           ]
         }
       ],
-      "icon": "assets/icon.ico",
-      "requestedExecutionLevel": "asInvoker"
+      "icon": "assets/icon.ico"
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "GSV Office",
       "allowElevation": true,
       "perMachine": false,
+      "runAfterFinish": true,
       "deleteAppDataOnUninstall": false
     },
     "portable": {

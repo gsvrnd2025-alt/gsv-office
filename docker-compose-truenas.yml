@@ -21,7 +21,7 @@ services:
   # Nginx Reverse Proxy (Frontend with GSV Logo)
   # ─────────────────────────────────────────────
   nginx:
-    image: ghcr.io/gsvrnd2025-alt/gsv-office-nginx:latest
+    image: ghcr.io/gsvrnd2025-alt/gsv-office-nginx:${APP_VERSION:-latest}
     container_name: gsv_nginx
     restart: unless-stopped
     ports:
@@ -36,26 +36,31 @@ services:
       - api
     networks:
       - gsv_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ─────────────────────────────────────────────
   # NestJS Backend API
   # ─────────────────────────────────────────────
   api:
-    image: ghcr.io/gsvrnd2025-alt/gsv-office-api:latest
+    image: ghcr.io/gsvrnd2025-alt/gsv-office-api:${APP_VERSION:-latest}
     container_name: gsv_api
     restart: unless-stopped
     environment:
       # App Settings
       APP_NAME: "GSV Office"
-      APP_VERSION: "1.0.0"
+      APP_VERSION: "1.0.3"
       NODE_ENV: "production"
       PORT: 3000
       APP_URL: "http://192.168.0.177:8080"
       APP_DOMAIN: "192.168.0.177"
       
       # JWT Authentication
-      JWT_ACCESS_SECRET: "gsv_office_super_secure_access_token_secret_key_2026_production"
-      JWT_REFRESH_SECRET: "gsv_office_super_secure_refresh_token_secret_key_2026_production"
+      JWT_ACCESS_SECRET: "${JWT_ACCESS_SECRET}"
+      JWT_REFRESH_SECRET: "${JWT_REFRESH_SECRET}"
       JWT_ACCESS_EXPIRY: "15m"
       JWT_REFRESH_EXPIRY: "7d"
       
@@ -64,7 +69,7 @@ services:
       DB_PORT: 5432
       DB_NAME: "gsv_office"
       DB_USER: "gsv_admin"
-      DB_PASSWORD: "gsv_secure_password_2026"
+      DB_PASSWORD: "${DB_PASSWORD}"
       DB_SSL: "false"
       DB_SYNC: "false"
       DB_LOGGING: "false"
@@ -72,28 +77,28 @@ services:
       # Redis Connection
       REDIS_HOST: "redis"
       REDIS_PORT: 6379
-      REDIS_PASSWORD: "gsv_redis_password_2026"
+      REDIS_PASSWORD: "${REDIS_PASSWORD}"
       
       # MinIO Object Storage
       MINIO_ENDPOINT: "minio"
       MINIO_PORT: 9000
       MINIO_USE_SSL: "false"
       MINIO_ROOT_USER: "gsv_minio_admin"
-      MINIO_ROOT_PASSWORD: "gsv_minio_password_2026"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD}"
       MINIO_BUCKET_FILES: "gsv-files"
       MINIO_BUCKET_AVATARS: "gsv-avatars"
       MINIO_BUCKET_CHAT: "gsv-chat"
       
       # Storage Limits
       UPLOAD_PATH: "/app/uploads"
-      MAX_FILE_SIZE_MB: 500
+      MAX_FILE_SIZE_MB: 5000
 
       # Mail SMTP Server Settings
       MAIL_DOMAIN: "gsv.local"
       MAIL_HOST: "mailserver"
       MAIL_PORT: 587
       MAIL_USER: "admin@gsv.local"
-      MAIL_PASSWORD: "mail_password"
+      MAIL_PASSWORD: "${MAIL_PASSWORD}"
       MAIL_FROM: "GSV Office <noreply@gsv.local>"
       MAIL_SECURE: "false"
       IMAP_HOST: "mailserver"
@@ -102,11 +107,11 @@ services:
       
       # Security & Default Admin
       BCRYPT_ROUNDS: 12
-      SESSION_SECRET: "gsv_office_session_secret_very_long_string_2026"
+      SESSION_SECRET: "${SESSION_SECRET}"
       RATE_LIMIT_TTL: 60
       RATE_LIMIT_MAX: 300
       ADMIN_EMAIL: "admin@gsv.local"
-      ADMIN_PASSWORD: "Admin@GSV2024"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD}"
       ADMIN_NAME: "System Administrator"
       
       # Company Branding
@@ -138,6 +143,11 @@ services:
         condition: service_healthy
     networks:
       - gsv_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ─────────────────────────────────────────────
   # PostgreSQL Database
@@ -149,7 +159,7 @@ services:
     environment:
       POSTGRES_DB: "gsv_office"
       POSTGRES_USER: "gsv_admin"
-      POSTGRES_PASSWORD: "gsv_secure_password_2026"
+      POSTGRES_PASSWORD: "${DB_PASSWORD}"
       PGDATA: "/var/lib/postgresql/data/pgdata"
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -162,6 +172,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ─────────────────────────────────────────────
   # Redis Cache & Queue
@@ -170,16 +185,21 @@ services:
     image: redis:7-alpine
     container_name: gsv_redis
     restart: unless-stopped
-    command: redis-server --requirepass gsv_redis_password_2026 --appendonly yes
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
     volumes:
       - redis_data:/data
     networks:
       - gsv_network
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "gsv_redis_password_2026", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 3s
       retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ─────────────────────────────────────────────
   # MinIO Object Storage (S3-compatible)
@@ -191,7 +211,7 @@ services:
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: "gsv_minio_admin"
-      MINIO_ROOT_PASSWORD: "gsv_minio_password_2026"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD}"
     volumes:
       - minio_data:/data
     networks:
@@ -201,6 +221,11 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ─────────────────────────────────────────────
   # Mail Server (SMTP + IMAP)
@@ -227,3 +252,8 @@ services:
       - gsv_network
     cap_add:
       - NET_ADMIN
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

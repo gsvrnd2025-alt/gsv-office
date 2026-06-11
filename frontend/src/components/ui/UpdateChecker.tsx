@@ -9,33 +9,56 @@ export const UpdateChecker = () => {
   const [updateInfo, setUpdateInfo] = useState<{ version: string; apkUrl: string; exeUrl: string } | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  useEffect(() => {
-    const checkUpdate = async () => {
-      try {
-        const res = await serverApi.getPublicSettings();
-        const settings = res.data?.data || res.data || {};
-        
-        const serverVersion = settings.app_version;
-        if (serverVersion && __APP_VERSION__) {
-          // Simple string comparison for versions (assumes semantic versioning format like 1.0.0)
-          if (compareVersions(serverVersion, __APP_VERSION__) > 0) {
-            setUpdateInfo({
-              version: serverVersion,
-              apkUrl: settings.apk_update_url || '/downloads/app-release.apk',
-              exeUrl: settings.exe_update_url || '/downloads/GSVOffice-Setup.exe'
-            });
-            setUpdateAvailable(true);
+  const checkUpdate = async (isManual = false) => {
+    let toastId;
+    if (isManual) {
+      toastId = toast.loading('Checking for updates...');
+    }
+    try {
+      const res = await serverApi.getPublicSettings();
+      const settings = res.data?.data || res.data || {};
+      
+      const serverVersion = settings.app_version;
+      const currentVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0';
+      if (serverVersion && currentVersion) {
+        if (compareVersions(serverVersion, currentVersion) > 0) {
+          setUpdateInfo({
+            version: serverVersion,
+            apkUrl: settings.apk_update_url || '/downloads/app-release.apk',
+            exeUrl: settings.exe_update_url || '/downloads/GSVOffice-Setup.exe'
+          });
+          setUpdateAvailable(true);
+          if (isManual) {
+            toast.success('New update available!', { id: toastId });
           }
+          return;
         }
-      } catch (err) {
-        console.error('Failed to check for updates', err);
       }
-    };
+      if (isManual) {
+        toast.success(`GSV Connect is up to date (Version ${currentVersion})`, { id: toastId });
+      }
+    } catch (err) {
+      console.error('Failed to check for updates', err);
+      if (isManual) {
+        toast.error('Failed to check for updates', { id: toastId });
+      }
+    }
+  };
 
+  useEffect(() => {
     // Check immediately, then every 1 hour
-    checkUpdate();
-    const interval = setInterval(checkUpdate, 60 * 60 * 1000);
-    return () => clearInterval(interval);
+    checkUpdate(false);
+    const interval = setInterval(() => checkUpdate(false), 60 * 60 * 1000);
+
+    const handleManualCheck = () => {
+      checkUpdate(true);
+    };
+    window.addEventListener('gsv-check-update-manual', handleManualCheck);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('gsv-check-update-manual', handleManualCheck);
+    };
   }, []);
 
   const compareVersions = (v1: string, v2: string) => {

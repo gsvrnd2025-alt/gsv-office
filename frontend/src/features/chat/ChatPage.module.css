@@ -435,8 +435,9 @@
 .messageBubble {
   width: fit-content;
   max-width: 65%;
-  padding: 8px 12px;
-  border-radius: 12px;
+  min-width: 80px;
+  padding: 6px 8px;
+  border-radius: 8px;
   position: relative;
   box-shadow: 0 1px 0.5px rgba(0, 0, 0, 0.13);
 }
@@ -446,6 +447,17 @@
   border: 1px solid var(--wa-border);
   color: var(--wa-other-text);
   border-top-left-radius: 0;
+  margin-left: 8px;
+}
+.otherBubble::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -8px;
+  width: 8px;
+  height: 12px;
+  background: radial-gradient(circle at bottom right, transparent 8px, var(--wa-other-bubble) 8px) top right;
+  z-index: 1;
 }
 
 .ownBubble {
@@ -453,20 +465,32 @@
   border: 1px solid var(--wa-border);
   color: var(--wa-own-text);
   border-top-right-radius: 0;
+  margin-right: 8px;
+}
+.ownBubble::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: -8px;
+  width: 8px;
+  height: 12px;
+  background: radial-gradient(circle at bottom left, transparent 8px, var(--wa-own-bubble) 8px) top left;
+  z-index: 1;
 }
 
 .senderName {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--wa-accent);
-  margin-bottom: 3px;
+  margin-bottom: 2px;
 }
 
 .messageText {
-  font-size: 16px;
-  line-height: 1.6;
+  font-size: 15px;
+  line-height: 1.4;
   word-break: break-word;
   color: inherit;
+  white-space: pre-wrap;
 }
 
 .messageTime {
@@ -474,8 +498,10 @@
   align-items: center;
   justify-content: flex-end;
   gap: 3px;
-  font-size: 10px;
-  margin-top: 4px;
+  font-size: 10.5px;
+  margin-top: 2px;
+  margin-left: 12px;
+  float: right;
   color: var(--wa-own-time);
   opacity: 0.85;
 }
@@ -568,6 +594,12 @@
   font-weight: 700;
 }
 
+.chatOpen {}
+
+.mobile-only-back-btn {
+  display: none !important;
+}
+
 @media (max-width: 768px) {
   .convSidebar {
     width: 100%;
@@ -580,5 +612,11 @@
   }
   .chatLayout.chatOpen .chatMain {
     display: flex;
+  }
+  .mobile-only-back-btn {
+    display: flex !important;
+  }
+  .desktop-only-btn {
+    display: none !important;
   }
 }

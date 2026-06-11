@@ -112,7 +112,11 @@
     ipcRenderer.on('call-data', (event, data) => {
       document.getElementById('callerName').textContent = data.callerName || 'Teammate';
       document.getElementById('avatar').textContent = (data.callerName || '?').charAt(0).toUpperCase();
-      document.getElementById('callType').textContent = `Incoming ${data.type === 'video' ? 'Video' : 'Voice'} Call...`;
+      if (data.type === 'remote-desktop') {
+        document.getElementById('callType').textContent = `Incoming Remote Desktop Request...`;
+      } else {
+        document.getElementById('callType').textContent = `Incoming ${data.type === 'video' ? 'Video' : 'Voice'} Call...`;
+      }
     });
 
     document.getElementById('btnAccept').addEventListener('click', () => {

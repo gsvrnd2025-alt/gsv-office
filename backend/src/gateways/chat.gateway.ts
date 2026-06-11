@@ -86,6 +86,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(`conv:${data.conversationId}`).emit('message:reaction', { ...data, userId: client.data.userId });
   }
 
+  @SubscribeMessage('chat:upload_progress')
+  handleUploadProgress(@ConnectedSocket() client: Socket, @MessageBody() data: any) {
+    client.to(`conv:${data.conversationId}`).emit('chat:upload_progress', {
+      ...data,
+      senderId: client.data.userId,
+    });
+  }
+
   // Emit to specific user (from other services)
   emitToUser(userId: string, event: string, data: any) {
     this.server.to(`user:${userId}`).emit(event, data);

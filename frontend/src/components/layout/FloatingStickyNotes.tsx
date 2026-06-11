@@ -134,10 +134,15 @@ export default function FloatingStickyNotes() {
   const fabPosStartRef = useRef({ x: 0, y: 0 });
   const dragDistanceRef = useRef(0);
 
-  // Popup Window Drag Position (null = centered)
+  // Popup Window Drag & Resize Position
+  const [popupSize, setPopupSize] = useState<{ width: number; height: number }>(() => {
+    const saved = localStorage.getItem('gsv_notes_size');
+    return saved ? JSON.parse(saved) : { width: 330, height: 380 };
+  });
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
   const [isDraggingPopup, setIsDraggingPopup] = useState(false);
-  const popupDragStartRef = useRef({ mouseX: 0, mouseY: 0, popupX: 0, popupY: 0 });
+  const [isResizingPopup, setIsResizingPopup] = useState(false);
+  const popupDragStartRef = useRef({ mouseX: 0, mouseY: 0, popupX: 0, popupY: 0, width: 0, height: 0 });
 
   const editorContentRef = useRef<HTMLDivElement>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
@@ -254,11 +259,19 @@ export default function FloatingStickyNotes() {
     toast.success('Redo action applied');
   };
 
-  // FAB Drag Mouse Events
+  // FAB Drag Mouse & Touch Events
   const handleFabMouseDown = (e: React.MouseEvent) => {
     setIsDraggingFab(true);
     dragDistanceRef.current = 0;
     fabDragStartRef.current = { x: e.clientX, y: e.clientY };
+    fabPosStartRef.current = { ...fabPosition };
+  };
+
+  const handleFabTouchStart = (e: React.TouchEvent) => {
+    setIsDraggingFab(true);
+    dragDistanceRef.current = 0;
+    const touch = e.touches[0];
+    fabDragStartRef.current = { x: touch.clientX, y: touch.clientY };
     fabPosStartRef.current = { ...fabPosition };
   };
 
@@ -274,58 +287,134 @@ export default function FloatingStickyNotes() {
         });
       }
     };
-    const handleMouseUp = () => {
+    const handleTouchMove = (e: TouchEvent) => {
+      if (isDraggingFab) {
+        const touch = e.touches[0];
+        const dx = touch.clientX - fabDragStartRef.current.x;
+        const dy = touch.clientY - fabDragStartRef.current.y;
+        dragDistanceRef.current = Math.sqrt(dx * dx + dy * dy);
+        setFabPosition({
+          x: Math.max(10, Math.min(window.innerWidth - 70, fabPosStartRef.current.x + dx)),
+          y: Math.max(10, Math.min(window.innerHeight - 70, fabPosStartRef.current.y + dy))
+        });
+      }
+    };
+    const handleDragEnd = () => {
       setIsDraggingFab(false);
     };
     if (isDraggingFab) {
       window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
+      window.addEventListener('mouseup', handleDragEnd);
+      window.addEventListener('touchmove', handleTouchMove, { passive: true });
+      window.addEventListener('touchend', handleDragEnd);
+      window.addEventListener('touchcancel', handleDragEnd);
     }
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('mouseup', handleDragEnd);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleDragEnd);
+      window.removeEventListener('touchcancel', handleDragEnd);
     };
   }, [isDraggingFab]);
 
-  // Popup drag mouse events
+  // Popup drag mouse & touch events
   const handlePopupHeaderMouseDown = (e: React.MouseEvent) => {
-    // Only drag from header, not from buttons
     if ((e.target as HTMLElement).closest('button')) return;
-    if (isMaximized) return;
+    const isMobile = window.innerWidth <= 768;
+    if (isMaximized || isMobile) return;
     e.preventDefault();
-    const popupW = 900;
-    const popupH = 600;
-    const startX = popupPosition ? popupPosition.x : (window.innerWidth - popupW) / 2;
-    const startY = popupPosition ? popupPosition.y : (window.innerHeight - popupH) / 2;
-    popupDragStartRef.current = { mouseX: e.clientX, mouseY: e.clientY, popupX: startX, popupY: startY };
+    const startX = popupPosition ? popupPosition.x : (window.innerWidth - popupSize.width) / 2;
+    const startY = popupPosition ? popupPosition.y : (window.innerHeight - popupSize.height) / 2;
+    popupDragStartRef.current = { mouseX: e.clientX, mouseY: e.clientY, popupX: startX, popupY: startY, width: popupSize.width, height: popupSize.height };
     setIsDraggingPopup(true);
+  };
+
+  const handlePopupHeaderTouchStart = (e: React.TouchEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return;
+    const isMobile = window.innerWidth <= 768;
+    if (isMaximized || isMobile) return;
+    const touch = e.touches[0];
+    const startX = popupPosition ? popupPosition.x : (window.innerWidth - popupSize.width) / 2;
+    const startY = popupPosition ? popupPosition.y : (window.innerHeight - popupSize.height) / 2;
+    popupDragStartRef.current = { mouseX: touch.clientX, mouseY: touch.clientY, popupX: startX, popupY: startY, width: popupSize.width, height: popupSize.height };
+    setIsDraggingPopup(true);
+  };
+
+  const handleResizeMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = popupPosition ? popupPosition.x : (window.innerWidth - popupSize.width) / 2;
+    const startY = popupPosition ? popupPosition.y : (window.innerHeight - popupSize.height) / 2;
+    popupDragStartRef.current = { mouseX: e.clientX, mouseY: e.clientY, popupX: startX, popupY: startY, width: popupSize.width, height: popupSize.height };
+    setIsResizingPopup(true);
+  };
+
+  const handleResizeTouchStart = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    const startX = popupPosition ? popupPosition.x : (window.innerWidth - popupSize.width) / 2;
+    const startY = popupPosition ? popupPosition.y : (window.innerHeight - popupSize.height) / 2;
+    popupDragStartRef.current = { mouseX: touch.clientX, mouseY: touch.clientY, popupX: startX, popupY: startY, width: popupSize.width, height: popupSize.height };
+    setIsResizingPopup(true);
   };
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isDraggingPopup) {
-        const popupW = isMaximized ? window.innerWidth : 900;
-        const popupH = isMaximized ? window.innerHeight : 600;
         const dx = e.clientX - popupDragStartRef.current.mouseX;
         const dy = e.clientY - popupDragStartRef.current.mouseY;
         setPopupPosition({
-          x: Math.max(0, Math.min(window.innerWidth - popupW, popupDragStartRef.current.popupX + dx)),
-          y: Math.max(0, Math.min(window.innerHeight - popupH, popupDragStartRef.current.popupY + dy))
+          x: Math.max(0, Math.min(window.innerWidth - popupSize.width, popupDragStartRef.current.popupX + dx)),
+          y: Math.max(0, Math.min(window.innerHeight - popupSize.height, popupDragStartRef.current.popupY + dy))
         });
+      } else if (isResizingPopup) {
+        const dx = e.clientX - popupDragStartRef.current.mouseX;
+        const dy = e.clientY - popupDragStartRef.current.mouseY;
+        const newWidth = Math.max(300, Math.min(window.innerWidth - popupDragStartRef.current.popupX, popupDragStartRef.current.width + dx));
+        const newHeight = Math.max(250, Math.min(window.innerHeight - popupDragStartRef.current.popupY, popupDragStartRef.current.height + dy));
+        const newSize = { width: newWidth, height: newHeight };
+        setPopupSize(newSize);
+        localStorage.setItem('gsv_notes_size', JSON.stringify(newSize));
       }
     };
-    const handleMouseUp = () => {
-      setIsDraggingPopup(false);
+    const handleTouchMove = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      if (isDraggingPopup) {
+        const dx = touch.clientX - popupDragStartRef.current.mouseX;
+        const dy = touch.clientY - popupDragStartRef.current.mouseY;
+        setPopupPosition({
+          x: Math.max(0, Math.min(window.innerWidth - popupSize.width, popupDragStartRef.current.popupX + dx)),
+          y: Math.max(0, Math.min(window.innerHeight - popupSize.height, popupDragStartRef.current.popupY + dy))
+        });
+      } else if (isResizingPopup) {
+        const dx = touch.clientX - popupDragStartRef.current.mouseX;
+        const dy = touch.clientY - popupDragStartRef.current.mouseY;
+        const newWidth = Math.max(300, Math.min(window.innerWidth - popupDragStartRef.current.popupX, popupDragStartRef.current.width + dx));
+        const newHeight = Math.max(250, Math.min(window.innerHeight - popupDragStartRef.current.popupY, popupDragStartRef.current.height + dy));
+        const newSize = { width: newWidth, height: newHeight };
+        setPopupSize(newSize);
+        localStorage.setItem('gsv_notes_size', JSON.stringify(newSize));
+      }
     };
-    if (isDraggingPopup) {
+    const handleDragEnd = () => {
+      setIsDraggingPopup(false);
+      setIsResizingPopup(false);
+    };
+    if (isDraggingPopup || isResizingPopup) {
       window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
+      window.addEventListener('mouseup', handleDragEnd);
+      window.addEventListener('touchmove', handleTouchMove, { passive: true });
+      window.addEventListener('touchend', handleDragEnd);
+      window.addEventListener('touchcancel', handleDragEnd);
     }
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('mouseup', handleDragEnd);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleDragEnd);
+      window.removeEventListener('touchcancel', handleDragEnd);
     };
-  }, [isDraggingPopup, isMaximized]);
+  }, [isDraggingPopup, isResizingPopup, isMaximized, popupSize.width, popupSize.height]);
 
   // Clamp sticky note bounds on window resize
   useEffect(() => {
@@ -336,17 +425,15 @@ export default function FloatingStickyNotes() {
       }));
       setPopupPosition(prev => {
         if (!prev) return null;
-        const popupW = isMaximized ? window.innerWidth : 900;
-        const popupH = isMaximized ? window.innerHeight : 600;
         return {
-          x: Math.max(0, Math.min(prev.x, window.innerWidth - popupW)),
-          y: Math.max(0, Math.min(prev.y, window.innerHeight - popupH))
+          x: Math.max(0, Math.min(prev.x, window.innerWidth - popupSize.width)),
+          y: Math.max(0, Math.min(prev.y, window.innerHeight - popupSize.height))
         };
       });
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [isMaximized]);
+  }, [isMaximized, popupSize.width, popupSize.height]);
 
   const handleFabClick = () => {
     if (dragDistanceRef.current < 5) {
@@ -652,7 +739,7 @@ export default function FloatingStickyNotes() {
           flexDirection: 'column',
           background: colorObj.bg,
           color: colorObj.text,
-          padding: '24px',
+          padding: popupSize.width < 400 ? '12px' : '24px',
           overflow: 'hidden',
           transition: 'background 0.3s ease, color 0.3s ease'
         }}
@@ -762,6 +849,21 @@ export default function FloatingStickyNotes() {
                   <button className="dropdown-item w-100 text-start border-0 bg-transparent px-3 py-2 text-white hover-note-item" onClick={() => { handleDownload('json', activeNote); setShowMenuNoteId(null); }}>💻 JSON Document (.json)</button>
                   <button className="dropdown-item w-100 text-start border-0 bg-transparent px-3 py-2 text-white hover-note-item" onClick={() => { handleDownload('md', activeNote); setShowMenuNoteId(null); }}>📝 Markdown (.md)</button>
                   <button className="dropdown-item w-100 text-start border-0 bg-transparent px-3 py-2 text-white hover-note-item" onClick={() => { handleDownload('html', activeNote); setShowMenuNoteId(null); }}>🌐 HTML Webpage (.html)</button>
+                </div>
+                {/* Share/Chat section */}
+                <div style={{ padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                  <button className="dropdown-item w-100 text-start border-0 bg-transparent px-3 py-2 text-white hover-note-item" onClick={() => {
+                    const text = activeNote.content.replace(/<\/div>/g, '\n').replace(/<[^>]*>/g, '');
+                    window.dispatchEvent(new CustomEvent('send-note-to-chat', { detail: `*Note: ${activeNote.title}*\n${text}` }));
+                    toast.success('Sent to Chat Input!');
+                    setShowMenuNoteId(null);
+                  }}>💬 Send to Chat</button>
+                  <button className="dropdown-item w-100 text-start border-0 bg-transparent px-3 py-2 text-white hover-note-item" onClick={() => {
+                    const text = activeNote.content.replace(/<\/div>/g, '\n').replace(/<[^>]*>/g, '');
+                    navigator.clipboard.writeText(`Note: ${activeNote.title}\n\n${text}`);
+                    toast.success('Copied to Clipboard!');
+                    setShowMenuNoteId(null);
+                  }}>🔗 Share (Copy Text)</button>
                 </div>
                 {/* Print section */}
                 <button 
@@ -983,7 +1085,7 @@ export default function FloatingStickyNotes() {
 
   const renderNotesListView = () => {
     return (
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '24px' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: popupSize.width < 400 ? '12px' : '24px' }}>
         
         {/* Second Row: Tabs, Add button and Filter settings */}
         <div 
@@ -1189,20 +1291,24 @@ export default function FloatingStickyNotes() {
     );
   };
 
+  const isMobileWidth = window.innerWidth <= 768;
+  const effectiveIsMaximized = isMaximized || isMobileWidth;
+
   return (
     <div style={{ position: 'relative', zIndex: 9999 }}>
       
       {/* Draggable FAB Glowing Trigger Button */}
       <button 
         onMouseDown={handleFabMouseDown}
+        onTouchStart={handleFabTouchStart}
         onClick={handleFabClick}
         className="d-flex align-items-center justify-content-center border-0 gsv-glow-fab"
         style={{ 
           position: 'fixed',
           left: `${fabPosition.x}px`,
           top: `${fabPosition.y}px`,
-          width: '75px', 
-          height: '75px', 
+          width: '60px', 
+          height: '60px', 
           background: 'linear-gradient(145deg, #fef08a 0%, #facc15 100%)',
           boxShadow: '4px 8px 15px rgba(0,0,0,0.2), inset -2px -2px 5px rgba(0,0,0,0.1), inset 2px 2px 5px rgba(255,255,255,0.7)',
           cursor: isDraggingFab ? 'grabbing' : 'grab',
@@ -1219,30 +1325,30 @@ export default function FloatingStickyNotes() {
         <div style={{
           position: 'absolute',
           top: '-1px', right: '-1px',
-          width: '20px', height: '20px',
+          width: '16px', height: '16px',
           background: 'linear-gradient(225deg, transparent 50%, rgba(255,255,255,0.6) 50%, #ca8a04 100%)',
-          borderRadius: '0 0 0 6px',
+          borderRadius: '0 0 0 4px',
           boxShadow: '-2px 2px 5px rgba(0,0,0,0.15)'
         }}></div>
         
         {/* Red Push Pin */}
         <div style={{
           position: 'absolute',
-          top: '6px',
+          top: '4px',
           width: '100%',
           display: 'flex',
           justifyContent: 'center',
           pointerEvents: 'none'
         }}>
            <div style={{ 
-             width: '12px', height: '12px', 
+             width: '10px', height: '10px', 
              background: 'radial-gradient(circle at 3px 3px, #fca5a5, #ef4444 60%, #b91c1c)', 
              borderRadius: '50%', 
              boxShadow: '0 3px 5px rgba(0,0,0,0.4), inset -1px -1px 2px rgba(0,0,0,0.3)' 
            }}></div>
         </div>
 
-        <StickyNote size={30} color="#854d0e" style={{ opacity: 0.8, marginTop: '8px', filter: 'drop-shadow(0 1px 1px rgba(255,255,255,0.5))' }} />
+        <StickyNote size={24} color="#854d0e" style={{ opacity: 0.8, marginTop: '6px', filter: 'drop-shadow(0 1px 1px rgba(255,255,255,0.5))' }} />
       </button>
 
       {/* Main Centered Popup Page */}
@@ -1251,15 +1357,15 @@ export default function FloatingStickyNotes() {
           className={isDraggingPopup ? '' : 'animate-scale-in'}
           style={{
             position: 'fixed',
-            left: isMaximized ? 0 : (popupPosition ? `${popupPosition.x}px` : '50%'),
-            top: isMaximized ? 0 : (popupPosition ? `${popupPosition.y}px` : '50%'),
-            width: isMaximized ? '100vw' : '900px',
-            height: isMaximized ? '100vh' : '600px',
-            transform: isMaximized ? 'none' : (popupPosition ? 'none' : 'translate(-50%, -50%)'),
+            left: effectiveIsMaximized ? 0 : (popupPosition ? `${popupPosition.x}px` : '50%'),
+            top: effectiveIsMaximized ? 0 : (popupPosition ? `${popupPosition.y}px` : '50%'),
+            width: effectiveIsMaximized ? '100vw' : `${popupSize.width}px`,
+            height: effectiveIsMaximized ? '100vh' : `${popupSize.height}px`,
+            transform: effectiveIsMaximized ? 'none' : (popupPosition ? 'none' : 'translate(-50%, -50%)'),
             background: 'rgba(15, 23, 42, 0.95)',
             backdropFilter: 'blur(20px)',
             border: '2px solid rgba(255, 255, 255, 0.1)',
-            borderRadius: isMaximized ? 0 : '20px',
+            borderRadius: effectiveIsMaximized ? 0 : '20px',
             boxShadow: isDraggingPopup ? '0 35px 70px -12px rgba(0, 0, 0, 0.9)' : '0 25px 50px -12px rgba(0, 0, 0, 0.75)',
             color: '#F8FAFC',
             zIndex: 10000,
@@ -1275,65 +1381,108 @@ export default function FloatingStickyNotes() {
           {/* Header Row - Drag handle */}
           <div 
             onMouseDown={handlePopupHeaderMouseDown}
+            onTouchStart={handlePopupHeaderTouchStart}
             style={{
-              padding: '16px 24px',
+              padding: popupSize.width < 400 ? '8px 12px' : '16px 24px',
               background: 'rgba(30, 41, 59, 0.5)',
               borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              gap: '16px',
-              cursor: isMaximized ? 'default' : (isDraggingPopup ? 'grabbing' : 'grab')
+              gap: popupSize.width < 400 ? '8px' : '16px',
+              cursor: effectiveIsMaximized ? 'default' : (isDraggingPopup ? 'grabbing' : 'grab')
             }}
           >
             {/* Logo and User Name */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <span style={{ fontSize: '24px' }}>📝</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: popupSize.width < 400 ? '6px' : '12px' }}>
+              <span style={{ fontSize: popupSize.width < 400 ? '16px' : '24px' }}>📝</span>
               <div>
-                <strong style={{ fontSize: '15px', fontWeight: 800, color: '#fff', letterSpacing: '-0.3px' }}>
+                <strong style={{ fontSize: popupSize.width < 400 ? '12px' : '15px', fontWeight: 800, color: '#fff', letterSpacing: '-0.3px' }}>
                   GSV Sticky Notes
                 </strong>
-                <span style={{ display: 'block', fontSize: '11px', color: '#94A3B8' }}>
+                <span style={{ display: popupSize.width < 400 ? 'none' : 'block', fontSize: '11px', color: '#94A3B8' }}>
                   User: {user?.fullName || 'Active User'}
                 </span>
               </div>
             </div>
 
             {/* Search Box */}
-            <div style={{ position: 'relative', flex: 1, maxWidth: '320px' }}>
-              <Search size={14} className="position-absolute text-muted" style={{ left: '12px', top: '10px' }} />
+            <div style={{ position: 'relative', flex: 1, maxWidth: popupSize.width < 400 ? '120px' : '320px' }}>
+              <Search size={12} className="position-absolute text-muted" style={{ left: '10px', top: '8px' }} />
               <input
                 type="text"
-                placeholder="Search note titles or content..."
+                placeholder={popupSize.width < 400 ? "Search..." : "Search note titles or content..."}
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 className="form-control"
                 style={{
-                  paddingLeft: '34px',
-                  height: '34px',
-                  fontSize: '12px',
+                  paddingLeft: '28px',
+                  height: '28px',
+                  fontSize: '11px',
                   background: 'rgba(15, 23, 42, 0.6)',
                   border: '1px solid rgba(255, 255, 255, 0.1)',
                   color: '#fff',
-                  borderRadius: '10px'
+                  borderRadius: '8px'
                 }}
               />
             </div>
 
             {/* Window Action Buttons */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {/* Preset Sizes */}
+              {!effectiveIsMaximized && (
+                <div style={{ display: 'flex', gap: '4px', marginRight: '4px' }}>
+                  {[
+                    { label: 'XS', width: 330, height: 380, title: 'Mini (330×380)' },
+                    { label: 'S', width: 560, height: 400, title: 'Small (560×400)' },
+                    { label: 'M', width: 900, height: 600, title: 'Medium (900×600)' },
+                    { label: 'L', width: 1200, height: 750, title: 'Large (1200×750)' },
+                  ].map(preset => {
+                    const isActive = popupSize.width === preset.width && popupSize.height === preset.height;
+                    return (
+                      <button
+                        key={preset.label}
+                        onClick={() => {
+                          setPopupSize({ width: preset.width, height: preset.height });
+                          localStorage.setItem('gsv_notes_size', JSON.stringify({ width: preset.width, height: preset.height }));
+                          setPopupPosition(null);
+                        }}
+                        title={preset.title}
+                        style={{
+                          width: '24px', height: '24px',
+                          background: isActive ? 'var(--brand-primary, #00a884)' : 'rgba(255,255,255,0.06)',
+                          border: isActive ? 'none' : '1px solid rgba(255,255,255,0.12)',
+                          color: '#fff',
+                          borderRadius: '5px',
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'all 0.2s ease',
+                        }}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               {/* Maximize / Restore */}
-              <button 
-                onClick={() => {
-                  setIsMaximized(!isMaximized);
-                  if (!isMaximized) setPopupPosition(null); // reset position on maximize
-                }} 
-                className="btn" 
-                style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.06)', border: 'none', color: '#fff', borderRadius: '6px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                title={isMaximized ? "Restore Window" : "Maximize Window"}
-              >
-                <Maximize2 size={13} />
-              </button>
+              {!isMobileWidth && (
+                <button 
+                  onClick={() => {
+                    setIsMaximized(!isMaximized);
+                    if (!isMaximized) setPopupPosition(null); // reset position on maximize
+                  }} 
+                  className="btn" 
+                  style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.06)', border: 'none', color: '#fff', borderRadius: '6px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  title={isMaximized ? "Restore Window" : "Maximize Window"}
+                >
+                  <Maximize2 size={13} />
+                </button>
+              )}
               {/* Minimize */}
               <button 
                 onClick={() => setIsPopupOpen(false)} 
@@ -1357,6 +1506,27 @@ export default function FloatingStickyNotes() {
 
           {/* Subpage Router Area */}
           {activeNoteId ? renderNoteEditView() : renderNotesListView()}
+
+          {/* Resizer Handle */}
+          {!effectiveIsMaximized && (
+            <div
+              onMouseDown={handleResizeMouseDown}
+              onTouchStart={handleResizeTouchStart}
+              style={{
+                position: 'absolute',
+                bottom: 0,
+                right: 0,
+                width: '20px',
+                height: '20px',
+                cursor: 'se-resize',
+                zIndex: 100
+              }}
+            >
+              <svg width="20" height="20" viewBox="0 0 20 20" style={{ opacity: 0.5 }}>
+                <path d="M15 15L15 5L13 5L13 13L5 13L5 15L15 15Z" fill="#fff" />
+              </svg>
+            </div>
+          )}
         </div>
       )}
 

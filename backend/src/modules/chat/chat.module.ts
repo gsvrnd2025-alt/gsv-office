@@ -1,5 +1,5 @@
 // Chat Module - Provides real-time WebSocket chat via Socket.IO
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { ChatController } from './chat.controller';

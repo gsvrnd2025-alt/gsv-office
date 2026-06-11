@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useDropzone } from 'react-dropzone';
 import {
@@ -67,6 +67,7 @@ function formatBytes(bytes: number) {
 
 export default function FilesPage() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const { user } = useAuthStore();
 
   const { folderId: routeFolderId } = useParams();
@@ -126,7 +127,7 @@ export default function FilesPage() {
   // CRUD & Clipboard states
   const [clipboardItem, setClipboardItem] = useState<{ id: string; type: 'file' | 'folder'; action: 'cut' | 'copy' } | null>(null);
   const [renamingItem, setRenamingItem] = useState<{ id: string; type: 'file' | 'folder'; name: string } | null>(null);
-  const [sharingItem, setSharingItem] = useState<{ id: string; type: 'file' | 'folder'; name: string } | null>(null);
+  const [sharingItem, setSharingItem] = useState<any | null>(null);
 
   // Folder Access Request Modal State
   const [lockFolder, setLockFolder] = useState<any>(null);
@@ -247,6 +248,14 @@ export default function FilesPage() {
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (!acceptedFiles.length) return;
+
+    const MAX_FILE_SIZE_MB = 5000; // 5 GB limit
+    const oversized = acceptedFiles.filter(f => f.size / 1024 / 1024 > MAX_FILE_SIZE_MB);
+    if (oversized.length > 0) {
+      toast.error(`File "${oversized[0].name}" exceeds the maximum allowed size of ${MAX_FILE_SIZE_MB} MB.`);
+      return;
+    }
+
     setUploading(true);
     setUploadProgressPercent(0);
     let success = 0;
@@ -272,8 +281,26 @@ export default function FilesPage() {
 
   const onDropFolder = async (files: File[]) => {
     if (!files.length) return;
+
+    const MAX_FOLDER_FILES = 10000;
+    if (files.length > MAX_FOLDER_FILES) {
+      toast.error(`Folder contains too many files (${files.length.toLocaleString()}). For directories with more than ${MAX_FOLDER_FILES} files (like code projects), please compress them into a .zip or .tar archive before uploading.`);
+      return;
+    }
+
+    const totalSize = files.reduce((acc, f) => acc + f.size, 0);
+    const totalSizeMB = totalSize / 1024 / 1024;
+    const MAX_FOLDER_SIZE_MB = 5000; // 5 GB limit
+    if (totalSizeMB > MAX_FOLDER_SIZE_MB) {
+      toast.error(`Folder size (${totalSizeMB.toFixed(1)} MB) exceeds the folder upload limit of ${MAX_FOLDER_SIZE_MB} MB. Please compress the folder into a .zip file before uploading.`);
+      return;
+    }
+
     setUploading(true);
     setUploadProgressPercent(0);
+    
+    console.log('[Upload Flow] Upload queue created');
+    const fdStart = performance.now();
     const fd = new FormData();
     files.forEach((file: File) => {
       fd.append('files', file);
@@ -283,17 +310,27 @@ export default function FilesPage() {
     const folderName = relativePaths[0]?.split('/')[0] || 'Uploaded_Folder';
     fd.append('folderName', folderName);
     if (folderId) fd.append('folderId', folderId);
+    console.log(`[Upload Flow] FormData construction finished. Time taken: ${(performance.now() - fdStart).toFixed(2)} ms`);
 
+    console.log('[Upload Flow] Upload started');
+    const uploadStart = performance.now();
     let toastId: string | undefined;
     try {
       toastId = toast.loading(`Uploading "${folderName}": 0%`);
+      let lastProgressTime = 0;
       await filesApi.uploadFolder(fd, (progressEvent: any) => {
         const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        setUploadProgressPercent(percent);
-        if (toastId) toast.loading(`Uploading "${folderName}": ${percent}%`, { id: toastId });
+        const now = performance.now();
+        if (percent === 0 || percent === 100 || now - lastProgressTime >= 200) {
+          lastProgressTime = now;
+          setUploadProgressPercent(percent);
+          if (toastId) toast.loading(`Uploading "${folderName}": ${percent}%`, { id: toastId });
+        }
       });
       if (toastId) toast.success(`Folder "${folderName}" uploaded successfully!`, { id: toastId });
+      console.log(`[Upload Flow] Upload completed successfully. Total upload time: ${((performance.now() - uploadStart) / 1000).toFixed(2)} s`);
     } catch (err) {
+      console.error('[Upload Flow] Folder upload failed:', err);
       if (toastId) toast.error('Folder upload failed.', { id: toastId });
       else toast.error('Folder upload failed.');
     }
@@ -634,12 +671,8 @@ export default function FilesPage() {
                     toast.error('Please select a teammate');
                     return;
                   }
-                  shareToUserMutation.mutate({
-                    itemType: sharingItem.type,
-                    itemId: sharingItem.id,
-                    targetUserId,
-                    action
-                  });
+                  setSharingItem(null);
+                  navigate(`/chat?shareItemId=${sharingItem.id}&shareItemType=${sharingItem.type}&targetUserId=${targetUserId}&name=${encodeURIComponent(sharingItem.name)}&action=${action}`);
                 }}
               >
                 Share
@@ -794,7 +827,14 @@ export default function FilesPage() {
           )}
 
           <div className="dropdown-item" onClick={() => {
-            setSharingItem({ id: contextMenu.item.id, type: contextMenu.itemType, name: contextMenu.item.name || contextMenu.item.originalName });
+            setSharingItem({
+              id: contextMenu.item.id,
+              type: contextMenu.itemType,
+              name: contextMenu.item.name || contextMenu.item.originalName,
+              storageUrl: contextMenu.item.storageUrl || '',
+              size: contextMenu.item.sizeBytes || contextMenu.item.size || '',
+              mimeType: contextMenu.item.mimeType || ''
+            });
             setContextMenu(null);
           }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Share2 size={13} /> Share with Teammate</div>
 
@@ -949,7 +989,26 @@ export default function FilesPage() {
                 ref={folderUploadInputRef} 
                 {...{ webkitdirectory: "", directory: "", multiple: true } as any} 
                 style={{ display: 'none' }} 
-                onChange={e => { if (e.target.files) onDropFolder(Array.from(e.target.files)); }} 
+                onChange={e => { 
+                  if (e.target.files) {
+                    const startTime = performance.now();
+                    console.log('[Upload Flow] Folder selected');
+                    console.log('[Upload Flow] Folder scan start');
+                    const rawFiles = e.target.files;
+                    const MAX_FOLDER_FILES = 10000;
+                    if (rawFiles.length > MAX_FOLDER_FILES) {
+                      toast.error(`Folder contains too many files (${rawFiles.length.toLocaleString()}). For directories with more than ${MAX_FOLDER_FILES} files (like code projects), please compress them into a .zip or .tar archive before uploading.`);
+                      e.target.value = '';
+                      return;
+                    }
+                    setTimeout(() => {
+                      const files = Array.from(rawFiles);
+                      const scanEndTime = performance.now();
+                      console.log(`[Upload Flow] Folder scan end. Time taken: ${(scanEndTime - startTime).toFixed(2)} ms. Files count: ${files.length}`);
+                      onDropFolder(files);
+                    }, 0);
+                  }
+                }} 
               />
             </>
           )}
@@ -1453,25 +1512,41 @@ export default function FilesPage() {
                     toast.error('Please select a teammate');
                     return;
                   }
-                  const toastId = toast.loading('Sharing items...');
-                  try {
-                    await Promise.all(bulkSharingItems.map(item =>
-                      shareToUserMutation.mutateAsync({
-                        itemType: item.type,
-                        itemId: item.id,
-                        targetUserId,
-                        action
-                      })
-                    ));
-                    toast.success('Shared successfully', { id: toastId });
-                    setBulkSharingItems([]);
-                    setSelectedItems([]);
-                    setIsBulkMode(false);
-                    qc.invalidateQueries({ queryKey: ['folders'] });
-                    qc.invalidateQueries({ queryKey: ['files'] });
-                  } catch {
-                    toast.error('Failed to share some items', { id: toastId });
-                  }
+                  const fullItems = bulkSharingItems.map(item => {
+                    if (item.type === 'folder') {
+                      const f = folders.find((fol: any) => fol.id === item.id);
+                      return {
+                        id: item.id,
+                        type: 'folder',
+                        name: f?.name || 'Folder',
+                        storageUrl: '',
+                        size: '',
+                        mimeType: ''
+                      };
+                    } else {
+                      const f = files.find((fil: any) => fil.id === item.id);
+                      return {
+                        id: item.id,
+                        type: 'file',
+                        name: f?.originalName || f?.name || 'File',
+                        storageUrl: f?.storageUrl || '',
+                        size: f?.sizeBytes || f?.size || '',
+                        mimeType: f?.mimeType || ''
+                      };
+                    }
+                  });
+
+                  const ids = fullItems.map(item => item.id).join(',');
+                  const types = fullItems.map(item => item.type).join(',');
+                  const names = fullItems.map(item => item.name).join(',');
+                  const urls = fullItems.map(item => item.storageUrl).join(',');
+                  const sizes = fullItems.map(item => item.size).join(',');
+                  const mimes = fullItems.map(item => item.mimeType).join(',');
+
+                  setBulkSharingItems([]);
+                  setSelectedItems([]);
+                  setIsBulkMode(false);
+                  navigate(`/chat?shareItemId=${ids}&shareItemType=${types}&targetUserId=${targetUserId}&name=${encodeURIComponent(names)}&action=${action}&urls=${encodeURIComponent(urls)}&sizes=${encodeURIComponent(sizes)}&mimes=${encodeURIComponent(mimes)}`);
                 }}
               >
                 Share Bulk

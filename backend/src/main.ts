@@ -111,7 +111,10 @@ async function bootstrap() {
     });
   }
 
-  await app.listen(port, '0.0.0.0');
+  const server = await app.listen(port, '0.0.0.0');
+  server.setTimeout(3600000); // 1 hour timeout for large uploads
+  server.keepAliveTimeout = 61000;
+  server.headersTimeout = 65000;
   console.log(`\n🚀 GSV Office API running on: http://localhost:${port}`);
   console.log(`📖 Swagger docs: http://localhost:${port}/api/docs\n`);
 }

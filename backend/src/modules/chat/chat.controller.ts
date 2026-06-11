@@ -59,6 +59,61 @@ export class ChatController {
     return this.svc.addMember(id, userId);
   }
 
+  @Post('conversations/:id/invitations')
+  @RequirePermissions(['chat', 'send'])
+  createInvitation(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('id') userId: string,
+    @Body('inviteeId', ParseUUIDPipe) inviteeId: string
+  ) {
+    return this.svc.createInvitation(id, userId, inviteeId);
+  }
+
+  @Get('invitations')
+  @RequirePermissions(['chat', 'read'])
+  getInvitations(@CurrentUser('id') userId: string) {
+    return this.svc.getInvitations(userId);
+  }
+
+  @Post('invitations/:id/accept')
+  @RequirePermissions(['chat', 'send'])
+  acceptInvitation(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('id') userId: string
+  ) {
+    return this.svc.acceptInvitation(id, userId);
+  }
+
+  @Post('invitations/:id/reject')
+  @RequirePermissions(['chat', 'send'])
+  rejectInvitation(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('id') userId: string
+  ) {
+    return this.svc.rejectInvitation(id, userId);
+  }
+
+  @Delete('conversations/:id/members/:userId')
+  @RequirePermissions(['chat', 'send'])
+  removeMember(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('userId', ParseUUIDPipe) userIdToRemove: string,
+    @CurrentUser('id') userId: string
+  ) {
+    return this.svc.removeMember(id, userIdToRemove, userId);
+  }
+
+  @Post('conversations/:id/members/:userId/role')
+  @RequirePermissions(['chat', 'send'])
+  changeMemberRole(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('userId', ParseUUIDPipe) targetUserId: string,
+    @CurrentUser('id') userId: string,
+    @Body('role') role: string
+  ) {
+    return this.svc.changeMemberRole(id, targetUserId, role, userId);
+  }
+
   @Patch('conversations/:id')
   @RequirePermissions(['chat', 'send'])
   updateConversation(@Param('id', ParseUUIDPipe) id: string, @Body() dto: any) {

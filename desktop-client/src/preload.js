@@ -15,5 +15,10 @@ contextBridge.exposeInMainWorld('gsvDesktop', {
   showIncomingCallPopup: (data) => ipcRenderer.invoke('show-incoming-call-popup', data),
   closeIncomingCallPopup: () => ipcRenderer.invoke('close-incoming-call-popup'),
   copyFolderToClipboard: (payload) => ipcRenderer.invoke('copy-folder-to-clipboard', payload),
-  downloadAndInstallUpdate: (payload) => ipcRenderer.invoke('download-and-install-update', payload)
+  downloadAndInstallUpdate: (payload) => ipcRenderer.invoke('download-and-install-update', payload),
+  updateSocketStatus: (online) => ipcRenderer.send('socket-status', online),
+  showNotification: (payload) => ipcRenderer.send('incoming-message', payload),
+  onNotificationReply: (callback) => {
+    ipcRenderer.on('notification-reply', (event, data) => callback(data));
+  }
 });

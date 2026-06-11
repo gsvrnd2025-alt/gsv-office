@@ -368,7 +368,7 @@ export default function EOfficePage() {
   };
 
   // Export and Download As locally
-  const handleExportAs = (format: 'docx' | 'xlsx' | 'txt' | 'csv' | 'pdf') => {
+  const handleExportAs = (format: string) => {
     if (format === 'pdf') {
       const printWindow = window.open('', '_blank');
       if (!printWindow) {
@@ -424,6 +424,132 @@ export default function EOfficePage() {
       return;
     }
 
+    // PNG and JPEG exports (Render Text-to-Canvas)
+    if (format === 'png' || format === 'jpeg') {
+      let textToRender = '';
+      if (activeTab === 'word') {
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = wordContent;
+        textToRender = tempDiv.innerText || tempDiv.textContent || '';
+      } else if (activeTab === 'note') {
+        textToRender = noteContent;
+      } else {
+        textToRender = excelGrid.map((row, r) => 
+          row.map((val, c) => `${String.fromCharCode(65 + c)}${r + 1}: ${val}`).filter(v => !v.endsWith(': ')).join(' | ')
+        ).filter(r => r.length > 0).join('\n');
+      }
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        toast.error('Failed to create canvas context.');
+        return;
+      }
+
+      // Pre-measure to setup dynamic height and width
+      ctx.font = '14px Consolas, Monaco, monospace';
+      const lines = textToRender.split('\n');
+      let maxLineWidth = 0;
+      lines.forEach(line => {
+        const width = ctx.measureText(line).width;
+        if (width > maxLineWidth) {
+          maxLineWidth = width;
+        }
+      });
+
+      const minWidth = 800;
+      const width = Math.max(minWidth, Math.ceil(maxLineWidth + 120)); // padding + line numbers column
+      const headerHeight = 60;
+      const padding = 30;
+      const lineHeight = 22;
+      const height = headerHeight + padding * 2 + lines.length * lineHeight;
+
+      canvas.width = width;
+      canvas.height = height;
+
+      // 1. Draw Canvas Background (Deep Slate)
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, width, height);
+
+      // 2. Draw Header Area
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(0, 0, width, headerHeight);
+
+      // 3. Draw Header Border Line
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, headerHeight);
+      ctx.lineTo(width, headerHeight);
+      ctx.stroke();
+
+      // 4. Mac-style Window Controls
+      const dotRadius = 6;
+      const dotY = headerHeight / 2;
+      // Red
+      ctx.fillStyle = '#ff5f56';
+      ctx.beginPath();
+      ctx.arc(25, dotY, dotRadius, 0, Math.PI * 2);
+      ctx.fill();
+      // Yellow
+      ctx.fillStyle = '#ffbd2e';
+      ctx.beginPath();
+      ctx.arc(45, dotY, dotRadius, 0, Math.PI * 2);
+      ctx.fill();
+      // Green
+      ctx.fillStyle = '#27c93f';
+      ctx.beginPath();
+      ctx.arc(65, dotY, dotRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 5. Document Title
+      ctx.font = 'bold 13px "Segoe UI", Tahoma, Geneva, Verdana, sans-serif';
+      ctx.fillStyle = '#94a3b8';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${docTitle} - E-Office`, width / 2, headerHeight / 2 + 5);
+
+      // 6. Draw vertical line separator between line numbers and content
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(55, headerHeight);
+      ctx.lineTo(55, height);
+      ctx.stroke();
+
+      // 7. Render Lines with Line Numbers
+      ctx.textAlign = 'left';
+      lines.forEach((line, index) => {
+        const y = headerHeight + padding + index * lineHeight + 14; // baseline adjustment
+        
+        // Line number
+        ctx.font = '12px Consolas, Monaco, monospace';
+        ctx.fillStyle = '#475569';
+        const lineNumStr = String(index + 1).padStart(2, '0');
+        ctx.fillText(lineNumStr, 25, y);
+
+        // Content text
+        ctx.font = '14px Consolas, Monaco, monospace';
+        ctx.fillStyle = '#cbd5e1';
+        ctx.fillText(line, 70, y);
+      });
+
+      const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          toast.error('Failed to export as image.');
+          return;
+        }
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${docTitle}.${format}`;
+        link.click();
+        URL.revokeObjectURL(url);
+        toast.success(`Exported locally as ${format.toUpperCase()}`);
+      }, mimeType, 0.95);
+      return;
+    }
+
     let blob: Blob;
     let extension = format;
     
@@ -435,10 +561,25 @@ export default function EOfficePage() {
         row.map(val => `"${val.replace(/"/g, '""')}"`).join(',')
       ).join('\n');
       blob = new Blob(['\ufeff' + csvStr], { type: 'text/csv;charset=utf-8;' });
-    } else {
+    } else if (format === 'xlsx') {
       // JSON spreadsheet structure downloaded as xlsx file format
       const gridStr = JSON.stringify(excelGrid);
       blob = new Blob([gridStr], { type: 'application/json' });
+    } else {
+      // Code files (Python, JS, etc.) - extract raw text
+      let codeText = '';
+      if (activeTab === 'word') {
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = wordContent;
+        codeText = tempDiv.innerText || tempDiv.textContent || '';
+      } else if (activeTab === 'note') {
+        codeText = noteContent;
+      } else {
+        codeText = excelGrid.map(row => 
+          row.map(val => `"${val.replace(/"/g, '""')}"`).join(',')
+        ).join('\n');
+      }
+      blob = new Blob([codeText], { type: 'text/plain;charset=utf-8' });
     }
 
     const url = URL.createObjectURL(blob);
@@ -675,15 +816,36 @@ export default function EOfficePage() {
               </button>
               <div className="dropdown-export-menu" style={{
                 position: 'absolute', top: '34px', right: 0, background: '#1e293b', border: '1px solid rgba(255,255,255,0.15)',
-                borderRadius: '8px', width: '200px', zIndex: 100, fontSize: '12px', display: 'flex', flexDirection: 'column',
-                boxShadow: '0 10px 20px rgba(0,0,0,0.5)', overflow: 'hidden'
+                borderRadius: '8px', width: '220px', zIndex: 100, fontSize: '12px', display: 'flex', flexDirection: 'column',
+                boxShadow: '0 10px 20px rgba(0,0,0,0.5)', maxHeight: '280px', overflowY: 'auto'
               }}>
                 <ul className="list-unstyled m-0 p-0">
+                  <div style={{ padding: '6px 10px', fontSize: '10px', color: '#64748b', fontWeight: 'bold', borderBottom: '1px solid rgba(255,255,255,0.1)', background: '#151d2a' }}>OFFICE FORMATS</div>
                   <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('docx')}><Type size={14}/> MS Word (.docx)</button></li>
                   <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('xlsx')}><Table size={14}/> Excel Sheet (.xlsx)</button></li>
                   <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('pdf')}><FileEdit size={14}/> PDF Document (.pdf)</button></li>
                   <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('csv')}><AlignJustify size={14}/> CSV Data (.csv)</button></li>
                   <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('txt')}><FileCode size={14}/> Raw Text (.txt)</button></li>
+                  
+                  <div style={{ padding: '6px 10px', fontSize: '10px', color: '#64748b', fontWeight: 'bold', borderBottom: '1px solid rgba(255,255,255,0.1)', borderTop: '1px solid rgba(255,255,255,0.1)', background: '#151d2a' }}>IMAGE EXPORTS</div>
+                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('png')}><ImageIcon size={14}/> PNG Image (.png)</button></li>
+                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('jpeg')}><ImageIcon size={14}/> JPEG Image (.jpeg)</button></li>
+                  
+                  <div style={{ padding: '6px 10px', fontSize: '10px', color: '#64748b', fontWeight: 'bold', borderBottom: '1px solid rgba(255,255,255,0.1)', borderTop: '1px solid rgba(255,255,255,0.1)', background: '#151d2a' }}>DEVELOPER SCRIPTS</div>
+                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('py')}><Code2 size={14}/> Python (.py)</button></li>
+                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('js')}><Code2 size={14}/> JavaScript (.js)</button></li>
+                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('ts')}><Code2 size={14}/> TypeScript (.ts)</button></li>
+                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('cpp')}><Code2 size={14}/> C++ (.cpp)</button></li>
+                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('cs')}><Code2 size={14}/> C# (.cs)</button></li>
+                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('java')}><Code2 size={14}/> Java (.java)</button></li>
+                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('ino')}><Code2 size={14}/> Arduino (.ino)</button></li>
+                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('php')}><Code2 size={14}/> PHP Script (.php)</button></li>
+                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('mongodb')}><Code2 size={14}/> MongoDB (.mongodb)</button></li>
+                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('sql')}><Code2 size={14}/> SQL Query (.sql)</button></li>
+                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('sh')}><Code2 size={14}/> Shell Script (.sh)</button></li>
+                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('html')}><Code2 size={14}/> HTML File (.html)</button></li>
+                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('css')}><Code2 size={14}/> CSS Stylesheet (.css)</button></li>
+                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('json')}><Code2 size={14}/> JSON File (.json)</button></li>
                 </ul>
               </div>
             </div>

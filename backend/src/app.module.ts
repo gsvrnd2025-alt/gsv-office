@@ -60,9 +60,10 @@ import mailConfig from './config/mail.config';
         logging: config.get<boolean>('database.logging'),
         autoLoadEntities: true,
         extra: {
-          max: 20,
+          max: 100,
           idleTimeoutMillis: 30000,
-          connectionTimeoutMillis: 2000,
+          connectionTimeoutMillis: 10000,
+          statement_timeout: 15000,
         },
       }),
       inject: [ConfigService],

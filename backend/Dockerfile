@@ -1,43 +1,23 @@
 # ─────────────────────────────────────────
 # GSV Office Backend — Docker Build
-# Multi-stage for production optimization
+# Optimized production image copying pre-compiled local build
 # ─────────────────────────────────────────
 
-FROM node:20-alpine AS builder
-
-WORKDIR /app
-
-# Install build dependencies
-RUN apk add --no-cache python3 make g++ libc6-compat
-
-# Copy package files
-COPY package*.json ./
-COPY tsconfig*.json ./
-COPY nest-cli.json ./
-
-# Install dependencies
-RUN npm ci --only=production=false
-
-# Copy source
-COPY src ./src
-
-# Build
-RUN npm run build
-
-# ─────────────────────────────────────────
-# Production stage
-# ─────────────────────────────────────────
 FROM node:20-alpine AS production
 
 WORKDIR /app
 
-# Install runtime dependencies only
-RUN apk add --no-cache libc6-compat samba-client curl
+# Install runtime and compilation dependencies for native modules
+RUN apk add --no-cache libc6-compat samba-client curl python3 make g++
 
-# Copy built files
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
+# Copy package files
 COPY package*.json ./
+
+# Install production dependencies only (compiles native addons for alpine)
+RUN npm ci --only=production
+
+# Copy pre-compiled dist folder from host
+COPY dist ./dist
 
 # Create necessary directories
 RUN mkdir -p /app/uploads /app/logs /app/plugins /tmp/uploads

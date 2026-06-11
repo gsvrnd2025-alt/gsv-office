@@ -54,7 +54,7 @@ export class FilesController {
       destination: (req, file, cb) => { cb(null, process.env.UPLOAD_PATH || '/app/uploads'); },
       filename: (req, file, cb) => { cb(null, `${uuid()}${path.extname(file.originalname)}`); },
     }),
-    limits: { fileSize: 500 * 1024 * 1024 },
+    limits: { fileSize: (process.env.MAX_FILE_SIZE_MB ? parseInt(process.env.MAX_FILE_SIZE_MB, 10) : 5000) * 1024 * 1024 },
   }))
   async uploadFile(@UploadedFile() file: Express.Multer.File, @Body() dto: any, @CurrentUser('id') userId: string) {
     return this.svc.saveFile({
@@ -71,12 +71,12 @@ export class FilesController {
 
   @Post('upload-folder')
   @RequirePermissions(['files', 'upload'])
-  @UseInterceptors(FilesInterceptor('files', 500, {
+  @UseInterceptors(FilesInterceptor('files', 10000, {
     storage: diskStorage({
       destination: (req, file, cb) => { cb(null, process.env.UPLOAD_PATH || '/app/uploads'); },
       filename: (req, file, cb) => { cb(null, `${uuid()}${path.extname(file.originalname)}`); },
     }),
-    limits: { fileSize: 500 * 1024 * 1024 },
+    limits: { fileSize: (process.env.MAX_FILE_SIZE_MB ? parseInt(process.env.MAX_FILE_SIZE_MB, 10) : 5000) * 1024 * 1024 },
   }))
   async uploadFolder(
     @UploadedFiles() files: Express.Multer.File[],

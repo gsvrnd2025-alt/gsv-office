@@ -1,10 +1,40 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs';
 
 @Injectable()
-export class ServerService {
+export class ServerService implements OnApplicationBootstrap {
   constructor(private ds: DataSource) {}
+
+  async onApplicationBootstrap() {
+    try {
+      let version = process.env.APP_VERSION;
+      if (!version) {
+        try {
+          const pkgPath = path.join(__dirname, '..', '..', '..', 'package.json');
+          if (fs.existsSync(pkgPath)) {
+            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+            version = pkg.version;
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+      if (!version) version = '1.0.0';
+
+      await this.ds.query(
+        `INSERT INTO system_settings (key, value, category, description, is_public, updated_at)
+         VALUES ('app_version', $1, 'system', 'GSV Office Application Version', true, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+        [version]
+      );
+      console.log(`[ServerService] Synchronized APP_VERSION: ${version} to system_settings.`);
+    } catch (err) {
+      console.error('[ServerService] Failed to sync app_version on bootstrap:', err);
+    }
+  }
 
   async getSystemInfo() {
     const uptime = process.uptime();

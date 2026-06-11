@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Sidebar } from '../ui/Sidebar';
 import { Topbar } from '../ui/Topbar';
 import { useThemeStore } from '../../store/theme.store';
-import { chatApi, usersApi, authApi } from '../../api';
+import { chatApi, usersApi, authApi, webrtcApi } from '../../api';
 import { SoundManager } from '../../utils/sound';
 import FloatingStickyNotes from './FloatingStickyNotes';
 import styles from './AppLayout.module.css';
@@ -23,13 +23,19 @@ export function AppLayout() {
 
   // WebRTC socket state and call states
   const [webrtcSocket, setWebrtcSocket] = useState<any>(null);
+  const [chatSocket, setChatSocket] = useState<any>(null);
   const [incomingCall, setIncomingCall] = useState<any>(null);
   const [activeCall, setActiveCall] = useState(false);
   const [callingState, setCallingState] = useState<'idle' | 'calling' | 'connected'>('idle');
-  const [callHistory, setCallHistory] = useState<any[]>(() => {
-    try { return JSON.parse(localStorage.getItem('gsv_call_history') || '[]'); }
-    catch { return []; }
-  });
+  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
+
+  const [callHistory, setCallHistory] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (accessToken) {
+      webrtcApi.getCallLogs().then(res => setCallHistory(res.data?.data || res.data || [])).catch(console.error);
+    }
+  }, [accessToken]);
   const [callPartnerName, setCallPartnerName] = useState('');
   const [callPartnerId, setCallPartnerId] = useState('');
   const [callType, setCallType] = useState<'audio' | 'video'>('audio');
@@ -95,8 +101,33 @@ export function AppLayout() {
       transports: ['websocket', 'polling']
     });
 
-    socket.on('presence:update', (data) => {
+    socket.on('connect', () => {
+      if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.updateSocketStatus === 'function') {
+        (window as any).gsvDesktop.updateSocketStatus(true);
+      }
+      socket.emit('presence:get-online', {}, (res: any) => {
+        if (res?.users) {
+          setOnlineUsers(new Set(res.users));
+        }
+      });
+    });
+
+    socket.on('disconnect', () => {
+      if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.updateSocketStatus === 'function') {
+        (window as any).gsvDesktop.updateSocketStatus(false);
+      }
+      setOnlineUsers(new Set());
+    });
+
+    socket.on('presence:update', (data: { userId: string; isOnline: boolean }) => {
+      setOnlineUsers(prev => {
+        const next = new Set(prev);
+        if (data.isOnline) next.add(data.userId);
+        else next.delete(data.userId);
+        return next;
+      });
       qc.invalidateQueries({ queryKey: ['users-directory'] });
+      qc.invalidateQueries({ queryKey: ['users'] });
       qc.invalidateQueries({ queryKey: ['conversations'] });
     });
 
@@ -127,6 +158,57 @@ export function AppLayout() {
       socket.disconnect();
     };
   }, [accessToken, qc]);
+
+  // Connect globally to chat namespace for desktop notifications
+  useEffect(() => {
+    if (!accessToken) return;
+    const socket = io('/chat', {
+      auth: { token: accessToken },
+      transports: ['websocket', 'polling'],
+      reconnection: true
+    });
+    setChatSocket(socket);
+
+    socket.on('message:new', (data) => {
+      // Invalidate conversation, unread, and message queries immediately for real-time responsiveness
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+      qc.invalidateQueries({ queryKey: ['global-conversations-unread'] });
+      if (data && data.conversationId) {
+        qc.invalidateQueries({ queryKey: ['messages', data.conversationId] });
+      }
+
+      const myUserId = useAuthStore.getState().user?.id;
+      if (data.senderId !== myUserId) {
+        // If app is hidden or not focused, show native notification
+        if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.showNotification === 'function') {
+           if (document.hidden || !location.pathname.startsWith('/chat')) {
+             const senderName = findUserName(data.senderId);
+             (window as any).gsvDesktop.showNotification({
+               text: data.content,
+               senderName: senderName,
+               conversationId: data.conversationId
+             });
+           }
+        }
+      }
+    });
+
+    if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.onNotificationReply === 'function') {
+       (window as any).gsvDesktop.onNotificationReply((replyData: any) => {
+          socket.emit('message:send', {
+            conversationId: replyData.conversationId,
+            content: replyData.replyText,
+            type: 'text'
+          });
+       });
+    }
+
+    return () => {
+      socket.disconnect();
+      setChatSocket(null);
+    };
+  }, [accessToken, location.pathname, qc]);
+
 
   // Connect globally to webrtc namespace for background calling alerts
   useEffect(() => {
@@ -258,27 +340,24 @@ export function AppLayout() {
   }, [accessToken]);
 
   // Call history helpers
-  const addCallLog = (status: 'incoming' | 'outgoing' | 'missed' | 'rejected', name: string, duration: string) => {
-    const newLog = {
-      name,
-      status,
-      time: new Date().toLocaleString(),
-      duration
-    };
-    setCallHistory(prev => {
-      const updated = [newLog, ...prev].slice(0, 50);
-      localStorage.setItem('gsv_call_history', JSON.stringify(updated));
-      return updated;
-    });
+  const addCallLog = async (status: 'incoming' | 'outgoing' | 'missed' | 'rejected', name: string, duration: string, partnerId?: string, type?: 'audio' | 'video') => {
+    try {
+      const res = await webrtcApi.saveCallLog({ status, name, durationSec: 0, partnerId, type });
+      const newLog = res.data?.data || res.data;
+      setCallHistory((prev: any) => [newLog, ...(prev || [])]);
+    } catch (e) {
+      console.error('Failed to save call log', e);
+    }
   };
 
   const updateLastCallDuration = (durationSec: number) => {
+    // Ideally we would update the backend call log here. 
+    // For now, we update local state (we need call ID to update backend efficiently, or backend could calculate it upon hangup).
     const formatted = formatDuration(durationSec);
     setCallHistory(prev => {
-      if (prev.length === 0) return prev;
+      if (!prev || prev.length === 0) return prev;
       const updated = [...prev];
       updated[0] = { ...updated[0], duration: formatted };
-      localStorage.setItem('gsv_call_history', JSON.stringify(updated));
       return updated;
     });
   };
@@ -302,6 +381,16 @@ export function AppLayout() {
       pc.onicecandidate = (event) => {
         if (event.candidate && socketRef.current) {
           socketRef.current.emit('webrtc:ice-candidate', { to: targetSocketId, candidate: event.candidate });
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        console.log('ICE Connection State:', pc.iceConnectionState);
+        if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+          if (activeCallRef.current || incomingCallRef.current) {
+            toast.error('Call disconnected due to network issues.');
+            hangUpCall();
+          }
         }
       };
 
@@ -350,7 +439,7 @@ export function AppLayout() {
     setCallPartnerId(calleeId);
     setCallType(type);
 
-    addCallLog('outgoing', calleeName, '00:00');
+    addCallLog('outgoing', calleeName, '00:00', calleeId, type);
 
     if (ringIntervalRef.current) clearInterval(ringIntervalRef.current);
     SoundManager.playRing(3.0);
@@ -400,7 +489,7 @@ export function AppLayout() {
     setActiveCall(true);
     setCallingState('connected');
 
-    addCallLog('incoming', partnerName, '00:00');
+    addCallLog('incoming', partnerName, '00:00', partnerId, type);
 
     activeRoomIdRef.current = roomId;
     webrtcSocket.emit('call:join', { roomId });
@@ -415,7 +504,7 @@ export function AppLayout() {
 
     if (ringIntervalRef.current) clearInterval(ringIntervalRef.current);
 
-    addCallLog('rejected', incomingCall.callerName, '00:00');
+    addCallLog('rejected', incomingCall.callerName, '00:00', incomingCall.callerId, incomingCall.type);
 
     webrtcSocket.emit('call:leave', { roomId: incomingCall.roomId });
     setIncomingCall(null);
@@ -784,6 +873,7 @@ export function AppLayout() {
             isRemoteDesktopExpanded,
             setIsRemoteDesktopExpanded,
             webrtcSocket,
+            chatSocket,
             initiateCall,
             activeCall,
             setActiveCall,
@@ -802,6 +892,7 @@ export function AppLayout() {
             setCallPartnerId,
             callType,
             setCallType,
+            onlineUsers,
             callDuration,
             isMuted,
             setIsMuted

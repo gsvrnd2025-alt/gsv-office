@@ -1164,11 +1164,18 @@ export default function RemoteDesktopPage() {
 
   useEffect(() => {
     if (showIncomingRequest && (window as any).gsvDesktop) {
+      if (typeof (window as any).gsvDesktop.showIncomingCallPopup === 'function') {
+        (window as any).gsvDesktop.showIncomingCallPopup({
+          type: 'remote-desktop',
+          callerName: incomingRequestData?.callerName
+        });
+      }
+
       addLog('Fetching desktop sources for screen share picker...');
       (window as any).gsvDesktop.getSources().then((sources: any[]) => {
         setDesktopSources(sources);
         // Default to the first screen source if available
-        const screenSource = sources.find(s => s.id.startsWith('screen:'));
+        const screenSource = sources.find((s: any) => s.id.startsWith('screen:'));
         if (screenSource) {
           setSelectedSourceId(screenSource.id);
         } else if (sources.length > 0) {
@@ -1178,7 +1185,22 @@ export default function RemoteDesktopPage() {
         console.error('Failed to get desktop sources:', err);
       });
     }
-  }, [showIncomingRequest]);
+  }, [showIncomingRequest, incomingRequestData]);
+
+  useEffect(() => {
+    const handleCallAction = (e: any) => {
+      if (showIncomingRequest && incomingRequestData) {
+        if (e.detail === 'accept') {
+          acceptRequest();
+        } else if (e.detail === 'reject') {
+          rejectRequest('rejected_by_user');
+        }
+      }
+    };
+    window.addEventListener('gsv-call-action', handleCallAction);
+    return () => window.removeEventListener('gsv-call-action', handleCallAction);
+  }, [showIncomingRequest, incomingRequestData]);
+
 
   // Viewport / WebRTC simulation objects
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -1633,8 +1655,9 @@ export default function RemoteDesktopPage() {
   // Load COTURN configuration from backend
   useEffect(() => {
     webrtcApi.getConfig().then((res: any) => {
-      if (res.data?.iceServers) {
-        setIceServers(res.data.iceServers);
+      const config = res.data?.data || res.data;
+      if (config?.iceServers) {
+        setIceServers(config.iceServers);
         addLog('COTURN local TURN server parameters loaded successfully.');
       }
     }).catch((err: any) => {
@@ -2217,7 +2240,7 @@ export default function RemoteDesktopPage() {
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
 
-    // Use dynamic video width or fallback to 1920x1080
+    // Dynamically get the remote screen's native resolution from the video stream
     const videoWidth = video.videoWidth || 1920;
     const videoHeight = video.videoHeight || 1080;
 
@@ -2227,35 +2250,36 @@ export default function RemoteDesktopPage() {
     const videoRatio = videoWidth / videoHeight;
     const elementRatio = elementWidth / elementHeight;
 
-    let actualVideoWidth = elementWidth;
-    let actualVideoHeight = elementHeight;
+    let actualDisplayWidth = elementWidth;
+    let actualDisplayHeight = elementHeight;
     let offsetX = 0;
     let offsetY = 0;
 
     // Accounts for aspect ratio constraints matching object-fit: contain
     if (videoFit === 'contain') {
       if (elementRatio > videoRatio) {
-        // Pillarbox
-        actualVideoWidth = elementHeight * videoRatio;
-        offsetX = (elementWidth - actualVideoWidth) / 2;
+        // Pillarbox — video is narrower, centered horizontally
+        actualDisplayWidth = elementHeight * videoRatio;
+        offsetX = (elementWidth - actualDisplayWidth) / 2;
       } else {
-        // Letterbox
-        actualVideoHeight = elementWidth / videoRatio;
-        offsetY = (elementHeight - actualVideoHeight) / 2;
+        // Letterbox — video is shorter, centered vertically
+        actualDisplayHeight = elementWidth / videoRatio;
+        offsetY = (elementHeight - actualDisplayHeight) / 2;
       }
     }
 
     const relativeX = clickX - offsetX;
     const relativeY = clickY - offsetY;
 
-    const fractionX = relativeX / actualVideoWidth;
-    const fractionY = relativeY / actualVideoHeight;
+    const fractionX = relativeX / actualDisplayWidth;
+    const fractionY = relativeY / actualDisplayHeight;
 
     const clampedFractionX = Math.max(0, Math.min(1.0, fractionX));
     const clampedFractionY = Math.max(0, Math.min(1.0, fractionY));
 
-    const x = Math.round(clampedFractionX * 1920);
-    const y = Math.round(clampedFractionY * 1080);
+    // Scale to the ACTUAL remote resolution (not hardcoded 1920x1080)
+    const x = Math.round(clampedFractionX * videoWidth);
+    const y = Math.round(clampedFractionY * videoHeight);
 
     return { x, y, fractionX: clampedFractionX, fractionY: clampedFractionY };
   };
@@ -2638,11 +2662,11 @@ export default function RemoteDesktopPage() {
         );
       })()}
 
-      {/* AnyDesk Style 2-Column Grid */}
-      <div className="row flex-grow-1" style={{ minHeight: '560px' }}>
+      {/* Viewport and Controls Grid Container */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)', width: '100%', minHeight: '560px' }}>
         
-        {/* Left Column: Viewport (Screen Mirror) */}
-        <div className="col-lg-8 col-xl-9 d-flex flex-column">
+        {/* Viewport Column (Full Width) */}
+        <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
           <div 
             ref={viewportRef}
             onKeyDown={handleViewportKeyPress}
@@ -2948,7 +2972,25 @@ export default function RemoteDesktopPage() {
                     onMouseMove={handleViewportMouseMove}
                     onMouseDown={handleViewportMouseDown}
                     onContextMenu={handleViewportContextMenu}
+                    onLoadedMetadata={e => {
+                      const v = e.currentTarget;
+                      if (v.videoWidth && v.videoHeight) {
+                        console.log(`[RemoteDesktop] Stream resolution: ${v.videoWidth}x${v.videoHeight}`);
+                      }
+                    }}
                   />
+                  
+                  {/* Resolution badge */}
+                  {isConnected && videoRef.current?.videoWidth && (
+                    <div style={{
+                      position: 'absolute', bottom: '8px', left: '8px',
+                      background: 'rgba(0,0,0,0.6)', color: '#fff',
+                      fontSize: '10px', padding: '2px 8px', borderRadius: '6px',
+                      pointerEvents: 'none', backdropFilter: 'blur(4px)',
+                    }}>
+                      {videoRef.current.videoWidth}×{videoRef.current.videoHeight} • {videoFit === 'contain' ? 'Fit' : videoFit === 'fill' ? 'Fill' : 'Cover'}
+                    </div>
+                  )}
                   
                   {explorerOpen && (
                     <div 
@@ -3488,8 +3530,8 @@ export default function RemoteDesktopPage() {
           </div>
         </div>
 
-        {/* Right Column: AnyDesk controls (Bolder design, thicker borders, history list) */}
-        <div className="col-lg-4 col-xl-3 d-flex flex-column gap-3">
+        {/* Bottom Section: Controls Grid (Tabular catalog format, up to 3 in a row, evenly spaced with gaps) */}
+        <div className="remote-controls-grid">
           
           {/* Card 1: MY REMOTE ID */}
           <div className="card p-3 d-flex flex-column gap-2" style={{ background: 'var(--bg-card)', border: '2.5px solid var(--border-color)', borderRadius: '12px', boxShadow: '0 4px 10px rgba(0,0,0,0.15)' }}>

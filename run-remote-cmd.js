@@ -1,5 +1,11 @@
+require('./backend/node_modules/dotenv').config();
 const { Client } = require('./backend/node_modules/ssh2');
-const SSH_CONFIG = { host: '192.168.0.177', port: 22, username: 'root', password: 'Gsv@2018' };
+const SSH_CONFIG = {
+  host: process.env.SSH_HOST || '192.168.0.177',
+  port: parseInt(process.env.SSH_PORT || '22', 10),
+  username: process.env.SSH_USER || 'root',
+  password: process.env.SSH_PASS || 'Gsv@2018'
+};
 
 const conn = new Client();
 conn.on('ready', () => {

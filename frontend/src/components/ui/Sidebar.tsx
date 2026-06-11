@@ -178,6 +178,17 @@ export function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose, hidden
           )}
         </div>
         <div className={styles.userActions}>
+          <button 
+            className={styles.actionBtn} 
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent('gsv-check-update-manual'));
+              onMobileClose();
+            }} 
+            title="Check for Updates"
+            style={{ border: 'none', background: 'transparent' }}
+          >
+            <Download size={16} />
+          </button>
           <NavLink to="/profile" className={styles.actionBtn} title="Settings" onClick={onMobileClose}>
             <Settings size={16} />
           </NavLink>

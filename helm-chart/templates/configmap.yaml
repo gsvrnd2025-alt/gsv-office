@@ -48,7 +48,7 @@ data:
 
   # Storage
   UPLOAD_PATH: "/app/uploads"
-  MAX_FILE_SIZE_MB: "500"
+  MAX_FILE_SIZE_MB: "5000"
   LOG_LEVEL: "{{ .Values.app.logLevel }}"
   LOG_TO_FILE: "true"
   LOG_PATH: "/app/logs"

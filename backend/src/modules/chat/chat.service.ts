@@ -1,15 +1,37 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { ChatGateway } from '../../gateways/chat.gateway';
 
 @Injectable()
 export class ChatService implements OnModuleInit {
-  constructor(private dataSource: DataSource) {}
+  constructor(
+    private dataSource: DataSource,
+    @Inject(forwardRef(() => ChatGateway)) private chatGateway: ChatGateway,
+  ) {}
 
   async onModuleInit() {
     try {
       await this.mergeDuplicateConversations();
     } catch (err) {
       console.error('Error in onModuleInit duplicate conversation merge:', err);
+    }
+
+    try {
+      await this.dataSource.query(`
+        CREATE TABLE IF NOT EXISTS group_invitations (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+          invited_by_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          invitee_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          status VARCHAR(20) DEFAULT 'pending',
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW(),
+          UNIQUE(conversation_id, invitee_id)
+        );
+      `);
+      console.log('[ChatService] Verified group_invitations table exists.');
+    } catch (err) {
+      console.error('Error creating group_invitations table:', err);
     }
 
     try {
@@ -150,7 +172,7 @@ export class ChatService implements OnModuleInit {
       SELECT c.*, cm.last_read_at, cm.is_muted, cm.is_archived,
              COUNT(m.id) FILTER (WHERE m.created_at > COALESCE(cm.last_read_at, '1970-01-01') AND m.sender_id != $1 AND m.deleted_at IS NULL) AS unread_count,
              (
-               SELECT json_agg(json_build_object('id', u.id, 'fullName', u.full_name, 'loginId', u.login_id, 'departmentId', u.department_id, 'department_id', u.department_id))
+               SELECT json_agg(json_build_object('id', u.id, 'fullName', u.full_name, 'loginId', u.login_id, 'departmentId', u.department_id, 'department_id', u.department_id, 'role', mem.role))
                FROM conversation_members mem
                JOIN users u ON u.id = mem.user_id
                WHERE mem.conversation_id = c.id
@@ -225,7 +247,7 @@ export class ChatService implements OnModuleInit {
 
     // Add the creator
     await this.dataSource.query(
-      `INSERT INTO conversation_members (conversation_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      `INSERT INTO conversation_members (conversation_id, user_id, role) VALUES ($1, $2, 'admin') ON CONFLICT DO NOTHING`,
       [conv.id, dto.createdBy]
     );
 
@@ -257,9 +279,9 @@ export class ChatService implements OnModuleInit {
     const replyToId = (dto.replyToId && dto.replyToId !== '' && dto.replyToId !== 'null' && dto.replyToId !== 'undefined') ? dto.replyToId : null;
 
     const [msg] = await this.dataSource.query(
-      `INSERT INTO messages (conversation_id, sender_id, content, type, file_id, folder_id, reply_to_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [dto.conversationId, dto.senderId, dto.content, mappedType, fileId, folderId, replyToId]
+      `INSERT INTO messages (conversation_id, sender_id, content, type, file_id, folder_id, metadata, reply_to_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [dto.conversationId, dto.senderId, dto.content, mappedType, fileId, folderId, folderId ? { folderId } : {}, replyToId]
     );
 
     if (fileId) {
@@ -269,7 +291,7 @@ export class ChatService implements OnModuleInit {
       );
       for (const m of members) {
         await this.dataSource.query(
-          `INSERT INTO file_shares (file_id, shared_by_user_id, shared_with_user_id, permission)
+          `INSERT INTO file_shares (file_id, shared_by, shared_with_user_id, permission)
            VALUES ($1, $2, $3, 'read') ON CONFLICT DO NOTHING`,
           [fileId, dto.senderId, m.user_id]
         );
@@ -309,14 +331,48 @@ export class ChatService implements OnModuleInit {
       }
     }
 
-    if (msg.type === 'image') msg.type = 'photo';
-    if (msg.type === 'audio') msg.type = 'music';
-
     await this.dataSource.query(
       `UPDATE conversations SET last_message_at = NOW(), last_message_preview = $1 WHERE id = $2`,
       [dto.content?.substring(0, 100), dto.conversationId]
     );
-    return msg;
+
+    // Fetch the fully joined message record
+    const [insertedMsg] = await this.dataSource.query(`
+      SELECT m.id, m.conversation_id, m.sender_id, m.content, m.file_id, m.folder_id, m.reply_to_id, m.created_at, m.deleted_at,
+             CASE
+               WHEN m.type::text = 'image' THEN 'photo'
+               WHEN m.type::text = 'audio' THEN 'music'
+               ELSE m.type::text
+             END AS type,
+             u.full_name AS sender_name, u.avatar_url AS sender_avatar,
+             COALESCE(json_agg(mr) FILTER (WHERE mr.message_id IS NOT NULL), '[]') AS reactions,
+             COALESCE(f.original_name, f.name, fold.name) AS file_name, f.mime_type, f.size AS file_size, f.storage_url AS file_url
+      FROM messages m
+      JOIN users u ON u.id = m.sender_id
+      LEFT JOIN message_reactions mr ON mr.message_id = m.id
+      LEFT JOIN files f ON f.id = m.file_id
+      LEFT JOIN folders fold ON fold.id = m.folder_id
+      WHERE m.id = $1
+      GROUP BY m.id, m.conversation_id, m.sender_id, m.content, m.file_id, m.folder_id, m.reply_to_id, m.created_at, m.deleted_at,
+             u.full_name, u.avatar_url, f.original_name, f.name, fold.name, f.mime_type, f.size, f.storage_url
+    `, [msg.id]);
+
+    // Broadcast real-time to all conversation members via WebSocket
+    try {
+      this.chatGateway.emitToConversation(dto.conversationId, 'message:new', insertedMsg);
+      
+      const allMembers = await this.dataSource.query(
+        `SELECT user_id FROM conversation_members WHERE conversation_id = $1 AND left_at IS NULL`,
+        [dto.conversationId]
+      );
+      for (const member of allMembers) {
+        this.chatGateway.emitToUser(member.user_id, 'message:new', insertedMsg);
+      }
+    } catch (e) {
+      // Gateway may not be ready on startup
+    }
+
+    return insertedMsg;
   }
 
   async addReaction(messageId: string, userId: string, emoji: string) {
@@ -387,6 +443,14 @@ export class ChatService implements OnModuleInit {
 
   async deleteConversation(id: string, userId: string, clearForEveryone: boolean) {
     if (clearForEveryone) {
+      const [reqMember] = await this.dataSource.query(
+        `SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
+        [id, userId]
+      );
+      if (!reqMember || reqMember.role !== 'admin') {
+        throw new Error('Only group admins can delete this group for everyone');
+      }
+
       await this.dataSource.transaction(async (manager) => {
         await manager.query(`DELETE FROM messages WHERE conversation_id = $1`, [id]);
         await manager.query(`DELETE FROM conversation_members WHERE conversation_id = $1`, [id]);
@@ -398,6 +462,182 @@ export class ChatService implements OnModuleInit {
         [id, userId]
       );
     }
+    return { success: true };
+  }
+
+  async createInvitation(conversationId: string, invitedById: string, inviteeId: string) {
+    const [senderMember] = await this.dataSource.query(
+      `SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
+      [conversationId, invitedById]
+    );
+    if (!senderMember || senderMember.role !== 'admin') {
+      throw new Error('Only admins can invite new members to this group');
+    }
+
+    const [existingMember] = await this.dataSource.query(
+      `SELECT id FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
+      [conversationId, inviteeId]
+    );
+    if (existingMember) {
+      throw new Error('User is already a member of this conversation');
+    }
+
+    const [invitation] = await this.dataSource.query(
+      `INSERT INTO group_invitations (conversation_id, invited_by_id, invitee_id, status)
+       VALUES ($1, $2, $3, 'pending')
+       ON CONFLICT (conversation_id, invitee_id) DO UPDATE SET status = 'pending', updated_at = NOW()
+       RETURNING *`,
+      [conversationId, invitedById, inviteeId]
+    );
+
+    const [conv] = await this.dataSource.query(
+      `SELECT name FROM conversations WHERE id = $1`,
+      [conversationId]
+    );
+    const [inviter] = await this.dataSource.query(
+      `SELECT full_name FROM users WHERE id = $1`,
+      [invitedById]
+    );
+
+    await this.dataSource.query(
+      `INSERT INTO notifications (user_id, type, title, body, data)
+       VALUES ($1, 'chat', $2, $3, $4)`,
+      [
+        inviteeId,
+        'Group Invitation',
+        `${inviter?.full_name || 'Someone'} invited you to join "${conv?.name || 'a group'}"`,
+        JSON.stringify({ type: 'group_invite', invitationId: invitation.id, conversationId })
+      ]
+    );
+
+    try {
+      this.chatGateway.emitToUser(inviteeId, 'notification:new', {
+        type: 'group_invite',
+        invitationId: invitation.id,
+        conversationId,
+        message: `${inviter?.full_name || 'Someone'} invited you to join "${conv?.name || 'a group'}"`
+      });
+    } catch (e) {}
+
+    return invitation;
+  }
+
+  async getInvitations(userId: string) {
+    return this.dataSource.query(`
+      SELECT gi.*, c.name AS conversation_name, c.description AS conversation_description, u.full_name AS inviter_name
+      FROM group_invitations gi
+      JOIN conversations c ON c.id = gi.conversation_id
+      JOIN users u ON u.id = gi.invited_by_id
+      WHERE gi.invitee_id = $1 AND gi.status = 'pending'
+      ORDER BY gi.created_at DESC
+    `, [userId]);
+  }
+
+  async acceptInvitation(invitationId: string, userId: string) {
+    const [invitation] = await this.dataSource.query(
+      `SELECT * FROM group_invitations WHERE id = $1 AND invitee_id = $2`,
+      [invitationId, userId]
+    );
+    if (!invitation) throw new Error('Invitation not found or unauthorized');
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.query(
+        `UPDATE group_invitations SET status = 'accepted', updated_at = NOW() WHERE id = $1`,
+        [invitationId]
+      );
+
+      await manager.query(
+        `INSERT INTO conversation_members (conversation_id, user_id, role)
+         VALUES ($1, $2, 'member')
+         ON CONFLICT (conversation_id, user_id) DO UPDATE SET left_at = NULL, role = 'member'`,
+        [invitation.conversation_id, userId]
+      );
+
+      const [user] = await manager.query(`SELECT full_name FROM users WHERE id = $1`, [userId]);
+      const systemContent = `${user?.full_name || 'A teammate'} joined the group.`;
+      
+      const [msg] = await manager.query(
+        `INSERT INTO messages (conversation_id, sender_id, content, type)
+         VALUES ($1, $2, $3, 'system') RETURNING *`,
+        [invitation.conversation_id, userId, systemContent]
+      );
+    });
+
+    return { success: true };
+  }
+
+  async rejectInvitation(invitationId: string, userId: string) {
+    const [invitation] = await this.dataSource.query(
+      `SELECT * FROM group_invitations WHERE id = $1 AND invitee_id = $2`,
+      [invitationId, userId]
+    );
+    if (!invitation) throw new Error('Invitation not found or unauthorized');
+
+    await this.dataSource.query(
+      `UPDATE group_invitations SET status = 'rejected', updated_at = NOW() WHERE id = $1`,
+      [invitationId]
+    );
+    return { success: true };
+  }
+
+  async removeMember(conversationId: string, userIdToRemove: string, requestingUserId: string) {
+    const [reqMember] = await this.dataSource.query(
+      `SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
+      [conversationId, requestingUserId]
+    );
+    if (!reqMember || reqMember.role !== 'admin') {
+      throw new Error('Only admins can remove members from this group');
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.query(
+        `DELETE FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
+        [conversationId, userIdToRemove]
+      );
+
+      const [removedUser] = await manager.query(`SELECT full_name FROM users WHERE id = $1`, [userIdToRemove]);
+      const [reqUser] = await manager.query(`SELECT full_name FROM users WHERE id = $1`, [requestingUserId]);
+      const systemContent = `${removedUser?.full_name || 'Teammate'} was removed by ${reqUser?.full_name || 'admin'}.`;
+      
+      await manager.query(
+        `INSERT INTO messages (conversation_id, sender_id, content, type)
+         VALUES ($1, $2, $3, 'system')`,
+        [conversationId, requestingUserId, systemContent]
+      );
+    });
+
+    return { success: true };
+  }
+
+  async changeMemberRole(conversationId: string, targetUserId: string, newRole: string, requestingUserId: string) {
+    if (newRole !== 'admin' && newRole !== 'member') {
+      throw new Error('Invalid role specified');
+    }
+
+    const [reqMember] = await this.dataSource.query(
+      `SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
+      [conversationId, requestingUserId]
+    );
+    if (!reqMember || reqMember.role !== 'admin') {
+      throw new Error('Only admins can change member roles in this group');
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.query(
+        `UPDATE conversation_members SET role = $1 WHERE conversation_id = $2 AND user_id = $3`,
+        [newRole, conversationId, targetUserId]
+      );
+
+      const [targetUser] = await manager.query(`SELECT full_name FROM users WHERE id = $1`, [targetUserId]);
+      const systemContent = `${targetUser?.full_name || 'Teammate'} is now an ${newRole === 'admin' ? 'Admin' : 'Member'}.`;
+
+      await manager.query(
+        `INSERT INTO messages (conversation_id, sender_id, content, type)
+         VALUES ($1, $2, $3, 'system')`,
+        [conversationId, requestingUserId, systemContent]
+      );
+    });
+
     return { success: true };
   }
 }

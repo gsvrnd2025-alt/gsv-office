@@ -1,6 +1,6 @@
 {
   "name": "gsv-office-frontend",
-  "version": "1.0.0",
+  "version": "1.0.4",
   "description": "GSV Office Enterprise Workspace Platform - Frontend",
   "private": true,
   "scripts": {

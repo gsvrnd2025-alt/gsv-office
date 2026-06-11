@@ -428,6 +428,24 @@ tbody tr:last-child td { border-bottom: none; }
 /* ── Grid Layouts ─────────────────────────────────────────────────── */
 .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--space-3); }
 .cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--space-4); }
+.remote-controls-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-6);
+  width: 100%;
+}
+
+@media (max-width: 1200px) {
+  .remote-controls-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .remote-controls-grid {
+    grid-template-columns: 1fr;
+  }
+}
 
 /* ── Progress Bar ────────────────────────────────────────────────── */
 .progress { background: var(--bg-tertiary); border-radius: var(--radius-full); height: 8px; overflow: hidden; }
