@@ -990,6 +990,11 @@ export default function FilesPage() {
                 className="btn btn-primary btn-sm" 
                 style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                 onClick={() => {
+                  const isNativeApp = navigator.userAgent.includes('GSVOfficeApp');
+                  if (isNativeApp) {
+                    toast.error("Folder uploads are not supported on the Desktop/Mobile app. Please compress the folder into a .zip or .tar archive before uploading.");
+                    return;
+                  }
                   setConfirmModal({
                     title: 'Upload Directory / Folder?',
                     message: 'This will stage all files inside the selected directory for upload to your current active folder directory. Do this only if you trust the files.',

@@ -3870,6 +3870,11 @@ export default function ChatPage() {
                       </div>
                       <div className="dropdown-item" onClick={() => {
                         setShowAttachmentsDropdown(false);
+                        const isNativeApp = navigator.userAgent.includes('GSVOfficeApp');
+                        if (isNativeApp) {
+                          toast.error("Folder uploads are not supported on the Desktop/Mobile app. Please compress the folder into a .zip or .tar archive before uploading.");
+                          return;
+                        }
                         setConfirmModal({
                           title: 'Upload SMB Folder Share?',
                           message: 'This will stage all files inside your selected directory for upload to this secure chat thread. Do this only if you trust the files.',
