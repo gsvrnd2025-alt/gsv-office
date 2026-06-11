@@ -1,3 +1,21 @@
+## Release v1.0.19 (2026-06-11)
+
+3a5261f feat: group calling, audio quality fix, DM soft-delete, group blocking, and Nginx optimizations
+1a94e44 chore(release): bump version to v1.0.17 [skip ci]
+3475aa5 fix(frontend): add global drag/drop preventer to avoid webview directory navigation hang
+d7fc3d9 chore(release): bump version to v1.0.16 [skip ci]
+947f851 fix: add applicationNameForUserAgent config in Flutter main.dart
+aa01dd6 chore(release): bump version to v1.0.15 [skip ci]
+d8682bf fix: improve folder drop interception using capture phase and update error messages
+21f415d chore(release): bump version to v1.0.14 [skip ci]
+b27dfd3 fix: block huge folder uploads in native app, bump version to v1.0.13
+2aed552 chore(release): bump version to v1.0.12 [skip ci]
+7034e28 fix: reset folder input and intercept dropzone to prevent white-screen crashes on large folder selections
+94291fc chore(release): bump version to v1.0.11 [skip ci]
+540155b fix: instantiate archiver ZipArchive directly for version 8.0.0 compatibility
+61ece1e chore(release): bump version to v1.0.10 [skip ci]
+830ffca fix: chat group updates, getConversations optimization, folder download logging
+
 ## Release v1.0.17 (2026-06-11)
 
 3475aa5 fix(frontend): add global drag/drop preventer to avoid webview directory navigation hang
