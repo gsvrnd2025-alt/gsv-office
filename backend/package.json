@@ -1,6 +1,6 @@
 {
   "name": "gsv-office-backend",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "description": "GSV Office Enterprise Workspace Platform - Backend API",
   "author": "GSV Office",
   "private": true,

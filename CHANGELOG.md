@@ -1,3 +1,21 @@
+## Release v1.0.15 (2026-06-11)
+
+d8682bf fix: improve folder drop interception using capture phase and update error messages
+21f415d chore(release): bump version to v1.0.14 [skip ci]
+b27dfd3 fix: block huge folder uploads in native app, bump version to v1.0.13
+2aed552 chore(release): bump version to v1.0.12 [skip ci]
+7034e28 fix: reset folder input and intercept dropzone to prevent white-screen crashes on large folder selections
+94291fc chore(release): bump version to v1.0.11 [skip ci]
+540155b fix: instantiate archiver ZipArchive directly for version 8.0.0 compatibility
+61ece1e chore(release): bump version to v1.0.10 [skip ci]
+830ffca fix: chat group updates, getConversations optimization, folder download logging
+8601bf4 chore(release): bump version to v1.0.9 [skip ci]
+70b6b17 chore: simplify deploy-ssh.js by copying user_config.yaml directly
+083ebc0 chore(release): bump version to v1.0.8 [skip ci]
+e17ed9f chore: use safe python write in deploy-ssh.js
+f89776f chore(release): bump version to v1.0.7 [skip ci]
+0f64a5f chore: automate TrueNAS compose volumes patch in deploy-ssh.js
+
 ## Release v1.0.14 (2026-06-11)
 
 b27dfd3 fix: block huge folder uploads in native app, bump version to v1.0.13
