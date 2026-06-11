@@ -169,6 +169,7 @@ export class FilesController {
       res.setHeader('Content-Type', 'application/zip');
       stream.pipe(res);
     } catch (err) {
+      console.error('[FilesController] Error downloading folder:', err);
       res.status(500).json({ message: err.message || 'Failed to download folder archive' });
     }
   }

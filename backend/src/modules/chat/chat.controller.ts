@@ -55,8 +55,12 @@ export class ChatController {
 
   @Post('conversations/:id/members')
   @RequirePermissions(['chat', 'send'])
-  addMember(@Param('id', ParseUUIDPipe) id: string, @Body('userId') userId: string) {
-    return this.svc.addMember(id, userId);
+  addMember(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('userId') userId: string,
+    @CurrentUser('id') requestingUserId: string
+  ) {
+    return this.svc.addMember(id, userId, requestingUserId);
   }
 
   @Post('conversations/:id/invitations')
@@ -116,8 +120,8 @@ export class ChatController {
 
   @Patch('conversations/:id')
   @RequirePermissions(['chat', 'send'])
-  updateConversation(@Param('id', ParseUUIDPipe) id: string, @Body() dto: any) {
-    return this.svc.updateConversation(id, dto);
+  updateConversation(@Param('id', ParseUUIDPipe) id: string, @Body() dto: any, @CurrentUser('id') userId: string) {
+    return this.svc.updateConversation(id, dto, userId);
   }
 
   @Delete('conversations/:id')

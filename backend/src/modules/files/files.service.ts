@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as archiver from 'archiver';
 
 @Injectable()
 export class FilesService implements OnModuleInit {
@@ -649,8 +650,7 @@ export class FilesService implements OnModuleInit {
       throw new Error('Folder not found or access denied');
     }
 
-    const archiver = require('archiver');
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = archiver.create('zip', { zlib: { level: 6 } });
 
     // Fetch all nested folders using recursive CTE
     const subfolders = await this.dataSource.query(`
@@ -672,6 +672,7 @@ export class FilesService implements OnModuleInit {
 
     const folderIds = subfolders.map((f: any) => f.id);
     if (folderIds.length === 0) {
+      archive.append('This folder is empty.', { name: `${folder.name}/.keep` });
       archive.finalize();
       return { stream: archive, filename: folder.name };
     }
@@ -693,11 +694,18 @@ export class FilesService implements OnModuleInit {
     let fileCount = 0;
     for (const file of files) {
       const parentPath = folderMap.get(file.folder_id) || '';
-      const zipFilePath = parentPath ? `${parentPath}/${file.original_name}` : file.original_name;
+      const fileName = file.original_name || file.name;
+      const zipFilePath = parentPath ? `${parentPath}/${fileName}` : fileName;
       
-      if (file.storage_path && fs.existsSync(file.storage_path)) {
-        archive.file(file.storage_path, { name: zipFilePath });
-        fileCount++;
+      try {
+        if (file.storage_path && fs.existsSync(file.storage_path)) {
+          archive.file(file.storage_path, { name: zipFilePath });
+          fileCount++;
+        } else {
+          console.warn(`[FilesService] File not found on disk: ${file.storage_path} (file id: ${file.id})`);
+        }
+      } catch (fileErr) {
+        console.error(`[FilesService] Error adding file to archive: ${file.id}`, fileErr);
       }
     }
 

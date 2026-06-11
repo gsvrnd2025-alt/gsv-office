@@ -170,7 +170,13 @@ export class ChatService implements OnModuleInit {
 
     return this.dataSource.query(`
       SELECT c.*, cm.last_read_at, cm.is_muted, cm.is_archived,
-             COUNT(m.id) FILTER (WHERE m.created_at > COALESCE(cm.last_read_at, '1970-01-01') AND m.sender_id != $1 AND m.deleted_at IS NULL) AS unread_count,
+             (
+               SELECT COUNT(*) FROM messages m
+               WHERE m.conversation_id = c.id
+                 AND m.created_at > COALESCE(cm.last_read_at, '1970-01-01'::timestamptz)
+                 AND m.sender_id != $1
+                 AND m.deleted_at IS NULL
+             ) AS unread_count,
              (
                SELECT json_agg(json_build_object('id', u.id, 'fullName', u.full_name, 'loginId', u.login_id, 'departmentId', u.department_id, 'department_id', u.department_id, 'role', mem.role))
                FROM conversation_members mem
@@ -179,7 +185,6 @@ export class ChatService implements OnModuleInit {
              ) AS members
       FROM conversations c
       JOIN conversation_members cm ON cm.conversation_id = c.id AND cm.user_id = $1 AND cm.left_at IS NULL
-      LEFT JOIN messages m ON m.conversation_id = c.id
       GROUP BY c.id, cm.last_read_at, cm.is_muted, cm.is_archived
       ORDER BY COALESCE(c.last_message_at, c.created_at) DESC
       LIMIT $2 OFFSET $3
@@ -258,10 +263,30 @@ export class ChatService implements OnModuleInit {
           `INSERT INTO conversation_members (conversation_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
           [conv.id, memberId]
         );
+        // Notify them via WebSocket so their sidebar list updates instantly
+        try {
+          this.chatGateway.emitToUser(memberId, 'message:new', {
+            conversationId: conv.id,
+            type: 'system',
+            content: 'Group created'
+          });
+        } catch (e) {}
       }
     }
 
-    return conv;
+    // Return fully populated conversation with members array for immediate frontend use
+    const [populatedConv] = await this.dataSource.query(`
+      SELECT c.*,
+             (
+               SELECT json_agg(json_build_object('id', u.id, 'fullName', u.full_name, 'loginId', u.login_id, 'departmentId', u.department_id, 'department_id', u.department_id, 'role', mem.role))
+               FROM conversation_members mem
+               JOIN users u ON u.id = mem.user_id
+               WHERE mem.conversation_id = c.id
+             ) AS members
+      FROM conversations c
+      WHERE c.id = $1
+    `, [conv.id]);
+    return populatedConv || conv;
   }
 
   async sendMessage(dto: { conversationId: string; senderId: string; content: string; type?: string; fileId?: string; folderId?: string; replyToId?: string }) {
@@ -404,15 +429,69 @@ export class ChatService implements OnModuleInit {
     return msg;
   }
 
-  async addMember(conversationId: string, userId: string) {
+  async addMember(conversationId: string, userId: string, requestingUserId: string) {
+    const [conv] = await this.dataSource.query(`SELECT type FROM conversations WHERE id = $1`, [conversationId]);
+    if (conv && conv.type === 'group') {
+      const [senderMember] = await this.dataSource.query(
+        `SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
+        [conversationId, requestingUserId]
+      );
+      if (!senderMember || senderMember.role !== 'admin') {
+        throw new Error('Only group admins can directly add members to this group');
+      }
+    }
+
     await this.dataSource.query(
-      `INSERT INTO conversation_members (conversation_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING`,
+      `INSERT INTO conversation_members (conversation_id, user_id, role)
+       VALUES ($1, $2, 'member')
+       ON CONFLICT (conversation_id, user_id) DO UPDATE SET left_at = NULL, role = 'member'`,
       [conversationId, userId]
     );
+
+    // Insert system message
+    const [user] = await this.dataSource.query(`SELECT full_name FROM users WHERE id = $1`, [userId]);
+    const systemContent = `${user?.full_name || 'A teammate'} was added to the group.`;
+    await this.dataSource.query(
+      `INSERT INTO messages (conversation_id, sender_id, content, type)
+       VALUES ($1, $2, $3, 'system')`,
+      [conversationId, requestingUserId, systemContent]
+    );
+
+    // Send WebSockets to notify user and update active room conversation list
+    try {
+      this.chatGateway.emitToUser(userId, 'message:new', {
+        conversationId,
+        type: 'system',
+        content: systemContent
+      });
+      this.chatGateway.emitToConversation(conversationId, 'message:new', {
+        conversationId,
+        type: 'system',
+        content: systemContent
+      });
+    } catch (e) {}
+
     return { success: true };
   }
 
-  async updateConversation(id: string, dto: any) {
+  async updateConversation(id: string, dto: any, requestingUserId?: string) {
+    // For group chats, enforce admin-only for name/description changes
+    if (requestingUserId) {
+      const [conv] = await this.dataSource.query(`SELECT type FROM conversations WHERE id = $1`, [id]);
+      if (conv && conv.type === 'group') {
+        const [reqMember] = await this.dataSource.query(
+          `SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
+          [id, requestingUserId]
+        );
+        if (!reqMember || reqMember.role !== 'admin') {
+          throw new Error('Only group admins can update group details');
+        }
+      }
+    }
+
+    // Fetch the old conversation details for system message
+    const [oldConv] = await this.dataSource.query(`SELECT name, description FROM conversations WHERE id = $1`, [id]);
+
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -437,6 +516,45 @@ export class ChatService implements OnModuleInit {
       `UPDATE conversations SET ${fields.join(', ')} WHERE id = $${idx}`,
       values
     );
+
+    // Post system message and broadcast for name/description changes
+    if (requestingUserId && oldConv) {
+      const changes: string[] = [];
+      if (dto.name !== undefined && dto.name !== oldConv.name) {
+        changes.push(`renamed the group to "${dto.name}"`);
+      }
+      if (dto.description !== undefined && dto.description !== oldConv.description) {
+        changes.push('updated the group description');
+      }
+      if (changes.length > 0) {
+        const [user] = await this.dataSource.query(`SELECT full_name FROM users WHERE id = $1`, [requestingUserId]);
+        const systemContent = `${user?.full_name || 'Admin'} ${changes.join(' and ')}.`;
+        await this.dataSource.query(
+          `INSERT INTO messages (conversation_id, sender_id, content, type) VALUES ($1, $2, $3, 'system')`,
+          [id, requestingUserId, systemContent]
+        );
+        // Broadcast to all members so sidebars and chat views update in real-time
+        try {
+          this.chatGateway.emitToConversation(id, 'message:new', {
+            conversationId: id,
+            type: 'system',
+            content: systemContent
+          });
+          // Also emit to individual users who may not have joined the conversation room
+          const members = await this.dataSource.query(
+            `SELECT user_id FROM conversation_members WHERE conversation_id = $1`,
+            [id]
+          );
+          for (const m of members) {
+            this.chatGateway.emitToUser(m.user_id, 'message:new', {
+              conversationId: id,
+              type: 'system',
+              content: systemContent
+            });
+          }
+        } catch (e) {}
+      }
+    }
     
     return { success: true };
   }
@@ -589,6 +707,13 @@ export class ChatService implements OnModuleInit {
       throw new Error('Only admins can remove members from this group');
     }
 
+    // Get remaining members BEFORE removal for broadcasting
+    const remainingMembers = await this.dataSource.query(
+      `SELECT user_id FROM conversation_members WHERE conversation_id = $1`,
+      [conversationId]
+    );
+
+    let systemContent = '';
     await this.dataSource.transaction(async (manager) => {
       await manager.query(
         `DELETE FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
@@ -597,7 +722,7 @@ export class ChatService implements OnModuleInit {
 
       const [removedUser] = await manager.query(`SELECT full_name FROM users WHERE id = $1`, [userIdToRemove]);
       const [reqUser] = await manager.query(`SELECT full_name FROM users WHERE id = $1`, [requestingUserId]);
-      const systemContent = `${removedUser?.full_name || 'Teammate'} was removed by ${reqUser?.full_name || 'admin'}.`;
+      systemContent = `${removedUser?.full_name || 'Teammate'} was removed by ${reqUser?.full_name || 'admin'}.`;
       
       await manager.query(
         `INSERT INTO messages (conversation_id, sender_id, content, type)
@@ -605,6 +730,26 @@ export class ChatService implements OnModuleInit {
         [conversationId, requestingUserId, systemContent]
       );
     });
+
+    // Broadcast to all remaining members so sidebars update
+    try {
+      this.chatGateway.emitToConversation(conversationId, 'message:new', {
+        conversationId,
+        type: 'system',
+        content: systemContent
+      });
+      for (const m of remainingMembers) {
+        this.chatGateway.emitToUser(m.user_id, 'message:new', {
+          conversationId,
+          type: 'system',
+          content: systemContent
+        });
+      }
+      // Notify the removed user so their sidebar removes the group
+      this.chatGateway.emitToUser(userIdToRemove, 'conversation:removed', {
+        conversationId
+      });
+    } catch (e) {}
 
     return { success: true };
   }
@@ -622,6 +767,7 @@ export class ChatService implements OnModuleInit {
       throw new Error('Only admins can change member roles in this group');
     }
 
+    let systemContent = '';
     await this.dataSource.transaction(async (manager) => {
       await manager.query(
         `UPDATE conversation_members SET role = $1 WHERE conversation_id = $2 AND user_id = $3`,
@@ -629,7 +775,7 @@ export class ChatService implements OnModuleInit {
       );
 
       const [targetUser] = await manager.query(`SELECT full_name FROM users WHERE id = $1`, [targetUserId]);
-      const systemContent = `${targetUser?.full_name || 'Teammate'} is now an ${newRole === 'admin' ? 'Admin' : 'Member'}.`;
+      systemContent = `${targetUser?.full_name || 'Teammate'} is now an ${newRole === 'admin' ? 'Admin' : 'Member'}.`;
 
       await manager.query(
         `INSERT INTO messages (conversation_id, sender_id, content, type)
@@ -637,6 +783,26 @@ export class ChatService implements OnModuleInit {
         [conversationId, requestingUserId, systemContent]
       );
     });
+
+    // Broadcast to all members so sidebars and member lists update in real-time
+    try {
+      this.chatGateway.emitToConversation(conversationId, 'message:new', {
+        conversationId,
+        type: 'system',
+        content: systemContent
+      });
+      const members = await this.dataSource.query(
+        `SELECT user_id FROM conversation_members WHERE conversation_id = $1`,
+        [conversationId]
+      );
+      for (const m of members) {
+        this.chatGateway.emitToUser(m.user_id, 'message:new', {
+          conversationId,
+          type: 'system',
+          content: systemContent
+        });
+      }
+    } catch (e) {}
 
     return { success: true };
   }

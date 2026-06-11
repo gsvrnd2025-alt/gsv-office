@@ -257,6 +257,9 @@ export default function ChatPage() {
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [groupForm, setGroupForm] = useState({ name: '', description: '', members: [] as string[] });
+  const [isEditingGroup, setIsEditingGroup] = useState(false);
+  const [editGroupName, setEditGroupName] = useState('');
+  const [editGroupDesc, setEditGroupDesc] = useState('');
 
   // Custom states for premium chat page
   const [msgContextMenu, setMsgContextMenu] = useState<{ x: number; y: number; msg: any } | null>(null);
@@ -535,28 +538,46 @@ export default function ChatPage() {
     };
   }, []);
 
-  // Room subscription and instant message updates via socket
+  // Global message listener to ensure real-time updates of sidebar conversation list
+  useEffect(() => {
+    if (!chatSocket) return;
+    
+    const handleNewMsgGlobal = (data: any) => {
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+      if (conversationId && data.conversationId === conversationId) {
+        qc.invalidateQueries({ queryKey: ['messages', conversationId] });
+      }
+    };
+
+    // Handle being removed from a conversation
+    const handleConversationRemoved = (data: any) => {
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+      // If viewing the removed conversation, navigate away
+      if (conversationId && data.conversationId === conversationId) {
+        navigate('/chat');
+        toast('You were removed from this group.', { icon: 'ℹ️' });
+      }
+    };
+    
+    chatSocket.on('message:new', handleNewMsgGlobal);
+    chatSocket.on('conversation:removed', handleConversationRemoved);
+    
+    return () => {
+      chatSocket.off('message:new', handleNewMsgGlobal);
+      chatSocket.off('conversation:removed', handleConversationRemoved);
+    };
+  }, [chatSocket, conversationId, qc, navigate]);
+
+  // Join/leave active conversation room via socket
   useEffect(() => {
     if (!chatSocket || !conversationId) return;
     
-    // Join conversation room
     chatSocket.emit('join:conversation', { conversationId });
-    
-    // Listen for new messages
-    const handleNewMsg = (data: any) => {
-      if (data.conversationId === conversationId) {
-        qc.invalidateQueries({ queryKey: ['messages', conversationId] });
-      }
-      qc.invalidateQueries({ queryKey: ['conversations'] });
-    };
-    
-    chatSocket.on('message:new', handleNewMsg);
     
     return () => {
       chatSocket.emit('leave:conversation', { conversationId });
-      chatSocket.off('message:new', handleNewMsg);
     };
-  }, [chatSocket, conversationId, qc]);
+  }, [chatSocket, conversationId]);
 
   // Real-time upload progress tracking for other users
   useEffect(() => {
@@ -984,15 +1005,16 @@ export default function ChatPage() {
     refetchInterval: 5000,
   });
 
+
   const handleInviteMember = async (inviteeId: string) => {
     if (!conversationId) return;
     try {
-      await chatApi.inviteMember(conversationId, inviteeId);
-      toast.success('Group invitation sent! 📩');
+      await chatApi.addMember(conversationId, inviteeId);
+      toast.success('Teammate added to group! 👥');
       setShowInviteModal(false);
-      refetchInvitations();
+      qc.invalidateQueries({ queryKey: ['conversations'] });
     } catch (err: any) {
-      toast.error(err.response?.data?.message || err.message || 'Failed to send invitation');
+      toast.error(err.response?.data?.message || err.message || 'Failed to add member');
     }
   };
 
@@ -1959,6 +1981,29 @@ export default function ChatPage() {
 
   const currentUserMember = activeConv?.members?.find((m: any) => m.id === user?.id);
   const isCurrentUserAdmin = currentUserMember?.role === 'admin' || activeConv?.created_by === user?.id;
+
+  useEffect(() => {
+    if (activeConv) {
+      setEditGroupName(activeConv.name || '');
+      setEditGroupDesc(activeConv.description || '');
+      setIsEditingGroup(false);
+    }
+  }, [activeConv?.id]);
+
+  const handleUpdateGroupDetails = async () => {
+    if (!activeConv || !editGroupName.trim()) return;
+    try {
+      await chatApi.updateConversation(activeConv.id, {
+        name: editGroupName,
+        description: editGroupDesc
+      });
+      toast.success('Group details updated! ✏️');
+      setIsEditingGroup(false);
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || 'Failed to update group details');
+    }
+  };
 
   const partner = activeConv?.type === 'private' 
     ? (activeConv.members?.find((m: any) => m.id !== user?.id) || 
@@ -4017,12 +4062,81 @@ export default function ChatPage() {
                     </div>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', width: '100%' }}>
                     <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: 'linear-gradient(135deg, #00a884, #005c4b)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '28px', fontWeight: 'bold' }}>
-                      {activeConv.name?.charAt(0).toUpperCase() || 'G'}
+                      {(isEditingGroup ? editGroupName : activeConv.name)?.charAt(0).toUpperCase() || 'G'}
                     </div>
-                    <div style={{ fontWeight: 700, fontSize: '16px', color: 'var(--text-primary)' }}>{activeConv.name}</div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{activeConv.description || 'GSVConnect secure group channel'}</div>
+                    {isEditingGroup ? (
+                      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '8px', padding: '0 8px' }}>
+                        <div className="form-group" style={{ margin: 0, textAlign: 'left' }}>
+                          <label className="form-label" style={{ fontSize: '11px', marginBottom: '2px', fontWeight: 600 }}>Group Name</label>
+                          <input
+                            type="text"
+                            className="form-control form-control-sm"
+                            value={editGroupName}
+                            onChange={(e) => setEditGroupName(e.target.value)}
+                            placeholder="Group Name"
+                            style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}
+                          />
+                        </div>
+                        <div className="form-group" style={{ margin: 0, textAlign: 'left' }}>
+                          <label className="form-label" style={{ fontSize: '11px', marginBottom: '2px', fontWeight: 600 }}>Description</label>
+                          <textarea
+                            className="form-control form-control-sm"
+                            value={editGroupDesc}
+                            onChange={(e) => setEditGroupDesc(e.target.value)}
+                            placeholder="Description of the group..."
+                            style={{ minHeight: '50px', resize: 'vertical', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', marginTop: '4px' }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-xs"
+                            onClick={() => {
+                              setIsEditingGroup(false);
+                              setEditGroupName(activeConv.name || '');
+                              setEditGroupDesc(activeConv.description || '');
+                            }}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-xs"
+                            onClick={handleUpdateGroupDetails}
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', width: '100%' }}>
+                          <div style={{ fontWeight: 700, fontSize: '16px', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '220px' }} title={activeConv.name}>
+                            {activeConv.name}
+                          </div>
+                          {isCurrentUserAdmin && activeConv.type === 'group' && (
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-icon btn-xs"
+                              onClick={() => {
+                                setEditGroupName(activeConv.name || '');
+                                setEditGroupDesc(activeConv.description || '');
+                                setIsEditingGroup(true);
+                              }}
+                              title="Rename Group"
+                              style={{ padding: 0, width: '18px', height: '18px', minHeight: '18px', display: 'inline-flex', justifyContent: 'center', alignItems: 'center', border: 'none', background: 'transparent', cursor: 'pointer' }}
+                            >
+                              ✏️
+                            </button>
+                          )}
+                        </div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', wordBreak: 'break-word', padding: '0 8px' }}>
+                          {activeConv.description || 'GSVConnect secure group channel'}
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
 
