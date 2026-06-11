@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Suspense, lazy, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import { AppLayout } from './components/layout/AppLayout';
 import { AuthLayout } from './components/layout/AuthLayout';
 import { useAuthStore } from './store/auth.store';
@@ -179,6 +180,39 @@ export default function App() {
 
     window.addEventListener('click', handleGlobalClick, { capture: true });
     return () => window.removeEventListener('click', handleGlobalClick, { capture: true });
+  }, []);
+
+  useEffect(() => {
+    const handleGlobalDragOver = (e: DragEvent) => {
+      e.preventDefault();
+    };
+
+    const handleGlobalDrop = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer?.items) {
+        let hasDirectory = false;
+        for (const item of Array.from(e.dataTransfer.items)) {
+          if (item.kind === 'file') {
+            const entry = (item as any).webkitGetAsEntry?.();
+            if (entry && entry.isDirectory) {
+              hasDirectory = true;
+              break;
+            }
+          }
+        }
+        if (hasDirectory) {
+          toast.error("Folder drops are not supported. Please compress your folder into a .zip or .tar archive before uploading.");
+        }
+      }
+    };
+
+    window.addEventListener('dragover', handleGlobalDragOver);
+    window.addEventListener('drop', handleGlobalDrop);
+
+    return () => {
+      window.removeEventListener('dragover', handleGlobalDragOver);
+      window.removeEventListener('drop', handleGlobalDrop);
+    };
   }, []);
 
   return (
