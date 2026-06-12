@@ -313,14 +313,26 @@
     let config = {};
 
     async function init() {
-      config = await window.settingsAPI.getConfig();
-      const version = await window.settingsAPI.getVersion();
-      
-      document.getElementById('versionBadge').textContent = 'v' + version;
-      document.getElementById('serverUrl').value = config.serverUrl || 'http://192.168.0.177:8080';
-      document.getElementById('autoStart').checked = !!config.autoStart;
-      document.getElementById('openOnStart').checked = !!config.openOnStart;
-      document.getElementById('minimizeToTray').checked = config.minimizeToTray !== false;
+      try {
+        if (!window.settingsAPI) {
+          throw new Error("window.settingsAPI is not defined. The preload script may have failed to load.");
+        }
+        config = await window.settingsAPI.getConfig();
+        const version = await window.settingsAPI.getVersion();
+        
+        document.getElementById('versionBadge').textContent = 'v' + version;
+        document.getElementById('serverUrl').value = config.serverUrl || 'http://192.168.0.177:8080';
+        document.getElementById('autoStart').checked = !!config.autoStart;
+        document.getElementById('openOnStart').checked = !!config.openOnStart;
+        document.getElementById('minimizeToTray').checked = config.minimizeToTray !== false;
+      } catch (e) {
+        console.error("Initialization failed:", e);
+        document.body.innerHTML = `<div style="padding: 24px; color: #f87171; background: #0f172a; min-height: 100vh; font-family: sans-serif;">
+          <h1 style="font-size: 18px; margin-bottom: 12px; color: #ef4444;">Settings Initialization Error</h1>
+          <p style="font-size: 13px; margin-bottom: 16px; color: #cbd5e1;">An error occurred while loading settings:</p>
+          <pre style="background: rgba(0,0,0,0.5); padding: 16px; border-radius: 8px; font-family: monospace; font-size: 12px; color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); overflow: auto; white-space: pre-wrap;">${e.stack || e.message || e}</pre>
+        </div>`;
+      }
     }
 
     async function testConnection() {

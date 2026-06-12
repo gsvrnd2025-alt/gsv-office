@@ -486,6 +486,15 @@ function openSettingsWindow() {
   });
 
   settingsWindow.loadFile(path.join(__dirname, 'settings.html'));
+  
+  settingsWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    console.error(`[Settings Window] Failed to load: ${errorDescription} (${errorCode})`);
+  });
+
+  settingsWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    console.log(`[Settings Console] ${message} (Line: ${line})`);
+  });
+
   settingsWindow.once('ready-to-show', () => settingsWindow.show());
   settingsWindow.on('closed', () => { settingsWindow = null; });
 }
