@@ -1,3 +1,21 @@
+## Release v1.0.24 (2026-06-12)
+
+af369ac feat: GSV Office - Settings window try-catch error overlay and console logs
+d30b077 chore(release): bump version to v1.0.23 [skip ci]
+b20aa44 feat: GSV Office - register PublicSettingsController, fix update check 404, and bump to v1.0.22
+93c4fa3 chore(release): bump version to v1.0.21 [skip ci]
+1be1933 feat: GSV Office - remote view fit constraints, auto-accept deep-link logic, icon generated descending, and mobile assets
+d45ccef chore(release): bump version to v1.0.19 [skip ci]
+3a5261f feat: group calling, audio quality fix, DM soft-delete, group blocking, and Nginx optimizations
+1a94e44 chore(release): bump version to v1.0.17 [skip ci]
+3475aa5 fix(frontend): add global drag/drop preventer to avoid webview directory navigation hang
+d7fc3d9 chore(release): bump version to v1.0.16 [skip ci]
+947f851 fix: add applicationNameForUserAgent config in Flutter main.dart
+aa01dd6 chore(release): bump version to v1.0.15 [skip ci]
+d8682bf fix: improve folder drop interception using capture phase and update error messages
+21f415d chore(release): bump version to v1.0.14 [skip ci]
+b27dfd3 fix: block huge folder uploads in native app, bump version to v1.0.13
+
 ## Release v1.0.23 (2026-06-12)
 
 b20aa44 feat: GSV Office - register PublicSettingsController, fix update check 404, and bump to v1.0.22

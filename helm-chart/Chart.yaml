@@ -5,8 +5,8 @@ description: >
   Combines Team Chat (WebSocket), Document Management, Helpdesk Ticketing,
   Billing & GST, Inventory, HR, and Server Administration in one suite.
 type: application
-version: 1.0.23
-appVersion: "1.0.23"
+version: 1.0.24
+appVersion: "1.0.24"
 keywords:
   - office
   - workspace
