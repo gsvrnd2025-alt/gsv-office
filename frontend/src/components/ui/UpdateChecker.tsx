@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { Capacitor } from '@capacitor/core';
 
 export const UpdateChecker = () => {
+  const currentVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0';
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<{ version: string; apkUrl: string; exeUrl: string } | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -19,7 +20,6 @@ export const UpdateChecker = () => {
       const settings = res.data?.data || res.data || {};
       
       const serverVersion = settings.app_version;
-      const currentVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0';
       if (serverVersion && currentVersion) {
         if (compareVersions(serverVersion, currentVersion) > 0) {
           setUpdateInfo({
@@ -116,7 +116,7 @@ export const UpdateChecker = () => {
         
         <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '8px' }}>Update Available</h2>
         <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '24px', lineHeight: 1.5 }}>
-          A new version of GSV Office ({updateInfo?.version}) is available. You are currently on version {__APP_VERSION__}.
+          A new version of GSV Office ({updateInfo?.version}) is available. You are currently on version {currentVersion}.
           Please update to continue using the application with the latest features and security improvements.
         </p>
 

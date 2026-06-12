@@ -583,10 +583,42 @@ export class ChatService implements OnModuleInit {
         await manager.query(`DELETE FROM conversations WHERE id = $1`, [id]);
       });
     } else {
-      await this.dataSource.query(
-        `UPDATE conversation_members SET left_at = NOW() WHERE conversation_id = $1 AND user_id = $2`,
-        [id, userId]
-      );
+      const [user] = await this.dataSource.query(`SELECT full_name FROM users WHERE id = $1`, [userId]);
+      const systemContent = `${user?.full_name || 'A teammate'} left the group.`;
+      
+      await this.dataSource.transaction(async (manager) => {
+        await manager.query(
+          `UPDATE conversation_members SET left_at = NOW() WHERE conversation_id = $1 AND user_id = $2`,
+          [id, userId]
+        );
+        await manager.query(
+          `INSERT INTO messages (conversation_id, sender_id, content, type)
+           VALUES ($1, $2, $3, 'system')`,
+          [id, userId, systemContent]
+        );
+      });
+      
+      try {
+        const remainingMembers = await this.dataSource.query(
+          `SELECT user_id FROM conversation_members WHERE conversation_id = $1 AND left_at IS NULL`,
+          [id]
+        );
+        this.chatGateway.emitToConversation(id, 'message:new', {
+          conversationId: id,
+          type: 'system',
+          content: systemContent
+        });
+        for (const m of remainingMembers) {
+          this.chatGateway.emitToUser(m.user_id, 'message:new', {
+            conversationId: id,
+            type: 'system',
+            content: systemContent
+          });
+        }
+        this.chatGateway.emitToUser(userId, 'conversation:removed', {
+          conversationId: id
+        });
+      } catch (e) {}
     }
     return { success: true };
   }

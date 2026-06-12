@@ -1,6 +1,6 @@
 ---
 # TrueNAS SCALE App Metadata
-app_version: "1.0.19"
+app_version: "1.0.20"
 capabilities: []
 categories:
   - productivity
@@ -24,8 +24,8 @@ keywords:
   - hr
   - selfhosted
   - workspace
-lib_version: "1.0.19"
-lib_version_hash: "gsv-office-1.0.19"
+lib_version: "1.0.20"
+lib_version_hash: "gsv-office-1.0.20"
 maintainers:
   - name: "GSV Office"
     url: "https://github.com/gsv-office"

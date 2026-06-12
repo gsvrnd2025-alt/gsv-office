@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useOutletContext, useLocation } from 'react-router-dom';
+import { useOutletContext, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Monitor, Play, Square, Settings, Share2, 
   MousePointer2, Keyboard, ShieldAlert, Cpu, Network,
@@ -980,6 +980,8 @@ const addGlobalLog = (msg: string, setTerminalLogs?: any) => {
 export default function RemoteDesktopPage() {
   const { user, accessToken } = useAuthStore();
   const { theme } = useThemeStore();
+  const navigate = useNavigate();
+  const location = useLocation();
   const { 
     sidebarCollapsed, 
     setSidebarCollapsed,
@@ -1050,6 +1052,19 @@ export default function RemoteDesktopPage() {
       setIsExpandedView(true);
     }
   }, [isConnected, isHosting]);
+
+  // Handle auto-accept for deep-linked / redirected incoming requests
+  useEffect(() => {
+    if (location.state && (location.state as any).autoAcceptRequest && socket) {
+      const data = (location.state as any).autoAcceptRequest;
+      // Clear the state so we don't handle it repeatedly on subsequent renders/navigation
+      navigate(location.pathname, { replace: true, state: {} });
+      
+      addGlobalLog(`Auto-accepting incoming request from ${data.callerName} (${data.callerPhone})`, setTerminalLogs);
+      setIncomingRequestData(data);
+      acceptRequest(data);
+    }
+  }, [location.state, socket, navigate]);
   const [iceServers, setIceServers] = useState<any[]>([
     { urls: 'stun:stun.l.google.com:19302' }
   ]);
@@ -1166,8 +1181,9 @@ export default function RemoteDesktopPage() {
     if (showIncomingRequest && (window as any).gsvDesktop) {
       if (typeof (window as any).gsvDesktop.showIncomingCallPopup === 'function') {
         (window as any).gsvDesktop.showIncomingCallPopup({
-          type: 'remote-desktop',
-          callerName: incomingRequestData?.callerName
+          roomId: incomingRequestData.roomId,
+          callerName: incomingRequestData?.callerName,
+          type: 'remote-desktop'
         });
       }
 
@@ -1197,8 +1213,8 @@ export default function RemoteDesktopPage() {
         }
       }
     };
-    window.addEventListener('gsv-call-action', handleCallAction);
-    return () => window.removeEventListener('gsv-call-action', handleCallAction);
+    window.addEventListener('gsv-remote-action', handleCallAction);
+    return () => window.removeEventListener('gsv-remote-action', handleCallAction);
   }, [showIncomingRequest, incomingRequestData]);
 
 
@@ -1923,23 +1939,24 @@ export default function RemoteDesktopPage() {
   };
 
   // Host Action: Accept Request
-  const acceptRequest = async () => {
-    if (!incomingRequestData) return;
+  const acceptRequest = async (requestToAccept?: any) => {
+    const data = requestToAccept || incomingRequestData;
+    if (!data) return;
     setShowIncomingRequest(false);
 
     const isInsecureContext = typeof window !== 'undefined' && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
     const isDesktopApp = !!(window as any).gsvDesktop || localAgentActive;
 
     if (!isDesktopApp) {
-      window.location.href = `gsvoffice://remote?action=accept&callerId=${incomingRequestData.callerId}`;
+      window.location.href = `gsvoffice://remote?action=accept&callerId=${data.callerId}`;
       toast('Opening GSV Desktop App to share screen...', { icon: 'ℹ️' });
-      rejectRequest('redirected_to_app');
+      rejectRequest('redirected_to_app', data);
       return;
     }
 
     if (isInsecureContext && !isDesktopApp) {
       toast.error('Insecure Context: Screen sharing is blocked over HTTP. Please access via HTTPS or use the Desktop App.', { duration: 8000 });
-      rejectRequest('insecure');
+      rejectRequest('insecure', data);
       return;
     }
     
@@ -1969,17 +1986,17 @@ export default function RemoteDesktopPage() {
         } catch (err) {
           console.warn('Real screen share blocked:', err);
           toast.error('Screen share permission denied or cancelled.');
-          rejectRequest('permission_denied');
+          rejectRequest('permission_denied', data);
           return;
         }
       } else {
         console.warn('Display Media not supported.');
         if (isInsecureContext && !isDesktopApp) {
           toast.error('Insecure Context: Screen sharing is blocked over HTTP. Please access via HTTPS or use the Desktop App.', { duration: 8000 });
-          rejectRequest('insecure');
+          rejectRequest('insecure', data);
         } else {
           toast.error('Your browser does not support screen sharing.');
-          rejectRequest('not_supported');
+          rejectRequest('not_supported', data);
         }
         return;
       }
@@ -1988,13 +2005,13 @@ export default function RemoteDesktopPage() {
       setLocalStream(stream);
       setIsHosting(true);
       setIsHostControlled(true);
-      setActivePartnerId(incomingRequestData.callerId);
-      setActivePartnerName(incomingRequestData.callerName);
+      setActivePartnerId(data.callerId);
+      setActivePartnerName(data.callerName);
 
       try {
         addConnectionHistory({
-          peerName: incomingRequestData.callerName,
-          peerPhone: incomingRequestData.callerPhone,
+          peerName: data.callerName,
+          peerPhone: data.callerPhone,
           type: 'Incoming',
           status: 'Accepted'
         });
@@ -2003,14 +2020,14 @@ export default function RemoteDesktopPage() {
       }
 
       socket?.emit('remote:response', {
-        targetUserId: incomingRequestData.callerId,
+        targetUserId: data.callerId,
         status: 'accepted',
         permissions: grantedPermissions,
         duration: sessionDuration,
         isDesktopAgent: !!(window as any).gsvDesktop || localAgentActive
       });
 
-      await setupWebRTC(true, incomingRequestData.callerId);
+      await setupWebRTC(true, data.callerId);
       toast.success(`Sharing screen and control permissions!`);
 
       if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.minimizeWindow === 'function') {
@@ -2026,24 +2043,25 @@ export default function RemoteDesktopPage() {
       }
     } catch (e) {
       console.error(e);
-      rejectRequest();
+      rejectRequest('error', data);
     }
   };
 
   // Host Action: Reject Request
-  const rejectRequest = (reason?: any) => {
+  const rejectRequest = (reason?: any, requestToReject?: any) => {
     setShowIncomingRequest(false);
     const reasonStr = typeof reason === 'string' ? reason : undefined;
-    if (incomingRequestData) {
+    const data = requestToReject || incomingRequestData;
+    if (data) {
       addConnectionHistory({
-        peerName: incomingRequestData.callerName,
-        peerPhone: incomingRequestData.callerPhone,
+        peerName: data.callerName,
+        peerPhone: data.callerPhone,
         type: 'Incoming',
         status: 'Rejected'
       });
 
       socket?.emit('remote:response', {
-        targetUserId: incomingRequestData.callerId,
+        targetUserId: data.callerId,
         status: 'rejected',
         reason: reasonStr
       });
@@ -2663,10 +2681,10 @@ export default function RemoteDesktopPage() {
       })()}
 
       {/* Viewport and Controls Grid Container */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)', width: '100%', minHeight: '560px' }}>
+      <div style={isExpandedView ? { display: 'flex', flexDirection: 'column', width: '100%', height: '100%', flex: 1, overflow: 'hidden' } : { display: 'flex', flexDirection: 'column', gap: 'var(--space-6)', width: '100%', minHeight: '560px' }}>
         
         {/* Viewport Column (Full Width) */}
-        <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+        <div style={isExpandedView ? { display: 'flex', flexDirection: 'column', width: '100%', height: '100%', flex: 1, overflow: 'hidden' } : { display: 'flex', flexDirection: 'column', width: '100%' }}>
           <div 
             ref={viewportRef}
             onKeyDown={handleViewportKeyPress}
@@ -2967,6 +2985,8 @@ export default function RemoteDesktopPage() {
                     style={{ 
                       objectFit: videoFit, 
                       background: '#000', 
+                      maxWidth: '100%',
+                      maxHeight: '100%',
                       cursor: isControlLocked ? 'not-allowed' : "url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"%233b82f6\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z\"/><path d=\"M13 13l6 6\"/></svg>') 0 0, auto"
                     }} 
                     onMouseMove={handleViewportMouseMove}

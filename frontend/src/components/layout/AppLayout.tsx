@@ -1,4 +1,4 @@
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Sidebar } from '../ui/Sidebar';
@@ -18,6 +18,7 @@ export function AppLayout() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const { theme } = useThemeStore();
   const location = useLocation();
+  const navigate = useNavigate();
   const { accessToken } = useAuthStore();
   const qc = useQueryClient();
 
@@ -25,6 +26,12 @@ export function AppLayout() {
   const [webrtcSocket, setWebrtcSocket] = useState<any>(null);
   const [chatSocket, setChatSocket] = useState<any>(null);
   const [incomingCall, setIncomingCall] = useState<any>(null);
+  const [incomingRemoteRequest, setIncomingRemoteRequest] = useState<any>(null);
+  const incomingRemoteRequestRef = useRef<any>(null);
+  useEffect(() => {
+    incomingRemoteRequestRef.current = incomingRemoteRequest;
+  }, [incomingRemoteRequest]);
+
   const [activeCall, setActiveCall] = useState(false);
   const [callingState, setCallingState] = useState<'idle' | 'calling' | 'connected'>('idle');
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
@@ -237,6 +244,27 @@ export function AppLayout() {
     });
     setWebrtcSocket(socket);
 
+    socket.on('remote:request', (data) => {
+      if (window.location.pathname === '/remote-desktop') return;
+      setIncomingRemoteRequest(data);
+      SoundManager.playRing(2.0);
+      
+      if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.showIncomingCallPopup === 'function') {
+        (window as any).gsvDesktop.showIncomingCallPopup({
+          roomId: data.roomId || 'remote',
+          callerName: data.callerName,
+          type: 'remote-desktop'
+        });
+      }
+    });
+
+    socket.on('remote:terminate', () => {
+      setIncomingRemoteRequest(null);
+      if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.closeIncomingCallPopup === 'function') {
+        (window as any).gsvDesktop.closeIncomingCallPopup();
+      }
+    });
+
     socket.on('call:incoming', (data) => {
       // data: { roomId, callerId, type, groupId }
       if (activeCallRef.current || incomingCallRef.current) {
@@ -295,6 +323,29 @@ export function AppLayout() {
       }
     };
     window.addEventListener('gsv-call-action', handlePopupAction);
+
+    const handleRemoteAction = (e: any) => {
+      if (e.detail === 'accept') {
+        if (incomingRemoteRequestRef.current) {
+          navigate('/remote-desktop', {
+            state: { autoAcceptRequest: incomingRemoteRequestRef.current }
+          });
+        } else {
+          navigate('/remote-desktop');
+        }
+        setIncomingRemoteRequest(null);
+      } else if (e.detail === 'reject') {
+        if (incomingRemoteRequestRef.current) {
+          socket.emit('remote:response', {
+            targetUserId: incomingRemoteRequestRef.current.callerId,
+            status: 'rejected',
+            reason: 'rejected_by_user'
+          });
+        }
+        setIncomingRemoteRequest(null);
+      }
+    };
+    window.addEventListener('gsv-remote-action', handleRemoteAction);
 
     socket.on('call:participant-joined', async (data) => {
       // Received by the caller
@@ -386,6 +437,7 @@ export function AppLayout() {
 
     return () => {
       window.removeEventListener('gsv-call-action', handlePopupAction);
+      window.removeEventListener('gsv-remote-action', handleRemoteAction);
       socket.disconnect();
     };
   }, [accessToken]);
@@ -772,9 +824,84 @@ export function AppLayout() {
   const [isRemoteDesktopExpanded, setIsRemoteDesktopExpanded] = useState(false);
 
   return (
-    <div className={`${styles.layout} page-enter`}>
+    <div className={`${styles.layout} page-enter`} style={isRemoteDesktopExpanded ? { height: '100vh', maxHeight: '100vh', overflow: 'hidden' } : undefined}>
       {/* Hidden audio element to play remote stream */}
       <audio ref={remoteAudioRef} autoPlay />
+
+      {/* Global Incoming Remote Desktop Request Overlay */}
+      {incomingRemoteRequest && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.9)', backdropFilter: 'blur(20px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+          color: '#fff', fontFamily: 'system-ui, sans-serif'
+        }}>
+          <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px',
+            textAlign: 'center', padding: '40px', background: 'rgba(255, 255, 255, 0.03)',
+            borderRadius: '24px', border: '1px solid rgba(255,255,255,0.08)', width: '360px',
+            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)'
+          }}>
+            <div style={{
+              width: '80px', height: '80px', borderRadius: '50%',
+              background: 'linear-gradient(135deg, #0ea5e9, #3b82f6)', fontSize: '32px',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 0 30px rgba(14, 165, 233, 0.4)',
+              animation: 'pulse 2s infinite'
+            }}>
+              🖥️
+            </div>
+            
+            <div>
+              <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: 800 }}>{incomingRemoteRequest.callerName}</h3>
+              <p style={{ margin: 0, fontSize: '13px', color: 'rgba(255,255,255,0.6)' }}>
+                Incoming Remote Desktop Control Request...
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', gap: '24px', marginTop: '16px', width: '100%', justifyContent: 'center' }}>
+              <button 
+                onClick={() => {
+                  if (webrtcSocket) {
+                    webrtcSocket.emit('remote:response', {
+                      targetUserId: incomingRemoteRequest.callerId,
+                      status: 'rejected',
+                      reason: 'rejected_by_user'
+                    });
+                  }
+                  setIncomingRemoteRequest(null);
+                }}
+                style={{
+                  width: '56px', height: '56px', borderRadius: '50%', border: 'none',
+                  background: '#ef4444', color: '#fff', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 10px 15px -3px rgba(239, 68, 68, 0.4)'
+                }}
+                title="Reject Request"
+              >
+                <PhoneOff size={24} />
+              </button>
+              <button 
+                onClick={() => {
+                  navigate('/remote-desktop', {
+                    state: { autoAcceptRequest: incomingRemoteRequest }
+                  });
+                  setIncomingRemoteRequest(null);
+                }}
+                style={{
+                  width: '56px', height: '56px', borderRadius: '50%', border: 'none',
+                  background: '#22c55e', color: '#fff', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 10px 15px -3px rgba(34, 197, 94, 0.4)',
+                  animation: 'bounce 1s infinite'
+                }}
+                title="Accept Request"
+              >
+                <Phone size={24} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Global Incoming Call Overlay */}
       {incomingCall && (
@@ -980,7 +1107,7 @@ export function AppLayout() {
 
       <div 
         className={`${styles.mainContent} ${sidebarCollapsed ? styles.collapsed : ''}`}
-        style={isRemoteDesktopExpanded ? { marginLeft: 0 } : undefined}
+        style={isRemoteDesktopExpanded ? { marginLeft: 0, height: '100vh', maxHeight: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' } : undefined}
       >
         {!isChatPage && !isRemoteDesktopExpanded && (
           <Topbar
@@ -990,7 +1117,7 @@ export function AppLayout() {
         )}
         <main 
           className={isChatPage ? styles.chatPageContent : styles.pageContent}
-          style={isRemoteDesktopExpanded ? { padding: 0 } : undefined}
+          style={isRemoteDesktopExpanded ? { padding: 0, height: '100vh', maxHeight: '100vh', overflow: 'hidden' } : undefined}
         >
           <Outlet context={{
             sidebarCollapsed,

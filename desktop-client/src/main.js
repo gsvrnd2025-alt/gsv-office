@@ -773,6 +773,68 @@ ipcMain.handle('close-incoming-call-popup', async () => {
   return { success: true };
 });
 
+function downloadFile(urlStr, destPath, token = null, redirectCount = 0) {
+  return new Promise((resolve, reject) => {
+    if (redirectCount > 5) {
+      reject(new Error('Too many redirects'));
+      return;
+    }
+    
+    try {
+      const url = new URL(urlStr);
+      const lib = url.protocol === 'https:' ? require('https') : require('http');
+      
+      const options = {
+        hostname: url.hostname,
+        port: url.port || (url.protocol === 'https:' ? 443 : 80),
+        path: url.pathname + url.search,
+        headers: {},
+        rejectUnauthorized: false
+      };
+      
+      if (token) {
+        options.headers['Authorization'] = `Bearer ${token}`;
+      }
+      
+      const req = lib.get(options, (res) => {
+        if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
+          let redirectUrl = res.headers.location;
+          if (!redirectUrl.startsWith('http')) {
+            redirectUrl = new URL(redirectUrl, urlStr).toString();
+          }
+          downloadFile(redirectUrl, destPath, token, redirectCount + 1).then(resolve).catch(reject);
+          return;
+        }
+        
+        if (res.statusCode !== 200) {
+          reject(new Error(`Server returned status code ${res.statusCode}`));
+          return;
+        }
+        
+        const fileStream = fs.createWriteStream(destPath);
+        res.pipe(fileStream);
+        
+        fileStream.on('finish', () => {
+          fileStream.close();
+          resolve();
+        });
+        
+        fileStream.on('error', (err) => {
+          fs.unlink(destPath, () => {});
+          reject(err);
+        });
+      });
+      
+      req.on('error', (err) => {
+        fs.unlink(destPath, () => {});
+        reject(err);
+      });
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
 ipcMain.handle('copy-folder-to-clipboard', async (event, { folderId, folderName, serverUrl, token }) => {
   const { exec } = require('child_process');
   
@@ -782,48 +844,19 @@ ipcMain.handle('copy-folder-to-clipboard', async (event, { folderId, folderName,
       fs.mkdirSync(tempDir, { recursive: true });
     }
     
-    // Clear previous folder with same name
     const destPath = path.join(tempDir, folderName);
     if (fs.existsSync(destPath)) {
       fs.rmSync(destPath, { recursive: true, force: true });
     }
     
-    // Download zip file
     const zipPath = path.join(tempDir, `gsv_folder_${folderId}.zip`);
     if (fs.existsSync(zipPath)) {
       fs.unlinkSync(zipPath);
     }
     
-    const url = new URL(`${serverUrl}/api/files/folders/${folderId}/download`);
-    const lib = url.protocol === 'https:' ? https : http;
+    const url = `${serverUrl}/api/files/folders/${folderId}/download`;
+    await downloadFile(url, zipPath, token);
     
-    const fileStream = fs.createWriteStream(zipPath);
-    
-    await new Promise((resolve, reject) => {
-      const req = lib.get({
-        hostname: url.hostname,
-        port: url.port || (url.protocol === 'https:' ? 443 : 80),
-        path: url.pathname + url.search,
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      }, (res) => {
-        if (res.statusCode !== 200) {
-          reject(new Error(`Server returned status code ${res.statusCode}`));
-          return;
-        }
-        res.pipe(fileStream);
-        fileStream.on('finish', () => {
-          fileStream.close();
-          resolve();
-        });
-      });
-      req.on('error', (err) => {
-        reject(err);
-      });
-    });
-    
-    // Extract using PowerShell
     await new Promise((resolve, reject) => {
       const cmd = `powershell -NoProfile -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${tempDir}' -Force"`;
       exec(cmd, (err) => {
@@ -832,16 +865,13 @@ ipcMain.handle('copy-folder-to-clipboard', async (event, { folderId, folderName,
       });
     });
     
-    // Clean up zip file
     try { fs.unlinkSync(zipPath); } catch (e) {}
     
-    // Write to clipboard
     const { clipboard } = require('electron');
     clipboard.write({
       filenames: [destPath]
     });
     
-    // Show notification
     new Notification({
       title: 'GSV Office',
       body: `Folder "${folderName}" copied to clipboard! You can paste it anywhere on your PC.`,
@@ -855,14 +885,25 @@ ipcMain.handle('copy-folder-to-clipboard', async (event, { folderId, folderName,
   }
 });
 
-ipcMain.on('call-action-response', (event, action) => {
+ipcMain.on('call-action-response', (event, response) => {
   if (callPopupWindow) {
     callPopupWindow.close();
     callPopupWindow = null;
   }
+  
+  let action = 'reject';
+  let type = 'audio';
+  if (typeof response === 'object' && response !== null) {
+    action = response.action || 'reject';
+    type = response.type || 'audio';
+  } else if (typeof response === 'string') {
+    action = response;
+  }
+  
   if (mainWindow && mainWindow.webContents) {
+    const eventName = type === 'remote-desktop' ? 'gsv-remote-action' : 'gsv-call-action';
     mainWindow.webContents.executeJavaScript(`
-      window.dispatchEvent(new CustomEvent('gsv-call-action', { detail: '${action}' }));
+      window.dispatchEvent(new CustomEvent('${eventName}', { detail: '${action}' }));
     `).catch(err => console.error(err));
   }
   if (action === 'accept') {
@@ -872,42 +913,24 @@ ipcMain.on('call-action-response', (event, action) => {
 
 ipcMain.handle('download-and-install-update', async (event, { exeUrl }) => {
   const { exec } = require('child_process');
+  const tempPath = path.join(app.getPath('temp'), 'GSVOffice-Update.exe');
   
-  return new Promise((resolve) => {
+  if (fs.existsSync(tempPath)) {
+    try { fs.unlinkSync(tempPath); } catch(e) {}
+  }
+  
+  return new Promise(async (resolve) => {
     try {
-      const isHttps = exeUrl.startsWith('https');
-      const client = isHttps ? require('https') : require('http');
-      const tempPath = path.join(app.getPath('temp'), 'GSVOffice-Update.exe');
-      
-      const file = fs.createWriteStream(tempPath);
-      client.get(exeUrl, (response) => {
-        if (response.statusCode !== 200) {
-          resolve({ success: false, error: `Failed to download: HTTP ${response.statusCode}` });
-          return;
+      await downloadFile(exeUrl, tempPath);
+      exec(`"${tempPath}"`, (error) => {
+        if (error) {
+          console.error('Installer execution failed:', error);
         }
-
-        response.pipe(file);
-
-        file.on('finish', () => {
-          file.close(() => {
-            // Execute the installer
-            exec(`"${tempPath}"`, (error) => {
-              if (error) {
-                console.error('Installer execution failed:', error);
-                // Cannot reject after resolving, but if exec fails after resolve, it's out of band.
-                // Normally exec detaches or runs the installer. We just quit.
-              }
-            });
-            resolve({ success: true });
-            setTimeout(() => {
-              app.quit();
-            }, 1000);
-          });
-        });
-      }).on('error', (err) => {
-        fs.unlink(tempPath, () => {});
-        resolve({ success: false, error: err.message });
       });
+      resolve({ success: true });
+      setTimeout(() => {
+        app.quit();
+      }, 1000);
     } catch (err) {
       console.error('Download update failed:', err);
       resolve({ success: false, error: err.message });

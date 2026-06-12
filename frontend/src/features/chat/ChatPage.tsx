@@ -3078,40 +3078,46 @@ export default function ChatPage() {
               >
                 {chatSidebarCollapsed ? <ChevronRight size={18} style={{ color: 'var(--text-secondary)' }} /> : <ChevronRight size={18} style={{ color: 'var(--text-secondary)', transform: 'rotate(180deg)' }} />}
               </button>
-              <div className={styles.convAvatar} style={{ background: 'var(--gradient-brand)' }}>
-                {activeConv.type === 'group' || activeConv.type === 'department' ? (
-                  <Hash size={16} />
-                ) : (
-                  (partnerName?.charAt(0).toUpperCase() || 'U')
-                )}
-              </div>
-              <div>
-                <div className={styles.chatName}>
-                  {activeConv.type === 'private' ? partnerName : (activeConv.name || 'GSVConnect Group')}
-                </div>
-                <div className={styles.chatStatus}>
-                  {activeConv.type === 'private' ? (
-                    (() => {
-                      const isOnline = partner ? onlineUsers.has(partner.id) : false;
-                      if (isOnline) {
-                        return (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <span className="status-dot online" style={{ width: '6px', height: '6px', background: 'var(--brand-success)' }} />
-                            <span>Online</span>
-                          </div>
-                        );
-                      } else {
-                        return (
-                          <span>Offline {partner?.lastSeen ? `| Last seen ${new Date(partner.lastSeen).toLocaleDateString('en-IN')}` : ''}</span>
-                        );
-                      }
-                    })()
+              <div 
+                onClick={() => setShowGroupDetails(!showGroupDetails)} 
+                style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', flex: 1, minWidth: 0 }}
+                title="Click to view conversation info and settings"
+              >
+                <div className={styles.convAvatar} style={{ background: 'var(--gradient-brand)' }}>
+                  {activeConv.type === 'group' || activeConv.type === 'department' ? (
+                    <Hash size={16} />
                   ) : (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span className="status-dot online" style={{ width: '6px', height: '6px', background: 'var(--brand-primary)' }} />
-                      <span>Department Public Room</span>
-                    </div>
+                    (partnerName?.charAt(0).toUpperCase() || 'U')
                   )}
+                </div>
+                <div>
+                  <div className={styles.chatName}>
+                    {activeConv.type === 'private' ? partnerName : (activeConv.name || 'GSVConnect Group')}
+                  </div>
+                  <div className={styles.chatStatus}>
+                    {activeConv.type === 'private' ? (
+                      (() => {
+                        const isOnline = partner ? onlineUsers.has(partner.id) : false;
+                        if (isOnline) {
+                          return (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span className="status-dot online" style={{ width: '6px', height: '6px', background: 'var(--brand-success)' }} />
+                              <span>Online</span>
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <span>Offline {partner?.lastSeen ? `| Last seen ${new Date(partner.lastSeen).toLocaleDateString('en-IN')}` : ''}</span>
+                          );
+                        }
+                      })()
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span className="status-dot online" style={{ width: '6px', height: '6px', background: 'var(--brand-primary)' }} />
+                        <span>Department Public Room</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -4258,6 +4264,33 @@ export default function ChatPage() {
                       💥 Delete Group for Everyone
                     </button>
                   )}
+                  {activeConv?.type === 'group' && (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--brand-danger)', border: '1px solid rgba(239, 68, 68, 0.2)', width: '100%', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' }}
+                      onClick={() => {
+                        setConfirmModal({
+                          title: 'Leave Group?',
+                          message: 'Are you sure you want to leave this group? You will no longer receive or send messages here, but you can still access past messages if the group is active, or delete it from your side.',
+                          iconType: 'trash',
+                          confirmText: 'Leave Group',
+                          brandColor: 'var(--brand-danger)',
+                          onConfirm: async () => {
+                            try {
+                              await chatApi.deleteConversation(activeConv.id, false);
+                              toast.success('You left the group.');
+                              qc.invalidateQueries({ queryKey: ['conversations'] });
+                              navigate('/chat');
+                            } catch (err: any) {
+                              toast.error(err.response?.data?.message || err.message || 'Failed to leave group');
+                            }
+                          }
+                        });
+                      }}
+                    >
+                      🚪 Leave Group
+                    </button>
+                  )}
                 </div>
 
                 {/* Shared Files List block */}
@@ -4493,9 +4526,17 @@ export default function ChatPage() {
                                     className="btn btn-ghost btn-xs text-danger"
                                     style={{ fontSize: '10px', padding: '2px 4px', height: '20px', color: 'var(--brand-danger)' }}
                                     onClick={() => {
-                                      if (confirm(`Remove ${m.fullName} from this group?`)) {
-                                        handleRemoveMember(m.id);
-                                      }
+                                      setConfirmModal({
+                                        title: 'Remove Member?',
+                                        message: `Are you sure you want to remove ${m.fullName} from this group?`,
+                                        iconType: 'trash',
+                                        confirmText: 'Remove Member',
+                                        brandColor: 'var(--brand-danger)',
+                                        onConfirm: () => {
+                                          handleRemoveMember(m.id);
+                                          setConfirmModal(null);
+                                        }
+                                      });
                                     }}
                                   >
                                     Remove
@@ -4506,9 +4547,18 @@ export default function ChatPage() {
                                     style={{ fontSize: '10px', padding: '2px 4px', height: '20px', color: m.role === 'blocked' ? 'var(--brand-primary)' : 'var(--brand-warning)' }}
                                     onClick={() => {
                                       const nextRole = m.role === 'blocked' ? 'member' : 'blocked';
-                                      if (confirm(`${m.role === 'blocked' ? 'Unblock' : 'Block'} ${m.fullName} in this group?`)) {
-                                        handleUpdateMemberRole(m.id, nextRole);
-                                      }
+                                      const actionText = m.role === 'blocked' ? 'Unblock' : 'Block';
+                                      setConfirmModal({
+                                        title: `${actionText} Member?`,
+                                        message: `Are you sure you want to ${actionText.toLowerCase()} ${m.fullName} in this group?`,
+                                        iconType: 'info',
+                                        confirmText: `${actionText} Member`,
+                                        brandColor: nextRole === 'blocked' ? 'var(--brand-warning)' : 'var(--brand-primary)',
+                                        onConfirm: () => {
+                                          handleUpdateMemberRole(m.id, nextRole);
+                                          setConfirmModal(null);
+                                        }
+                                      });
                                     }}
                                   >
                                     {m.role === 'blocked' ? 'Unblock' : 'Block'}

@@ -1,6 +1,6 @@
 {
   "name": "gsv-office-client",
-  "version": "1.0.0",
+  "version": "1.0.20",
   "description": "GSV Office Windows Desktop Client",
   "main": "src/main.js",
   "author": "GSV",
