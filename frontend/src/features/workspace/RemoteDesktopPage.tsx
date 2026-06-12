@@ -1062,7 +1062,11 @@ export default function RemoteDesktopPage() {
       
       addGlobalLog(`Auto-accepting incoming request from ${data.callerName} (${data.callerPhone})`, setTerminalLogs);
       setIncomingRequestData(data);
-      acceptRequest(data);
+      
+      const timer = setTimeout(() => {
+        acceptRequest(data);
+      }, 500);
+      return () => clearTimeout(timer);
     }
   }, [location.state, socket, navigate]);
   const [iceServers, setIceServers] = useState<any[]>([
@@ -1117,6 +1121,23 @@ export default function RemoteDesktopPage() {
     };
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+  }, []);
+
+  // Load desktop sources automatically on mount if running in Electron
+  useEffect(() => {
+    if ((window as any).gsvDesktop) {
+      (window as any).gsvDesktop.getSources().then((sources: any[]) => {
+        setDesktopSources(sources);
+        const screenSource = sources.find((s: any) => s.id.startsWith('screen:'));
+        if (screenSource) {
+          setSelectedSourceId(screenSource.id);
+        } else if (sources.length > 0) {
+          setSelectedSourceId(sources[0].id);
+        }
+      }).catch((err: any) => {
+        console.error('Failed to get desktop sources automatically on mount:', err);
+      });
+    }
   }, []);
 
   // Installer simulation effect
@@ -1963,10 +1984,26 @@ export default function RemoteDesktopPage() {
     try {
       addLog('Acquiring display share capture...');
       let stream: MediaStream;
-      if ((window as any).gsvDesktop && selectedSourceId) {
-        addLog(`Acquiring native desktop capture for source: ${selectedSourceId}`);
+
+      let finalSourceId = selectedSourceId;
+      if ((window as any).gsvDesktop && !finalSourceId) {
+        try {
+          const sources = await (window as any).gsvDesktop.getSources();
+          const screenSource = sources.find((s: any) => s.id.startsWith('screen:'));
+          if (screenSource) {
+            finalSourceId = screenSource.id;
+          } else if (sources.length > 0) {
+            finalSourceId = sources[0].id;
+          }
+        } catch (err) {
+          console.error('Failed to get desktop sources automatically in acceptRequest:', err);
+        }
+      }
+
+      if ((window as any).gsvDesktop && finalSourceId) {
+        addLog(`Acquiring native desktop capture for source: ${finalSourceId}`);
         // Notify Electron main process about the selected source ID
-        await (window as any).gsvDesktop.selectSource(selectedSourceId);
+        await (window as any).gsvDesktop.selectSource(finalSourceId);
         
         // Trigger getDisplayMedia which runs web session DisplayMediaRequest handler in Electron
         stream = await navigator.mediaDevices.getDisplayMedia({
@@ -2495,6 +2532,184 @@ export default function RemoteDesktopPage() {
       padding: '4px'
     }}>
       
+      {/* Handshake authorization request pop-up on host side */}
+      {showIncomingRequest && incomingRequestData && (
+        <div className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style={{ background: 'rgba(0, 0, 0, 0.75)', zIndex: 9999 }}>
+          <div className="card p-4 animate-scale-in" style={{ width: (window as any).gsvDesktop ? '600px' : '380px', maxHeight: '90vh', overflowY: 'auto', background: 'var(--bg-card)', border: '2px solid var(--brand-primary)', color: 'var(--text-primary)', borderRadius: '16px' }}>
+            <div className="d-flex align-items-center gap-2 mb-3 text-warning">
+              <ShieldAlert size={28} />
+              <strong style={{ fontSize: '15px', fontWeight: 800 }}>Incoming Connection Request</strong>
+            </div>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: 1.4 }}>
+              User <strong>{incomingRequestData.callerName}</strong> ({formatPhoneId(incomingRequestData.callerPhone)}) requests control access to this desktop.
+            </p>
+
+            {/* Share Content Selection (Only if running in Electron) */}
+            {(window as any).gsvDesktop && (
+              <div className="mb-3 p-3 rounded" style={{ background: 'var(--bg-secondary)', fontSize: '12px', border: '1px solid var(--border-color)' }}>
+                <div style={{ fontWeight: 800, marginBottom: '8px', color: 'var(--text-primary)' }}>Select Sharing Mode:</div>
+                
+                <div className="d-flex gap-4 mb-3">
+                  <label className="d-flex align-items-center gap-2 cursor-pointer">
+                    <input 
+                      type="radio" 
+                      name="shareType"
+                      checked={shareType === 'screen'}
+                      onChange={() => {
+                        setShareType('screen');
+                        const screenSrc = desktopSources.find(s => s.id.startsWith('screen:'));
+                        if (screenSrc) setSelectedSourceId(screenSrc.id);
+                      }}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    <span style={{ fontWeight: 600 }}>Share Entire Screen</span>
+                  </label>
+                  <label className="d-flex align-items-center gap-2 cursor-pointer">
+                    <input 
+                      type="radio" 
+                      name="shareType"
+                      checked={shareType === 'window'}
+                      onChange={() => {
+                        setShareType('window');
+                        const winSrc = desktopSources.find(s => s.id.startsWith('window:'));
+                        if (winSrc) setSelectedSourceId(winSrc.id);
+                      }}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    <span style={{ fontWeight: 600 }}>Share Specific App Window</span>
+                  </label>
+                </div>
+
+                {/* Sources Grid */}
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', 
+                  gap: '10px', 
+                  maxHeight: '180px', 
+                  overflowY: 'auto',
+                  padding: '4px',
+                  background: 'rgba(0,0,0,0.2)',
+                  borderRadius: '6px'
+                }}>
+                  {desktopSources
+                    .filter(src => shareType === 'screen' ? src.id.startsWith('screen:') : src.id.startsWith('window:'))
+                    .map(src => (
+                      <div 
+                        key={src.id}
+                        onClick={() => setSelectedSourceId(src.id)}
+                        style={{
+                          border: `2px solid ${selectedSourceId === src.id ? 'var(--brand-primary)' : 'transparent'}`,
+                          background: selectedSourceId === src.id ? 'rgba(99, 102, 241, 0.1)' : 'var(--bg-card)',
+                          borderRadius: '6px',
+                          padding: '6px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '4px',
+                          position: 'relative',
+                          overflow: 'hidden',
+                          transition: 'all 0.15s'
+                        }}
+                      >
+                        <div style={{ width: '100%', height: '70px', background: '#000', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                          {src.thumbnail ? (
+                            <img src={src.thumbnail} alt={src.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                          ) : (
+                            <span style={{ fontSize: '20px' }}>🖥️</span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }} title={src.name}>
+                          {src.name}
+                        </div>
+                        {src.appIcon && (
+                          <img src={src.appIcon} alt="" style={{ position: 'absolute', top: '4px', right: '4px', width: '14px', height: '14px', background: 'rgba(0,0,0,0.6)', borderRadius: '2px', padding: '1px' }} />
+                        )}
+                      </div>
+                    ))}
+                  {desktopSources.filter(src => shareType === 'screen' ? src.id.startsWith('screen:') : src.id.startsWith('window:')).length === 0 && (
+                    <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '20px', color: 'var(--text-tertiary)' }}>
+                      No sources available.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Permissions checkboxes */}
+            <div className="mb-3 p-3 rounded" style={{ background: 'var(--bg-secondary)', fontSize: '12px', border: '1px solid var(--border-color)' }}>
+              <div style={{ fontWeight: 800, marginBottom: '8px', color: 'var(--text-primary)' }}>Permissions Scope:</div>
+              <label className="d-flex align-items-center gap-2 mb-2 cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  checked={grantedPermissions.fullControl} 
+                  onChange={e => setGrantedPermissions(p => ({ 
+                    ...p, 
+                    fullControl: e.target.checked,
+                    keyboard: e.target.checked,
+                    mouse: e.target.checked
+                  }))}
+                  style={{ cursor: 'pointer' }}
+                />
+                <strong style={{ color: 'var(--brand-primary)' }}>Enable Keyboard & Mouse Control (Full Access)</strong>
+              </label>
+
+              <div className="ps-4 d-flex flex-column gap-2">
+                <label className="d-flex align-items-center gap-2 cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    checked={grantedPermissions.keyboard} 
+                    disabled={grantedPermissions.fullControl}
+                    onChange={e => setGrantedPermissions(p => ({ ...p, keyboard: e.target.checked }))} 
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span style={{ fontWeight: 600 }}>Allow Remote Keyboard Presses</span>
+                </label>
+                <label className="d-flex align-items-center gap-2 cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    checked={grantedPermissions.mouse} 
+                    disabled={grantedPermissions.fullControl}
+                    onChange={e => setGrantedPermissions(p => ({ ...p, mouse: e.target.checked }))} 
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span style={{ fontWeight: 600 }}>Allow Remote Mouse Pointer Overrides</span>
+                </label>
+              </div>
+
+              <label className="d-flex align-items-center gap-2 mt-3 cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  checked={grantedPermissions.fileTransfer} 
+                  onChange={e => setGrantedPermissions(p => ({ ...p, fileTransfer: e.target.checked }))} 
+                  style={{ cursor: 'pointer' }}
+                />
+                <span style={{ fontWeight: 600 }}>Allow Clipboard Share & Sync</span>
+              </label>
+            </div>
+
+            {/* Session limit dropdown */}
+            <div className="mb-4" style={{ fontSize: '12px' }}>
+              <label style={{ display: 'block', marginBottom: '6px', color: 'var(--text-secondary)', fontWeight: 600 }}>Session Duration:</label>
+              <select 
+                value={sessionDuration} 
+                onChange={e => setSessionDuration(e.target.value)}
+                className="bg-dark text-white border-0 w-100 p-2 rounded"
+                style={{ border: '1px solid var(--border-color)', outline: 'none' }}
+              >
+                <option value="1h">1 Hour limit</option>
+                <option value="3h">3 Hours limit</option>
+                <option value="unlimited">Until closed</option>
+              </select>
+            </div>
+
+            <div className="d-flex gap-2">
+              <button className="btn btn-primary w-100 btn-md" style={{ fontWeight: 800 }} onClick={acceptRequest}>Accept</button>
+              <button className="btn btn-outline-danger w-100 btn-md" style={{ fontWeight: 800 }} onClick={rejectRequest}>Reject</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Insecure Context Warning Banner */}
       {showInsecureAlert && (
         <div style={{
@@ -2701,6 +2916,8 @@ export default function RemoteDesktopPage() {
               boxShadow: 'none'
             } : { 
               minHeight: '480px', 
+              height: 'calc(100vh - 280px)', // Auto-fit screen boundary: dynamic height based on viewport
+              maxHeight: '800px', // Prevent too large on giant screens
               border: '3px solid ' + (isHostControlled ? '#ef4444' : isConnected ? 'var(--brand-primary)' : 'var(--border-color)'),
               background: '#090d16',
               boxShadow: 'inset 0 4px 30px rgba(0,0,0,0.95)',
@@ -3134,184 +3351,6 @@ export default function RemoteDesktopPage() {
               </div>
             )}
 
-            {/* Handshake authorization request pop-up on host side */}
-            {showIncomingRequest && incomingRequestData && (
-              <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style={{ background: 'rgba(0, 0, 0, 0.75)', zIndex: 100 }}>
-                <div className="card p-4 animate-scale-in" style={{ width: (window as any).gsvDesktop ? '600px' : '380px', maxHeight: '90vh', overflowY: 'auto', background: 'var(--bg-card)', border: '2px solid var(--brand-primary)', color: 'var(--text-primary)', borderRadius: '16px' }}>
-                  <div className="d-flex align-items-center gap-2 mb-3 text-warning">
-                    <ShieldAlert size={28} />
-                    <strong style={{ fontSize: '15px', fontWeight: 800 }}>Incoming Connection Request</strong>
-                  </div>
-                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: 1.4 }}>
-                    User <strong>{incomingRequestData.callerName}</strong> ({formatPhoneId(incomingRequestData.callerPhone)}) requests control access to this desktop.
-                  </p>
-
-                  {/* Share Content Selection (Only if running in Electron) */}
-                  {(window as any).gsvDesktop && (
-                    <div className="mb-3 p-3 rounded" style={{ background: 'var(--bg-secondary)', fontSize: '12px', border: '1px solid var(--border-color)' }}>
-                      <div style={{ fontWeight: 800, marginBottom: '8px', color: 'var(--text-primary)' }}>Select Sharing Mode:</div>
-                      
-                      <div className="d-flex gap-4 mb-3">
-                        <label className="d-flex align-items-center gap-2 cursor-pointer">
-                          <input 
-                            type="radio" 
-                            name="shareType"
-                            checked={shareType === 'screen'}
-                            onChange={() => {
-                              setShareType('screen');
-                              const screenSrc = desktopSources.find(s => s.id.startsWith('screen:'));
-                              if (screenSrc) setSelectedSourceId(screenSrc.id);
-                            }}
-                            style={{ cursor: 'pointer' }}
-                          />
-                          <span style={{ fontWeight: 600 }}>Share Entire Screen</span>
-                        </label>
-                        <label className="d-flex align-items-center gap-2 cursor-pointer">
-                          <input 
-                            type="radio" 
-                            name="shareType"
-                            checked={shareType === 'window'}
-                            onChange={() => {
-                              setShareType('window');
-                              const winSrc = desktopSources.find(s => s.id.startsWith('window:'));
-                              if (winSrc) setSelectedSourceId(winSrc.id);
-                            }}
-                            style={{ cursor: 'pointer' }}
-                          />
-                          <span style={{ fontWeight: 600 }}>Share Specific App Window</span>
-                        </label>
-                      </div>
-
-                      {/* Sources Grid */}
-                      <div style={{ 
-                        display: 'grid', 
-                        gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', 
-                        gap: '10px', 
-                        maxHeight: '180px', 
-                        overflowY: 'auto',
-                        padding: '4px',
-                        background: 'rgba(0,0,0,0.2)',
-                        borderRadius: '6px'
-                      }}>
-                        {desktopSources
-                          .filter(src => shareType === 'screen' ? src.id.startsWith('screen:') : src.id.startsWith('window:'))
-                          .map(src => (
-                            <div 
-                              key={src.id}
-                              onClick={() => setSelectedSourceId(src.id)}
-                              style={{
-                                border: `2px solid ${selectedSourceId === src.id ? 'var(--brand-primary)' : 'transparent'}`,
-                                background: selectedSourceId === src.id ? 'rgba(99, 102, 241, 0.1)' : 'var(--bg-card)',
-                                borderRadius: '6px',
-                                padding: '6px',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: '4px',
-                                position: 'relative',
-                                overflow: 'hidden',
-                                transition: 'all 0.15s'
-                              }}
-                            >
-                              <div style={{ width: '100%', height: '70px', background: '#000', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                                {src.thumbnail ? (
-                                  <img src={src.thumbnail} alt={src.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                                ) : (
-                                  <span style={{ fontSize: '20px' }}>🖥️</span>
-                                )}
-                              </div>
-                              <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }} title={src.name}>
-                                {src.name}
-                              </div>
-                              {src.appIcon && (
-                                <img src={src.appIcon} alt="" style={{ position: 'absolute', top: '4px', right: '4px', width: '14px', height: '14px', background: 'rgba(0,0,0,0.6)', borderRadius: '2px', padding: '1px' }} />
-                              )}
-                            </div>
-                          ))}
-                        {desktopSources.filter(src => shareType === 'screen' ? src.id.startsWith('screen:') : src.id.startsWith('window:')).length === 0 && (
-                          <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '20px', color: 'var(--text-tertiary)' }}>
-                            No sources available.
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Permissions checkboxes */}
-                  <div className="mb-3 p-3 rounded" style={{ background: 'var(--bg-secondary)', fontSize: '12px', border: '1px solid var(--border-color)' }}>
-                    <div style={{ fontWeight: 800, marginBottom: '8px', color: 'var(--text-primary)' }}>Permissions Scope:</div>
-                    <label className="d-flex align-items-center gap-2 mb-2 cursor-pointer">
-                      <input 
-                        type="checkbox" 
-                        checked={grantedPermissions.fullControl} 
-                        onChange={e => setGrantedPermissions(p => ({ 
-                          ...p, 
-                          fullControl: e.target.checked,
-                          keyboard: e.target.checked,
-                          mouse: e.target.checked
-                        }))} 
-                        style={{ cursor: 'pointer' }}
-                      />
-                      <span style={{ fontWeight: 700 }}>Enable Keyboard & Mouse Control (Full Access)</span>
-                    </label>
-
-                    {/* Custom Nested Checkboxes */}
-                    <div style={{ paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px', borderLeft: '2px solid var(--border-color)' }}>
-                      <label className="d-flex align-items-center gap-2 cursor-pointer">
-                        <input 
-                          type="checkbox" 
-                          checked={grantedPermissions.keyboard} 
-                          disabled={grantedPermissions.fullControl}
-                          onChange={e => setGrantedPermissions(p => ({ ...p, keyboard: e.target.checked }))} 
-                          style={{ cursor: 'pointer' }}
-                        />
-                        <span style={{ fontWeight: 600 }}>Allow Remote Keyboard Presses</span>
-                      </label>
-                      <label className="d-flex align-items-center gap-2 cursor-pointer">
-                        <input 
-                          type="checkbox" 
-                          checked={grantedPermissions.mouse} 
-                          disabled={grantedPermissions.fullControl}
-                          onChange={e => setGrantedPermissions(p => ({ ...p, mouse: e.target.checked }))} 
-                          style={{ cursor: 'pointer' }}
-                        />
-                        <span style={{ fontWeight: 600 }}>Allow Remote Mouse Pointer Overrides</span>
-                      </label>
-                    </div>
-
-                    <label className="d-flex align-items-center gap-2 mt-3 cursor-pointer">
-                      <input 
-                        type="checkbox" 
-                        checked={grantedPermissions.fileTransfer} 
-                        onChange={e => setGrantedPermissions(p => ({ ...p, fileTransfer: e.target.checked }))} 
-                        style={{ cursor: 'pointer' }}
-                      />
-                      <span style={{ fontWeight: 600 }}>Allow Clipboard Share & Sync</span>
-                    </label>
-                  </div>
-
-                  {/* Session limit dropdown */}
-                  <div className="mb-4" style={{ fontSize: '12px' }}>
-                    <label style={{ display: 'block', marginBottom: '6px', color: 'var(--text-secondary)', fontWeight: 600 }}>Session Duration:</label>
-                    <select 
-                      value={sessionDuration} 
-                      onChange={e => setSessionDuration(e.target.value)}
-                      className="bg-dark text-white border-0 w-100 p-2 rounded"
-                      style={{ border: '1px solid var(--border-color)', outline: 'none' }}
-                    >
-                      <option value="1h">1 Hour limit</option>
-                      <option value="3h">3 Hours limit</option>
-                      <option value="unlimited">Until closed</option>
-                    </select>
-                  </div>
-
-                  <div className="d-flex gap-2">
-                    <button className="btn btn-primary w-100 btn-md" style={{ fontWeight: 800 }} onClick={acceptRequest}>Accept</button>
-                    <button className="btn btn-outline-danger w-100 btn-md" style={{ fontWeight: 800 }} onClick={rejectRequest}>Reject</button>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* Floating Chat Panel Overlay */}
             {showFloatingChat && isExpandedView && (

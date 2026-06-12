@@ -698,9 +698,23 @@ ipcMain.handle('save-config', (event, newConfig) => {
     args: ['--hidden']
   });
 
-  // Reload main window if URL changed
-  if (mainWindow && newConfig.serverUrl && newConfig.serverUrl !== oldUrl) {
-    mainWindow.loadURL(config.serverUrl);
+  // Reload main window or relaunch if URL changed
+  if (newConfig.serverUrl && newConfig.serverUrl !== oldUrl) {
+    dialog.showMessageBox({
+      type: 'question',
+      buttons: ['Restart Now', 'Later'],
+      defaultId: 0,
+      title: 'GSV Office — Restart Required',
+      message: 'The server URL has been updated. The application needs to restart to apply secure context policies and re-initialize connections.',
+      detail: 'If you choose "Later", changes will apply on the next launch.'
+    }).then(({ response }) => {
+      if (response === 0) {
+        app.relaunch();
+        app.exit(0);
+      } else if (mainWindow) {
+        mainWindow.loadURL(config.serverUrl);
+      }
+    });
   }
 
   updateTrayMenu();

@@ -246,6 +246,7 @@ export function AppLayout() {
 
     socket.on('remote:request', (data) => {
       if (window.location.pathname === '/remote-desktop') return;
+      (window as any).gsvIncomingRemoteRequest = data; // Set fallback on window object
       setIncomingRemoteRequest(data);
       SoundManager.playRing(2.0);
       
@@ -326,23 +327,27 @@ export function AppLayout() {
 
     const handleRemoteAction = (e: any) => {
       if (e.detail === 'accept') {
-        if (incomingRemoteRequestRef.current) {
+        const reqData = incomingRemoteRequestRef.current || (window as any).gsvIncomingRemoteRequest;
+        if (reqData) {
           navigate('/remote-desktop', {
-            state: { autoAcceptRequest: incomingRemoteRequestRef.current }
+            state: { autoAcceptRequest: reqData }
           });
         } else {
           navigate('/remote-desktop');
         }
         setIncomingRemoteRequest(null);
+        (window as any).gsvIncomingRemoteRequest = null;
       } else if (e.detail === 'reject') {
-        if (incomingRemoteRequestRef.current) {
+        const reqData = incomingRemoteRequestRef.current || (window as any).gsvIncomingRemoteRequest;
+        if (reqData) {
           socket.emit('remote:response', {
-            targetUserId: incomingRemoteRequestRef.current.callerId,
+            targetUserId: reqData.callerId,
             status: 'rejected',
             reason: 'rejected_by_user'
           });
         }
         setIncomingRemoteRequest(null);
+        (window as any).gsvIncomingRemoteRequest = null;
       }
     };
     window.addEventListener('gsv-remote-action', handleRemoteAction);
