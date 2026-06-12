@@ -1,6 +1,6 @@
 {
-  "version": "1.0.22",
-  "buildTime": "2026-06-12T21:07:26.693Z",
+  "version": "1.0.23",
+  "buildTime": "2026-06-12T21:13:03.970Z",
   "bumpType": "patch",
-  "gitCommit": "93c4fa382cb8d76a874310fbb82cbeab111041bc"
+  "gitCommit": "b20aa449b396e0129dd178a37eb2a2a15ec4859d"
 }
