@@ -12,6 +12,8 @@ export default function ServerPage() {
   const [sheetLink, setSheetLink] = useState('');
   const [sheetId, setSheetId] = useState('');
   const [appscriptId, setAppscriptId] = useState('');
+  const [syncEnabled, setSyncEnabled] = useState(true);
+  const [syncInterval, setSyncInterval] = useState(60);
   const [savingSyncSettings, setSavingSyncSettings] = useState(false);
 
   const { data: info, isLoading } = useQuery({
@@ -39,9 +41,15 @@ export default function ServerPage() {
 
   useEffect(() => {
     if (settings && settings.length > 0) {
-      setSheetLink(settings.find((s: any) => s.key === 'google_sheet_link')?.value || '');
+      setSheetLink(settings.find((s: any) => s.key === 'google_sheet_link')?.value || settings.find((s: any) => s.key === 'google_sheets_spreadsheet_url')?.value || '');
       setSheetId(settings.find((s: any) => s.key === 'google_sheet_id')?.value || '');
-      setAppscriptId(settings.find((s: any) => s.key === 'google_appscript_deployment_id')?.value || '');
+      setAppscriptId(settings.find((s: any) => s.key === 'google_appscript_deployment_id')?.value || settings.find((s: any) => s.key === 'google_sheets_deployment_id')?.value || '');
+      
+      const enabledVal = settings.find((s: any) => s.key === 'google_sheets_sync_enabled')?.value;
+      setSyncEnabled(enabledVal === undefined ? true : enabledVal === 'true');
+      
+      const intervalVal = settings.find((s: any) => s.key === 'google_sheets_sync_interval_minutes')?.value;
+      setSyncInterval(intervalVal ? parseInt(intervalVal, 10) || 60 : 60);
     }
   }, [settings]);
 
@@ -52,6 +60,10 @@ export default function ServerPage() {
       await serverApi.updateSetting('google_sheet_link', sheetLink);
       await serverApi.updateSetting('google_sheet_id', sheetId);
       await serverApi.updateSetting('google_appscript_deployment_id', appscriptId);
+      await serverApi.updateSetting('google_sheets_spreadsheet_url', sheetLink);
+      await serverApi.updateSetting('google_sheets_deployment_id', appscriptId);
+      await serverApi.updateSetting('google_sheets_sync_enabled', String(syncEnabled));
+      await serverApi.updateSetting('google_sheets_sync_interval_minutes', String(syncInterval));
       if (appscriptId.trim()) {
         const syncUrl = `https://script.google.com/macros/s/${appscriptId.trim()}/exec`;
         await serverApi.updateSetting('google_sheets_sync_url', syncUrl);
@@ -203,6 +215,35 @@ export default function ServerPage() {
                   <small style={{ color: 'var(--text-tertiary)', fontSize: '10px', marginTop: '4px', display: 'block' }}>
                     Deployment ID will be mapped automatically to form the endpoint URL: <code>https://script.google.com/macros/s/&#123;Deployment_ID&#125;/exec</code>
                   </small>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '8px' }}>
+                  <div className="form-group" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                    <label className="form-label" style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', margin: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={syncEnabled}
+                        onChange={(e) => setSyncEnabled(e.target.checked)}
+                        style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                      />
+                      Enable Automatic Syncing
+                    </label>
+                    <small style={{ color: 'var(--text-tertiary)', fontSize: '10px', display: 'block', marginTop: '4px' }}>
+                      Pushes and pulls data between TrueNAS and Google Sheets in the background
+                    </small>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontWeight: 600 }}>Sync Interval (Minutes)</label>
+                    <input
+                      type="number"
+                      className="form-control"
+                      min="1"
+                      value={syncInterval}
+                      onChange={(e) => setSyncInterval(parseInt(e.target.value, 10) || 1)}
+                    />
+                    <small style={{ color: 'var(--text-tertiary)', fontSize: '10px', display: 'block', marginTop: '4px' }}>
+                      Specify how frequently (in minutes) the server should run the background sync
+                    </small>
+                  </div>
                 </div>
               </div>
               <div className="card-footer" style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', padding: '12px 20px' }}>

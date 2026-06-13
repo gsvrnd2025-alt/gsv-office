@@ -1,0 +1,3253 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GSV Electrical Enterprises Internship Portal</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Bungee&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        :root {
+            --primary-color: #4361ee;
+            --secondary-color: #3f37c9;
+            --accent-color: #4cc9f0;
+            --success-color: #4caf50;
+            --error-color: #f44336;
+            --warning-color: #ff9800;
+            --light-color: #f8f9fa;
+            --dark-color: #212529;
+            --gray-color: #6c757d;
+            --border-radius: 8px;
+            --box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            --transition: all 0.3s ease;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            min-height: 100%;
+            overflow-x: hidden;
+            box-sizing: border-box;
+            font-family: 'Poppins', sans-serif;
+            background-color: #f5f7ff;
+            color: var(--dark-color);
+            line-height: 1.6;
+            transition: font-size 0.2s ease;
+        }
+
+        /* Auto-scale UI when inside an iframe (Google Sites) */
+        @media screen and (max-width: 1200px) {
+            html.is-embedded {
+                font-size: 0.9rem;
+            }
+        }
+        @media screen and (max-width: 768px) {
+            html.is-embedded {
+                font-size: 0.85rem;
+            }
+        }
+    </style>
+    <script>
+        // Detect if the page is in an iframe
+        if (window !== window.top) {
+            document.documentElement.classList.add('is-embedded');
+        }
+
+        // --- MODAL WRAPPERS FOR GOOGLE SITES COMPATIBILITY ---
+        window.showAlertModal = function (message) {
+            if (typeof Swal !== 'undefined') {
+                return Swal.fire({
+                    title: 'Notification',
+                    text: message,
+                    icon: 'info',
+                    confirmButtonText: 'OK',
+                    confirmButtonColor: '#4361ee'
+                });
+            } else {
+                console.warn("SweetAlert2 not loaded. Message:", message);
+                return Promise.resolve();
+            }
+        };
+
+        window.showTermsModal = function () {
+            const modal = document.getElementById('termsCustomModal');
+            if (modal) {
+                modal.style.display = 'flex';
+            }
+        };
+
+        window.showConfirmModal = function (message) {
+            if (typeof Swal !== 'undefined') {
+                return Swal.fire({
+                    title: 'Are you sure?',
+                    text: message,
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonText: 'Yes',
+                    cancelButtonText: 'No',
+                    confirmButtonColor: '#4361ee',
+                    cancelButtonColor: '#d33'
+                }).then((result) => result.isConfirmed);
+            } else {
+                console.warn("SweetAlert2 not loaded. Confirming false for:", message);
+                return Promise.resolve(false);
+            }
+        };
+
+        window.showPromptModal = function (message, defaultValue = '') {
+            if (typeof Swal !== 'undefined') {
+                return Swal.fire({
+                    title: 'Input Required',
+                    text: message,
+                    input: 'text',
+                    inputValue: defaultValue,
+                    showCancelButton: true,
+                    confirmButtonText: 'Submit',
+                    cancelButtonText: 'Cancel',
+                    confirmButtonColor: '#4361ee'
+                }).then((result) => result.value || null);
+            } else {
+                console.warn("SweetAlert2 not loaded. Prompting null for:", message);
+                return Promise.resolve(null);
+            }
+        };
+        // -------------------------------------------------------
+    </script>
+
+    <style>
+        /* SweetAlert Custom Premium Styles - No Red Close Buttons, Sleek Slate/Blue Styles */
+        .swal2-close {
+            color: #94a3b8 !important;
+            font-size: 28px !important;
+            transition: color 0.2s !important;
+            outline: none !important;
+            box-shadow: none !important;
+        }
+        .swal2-close:hover {
+            color: #475569 !important;
+            background: transparent !important;
+        }
+        .swal2-confirm {
+            background-color: #4361ee !important;
+            border-color: #4361ee !important;
+            border-radius: 6px !important;
+            padding: 10px 24px !important;
+            font-weight: 500 !important;
+            font-size: 0.95rem !important;
+            outline: none !important;
+            box-shadow: none !important;
+        }
+        .swal2-cancel {
+            background-color: #f1f5f9 !important;
+            color: #475569 !important;
+            border: 1px solid #cbd5e1 !important;
+            border-radius: 6px !important;
+            padding: 10px 24px !important;
+            font-weight: 500 !important;
+            font-size: 0.95rem !important;
+            outline: none !important;
+            box-shadow: none !important;
+        }
+        .swal2-cancel:hover {
+            background-color: #e2e8f0 !important;
+            color: #334155 !important;
+        }
+        .swal2-popup {
+            border-radius: 12px !important;
+            padding: 1.5rem !important;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: var(--border-radius);
+            box-shadow: var(--box-shadow);
+            overflow: hidden;
+        }
+
+        .header-container {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            padding: 30px 20px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header-container h1 {
+            font-family: 'Bungee', cursive;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .header-container p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+            font-style: italic;
+        }
+
+        .tab-container {
+            display: flex;
+            background-color: white;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .tab-button {
+            flex: 1;
+            padding: 15px 20px;
+            border: none;
+            background-color: transparent;
+            cursor: pointer;
+            font-weight: 600;
+            color: var(--gray-color);
+            border-bottom: 3px solid transparent;
+            transition: var(--transition);
+            text-align: center;
+            font-size: 0.95rem;
+        }
+
+        .tab-button:hover {
+            color: var(--primary-color);
+            background-color: rgba(67, 97, 238, 0.05);
+        }
+
+        .tab-button.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+        }
+
+        .tab-button i {
+            margin-right: 8px;
+        }
+
+        .tab-content {
+            display: none;
+            padding: 30px;
+        }
+
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.5s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        h2 {
+            color: var(--primary-color);
+            margin-bottom: 25px;
+            font-size: 1.8rem;
+            font-weight: 600;
+            text-align: center;
+            position: relative;
+            padding-bottom: 10px;
+        }
+
+        h2::after {
+            content: "";
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80px;
+            height: 3px;
+            background-color: var(--accent-color);
+        }
+
+        .login-form-title {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            color: var(--secondary-color);
+            text-align: center;
+            font-weight: 600;
+            position: relative;
+            padding-bottom: 8px;
+        }
+
+        .login-form-title::after {
+            content: "";
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 60px;
+            height: 2px;
+            background-color: var(--primary-color);
+        }
+
+        .form-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .form-col {
+            flex: 1;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: var(--dark-color);
+        }
+
+        label.required::after {
+            content: " *";
+            color: var(--error-color);
+        }
+
+        input,
+        select,
+        textarea {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid #ddd;
+            border-radius: var(--border-radius);
+            font-family: inherit;
+            font-size: 0.95rem;
+            transition: var(--transition);
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            border-color: var(--primary-color);
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.2);
+        }
+
+        /* Style for inputs that should be uppercase */
+        .force-uppercase {
+            text-transform: uppercase;
+        }
+
+        textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        button {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 12px 25px;
+            border: none;
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: var(--transition);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        button:hover {
+            background-color: var(--secondary-color);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        button:disabled .spinner {
+            border-top-color: #666;
+        }
+
+        button i {
+            font-size: 0.9rem;
+        }
+
+        .btn-block {
+            display: block;
+            width: 100%;
+        }
+
+        .btn-success {
+            background-color: var(--success-color);
+        }
+
+        .btn-success:hover {
+            background-color: #3d8b40;
+        }
+
+        .message {
+            padding: 12px 15px;
+            border-radius: var(--border-radius);
+            margin: 15px 0;
+            display: none;
+            font-weight: 500;
+            font-size: 0.9rem;
+            text-align: center;
+        }
+
+        .message.success {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+            border: 1px solid #a5d6a7;
+            display: block;
+        }
+
+        .message.error {
+            background-color: #ffebee;
+            color: #c62828;
+            border: 1px solid #ef9a9a;
+            display: block;
+        }
+
+        .verification-result {
+            margin-top: 30px;
+            padding: 25px;
+            border-radius: var(--border-radius);
+            background-color: white;
+            box-shadow: var(--box-shadow);
+            display: none;
+            animation: fadeIn 0.5s ease;
+        }
+
+        .verification-result.success {
+            border-left: 4px solid var(--success-color);
+        }
+
+        .verification-result.error {
+            border-left: 4px solid var(--error-color);
+        }
+
+        .result-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .result-header i {
+            font-size: 2rem;
+            margin-right: 15px;
+        }
+
+        .result-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+        }
+
+        .result-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+        }
+
+        .detail-item {
+            margin-bottom: 10px;
+        }
+
+        .detail-label {
+            font-weight: 500;
+            color: var(--gray-color);
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .detail-value {
+            font-weight: 500;
+            color: var(--dark-color);
+        }
+
+        .valid-feedback,
+        .invalid-feedback {
+            font-size: 0.85rem;
+            margin-top: 5px;
+            display: none;
+        }
+
+        .valid-feedback {
+            color: var(--success-color);
+        }
+
+        .invalid-feedback {
+            color: var(--error-color);
+        }
+
+        .input-valid {
+            border-color: var(--success-color) !important;
+        }
+
+        .input-valid+.valid-feedback {
+            display: block !important;
+        }
+
+        .input-valid+.valid-feedback+.invalid-feedback {
+            display: none !important;
+        }
+
+        .input-invalid {
+            border-color: var(--error-color) !important;
+        }
+
+        .input-invalid+.valid-feedback {
+            display: none !important;
+        }
+
+        .input-invalid+.valid-feedback+.invalid-feedback {
+            display: block !important;
+        }
+
+        .duration-info {
+            font-size: 0.9rem;
+            color: var(--gray-color);
+            margin-top: 5px;
+        }
+
+        .login-options-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 30px;
+            align-items: stretch;
+            /* Cards equal height on desktop */
+            width: 100%;
+        }
+
+        .login-form-card {
+            flex: 1;
+            min-width: 300px;
+            max-width: 450px;
+            padding: 30px;
+            background-color: white;
+            border-radius: var(--border-radius);
+            box-shadow: var(--box-shadow);
+            border-top: 4px solid var(--primary-color);
+        }
+
+        .login-form-card.student {
+            border-top-color: var(--success-color);
+        }
+
+        .login-logo {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        .login-logo i {
+            font-size: 2.8rem;
+            color: var(--primary-color);
+            margin-bottom: 10px;
+        }
+
+        .login-form-card.student .login-logo i {
+            color: var(--success-color);
+        }
+
+        .password-toggle {
+            position: relative;
+        }
+
+        .password-toggle input {
+            padding-right: 45px;
+        }
+
+        .password-toggle-btn {
+            position: absolute;
+            right: 1px;
+            top: 1px;
+            bottom: 1px;
+            width: 40px;
+            background: transparent;
+            border: none;
+            color: var(--gray-color);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            border-radius: 0 var(--border-radius) var(--border-radius) 0;
+        }
+
+        .password-toggle-btn:hover {
+            background-color: #f0f0f0;
+        }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.5);
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            margin: auto;
+            padding: 25px;
+            border: 1px solid #888;
+            width: 90%;
+            max-width: 500px;
+            border-radius: var(--border-radius);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(-50px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #eee;
+            margin-bottom: 20px;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 1.5rem;
+            color: var(--primary-color);
+            padding-bottom: 0;
+        }
+
+        .modal-header h2::after {
+            display: none;
+        }
+
+        .modal-body {
+            margin-bottom: 20px;
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .close-btn {
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        .close-btn:hover,
+        .close-btn:focus {
+            color: black;
+            text-decoration: none;
+        }
+
+        .forgot-password-link {
+            display: block;
+            text-align: right;
+            font-size: 0.85rem;
+            margin-top: -10px;
+            margin-bottom: 15px;
+            color: var(--primary-color);
+            text-decoration: none;
+        }
+
+        .forgot-password-link:hover {
+            text-decoration: underline;
+        }
+
+
+
+
+        /* TV / 4K / Ultra-wide scaling */
+        @media (min-width: 2560px) {
+            html {
+                font-size: 20px;
+            }
+
+            .container {
+                max-width: 1400px;
+            }
+
+            .header-container h1 {
+                font-size: 3.5rem;
+            }
+        }
+
+
+        .spinner {
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            border: 3px solid rgba(255, 255, 255, .3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* --- Document Access Request Styles --- */
+        .doc-access-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            background: #e8f5e9;
+            color: #2e7d32;
+            border: 1px solid #a5d6a7;
+            white-space: nowrap;
+        }
+
+        .doc-access-badge.expiring {
+            background: #fff8e1;
+            color: #f57f17;
+            border-color: #fff176;
+        }
+
+        .doc-access-badge.expired-badge {
+            background: #ffebee;
+            color: #c62828;
+            border-color: #ef9a9a;
+        }
+
+        .doc-public-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            border-radius: 10px;
+            border: none;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.25s ease;
+        }
+
+        .doc-public-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 14px rgba(0, 0, 0, 0.15);
+        }
+
+        .doc-public-btn.cert-btn {
+            background: linear-gradient(135deg, #4361ee, #3f37c9);
+            color: white;
+        }
+
+        .doc-public-btn.offer-btn {
+            background: linear-gradient(135deg, #11998e, #38ef7d);
+            color: white;
+        }
+
+        .doc-public-btn.joining-btn {
+            background: linear-gradient(135deg, #f7971e, #ffd200);
+            color: #333;
+        }
+
+        .doc-request-panel {
+            margin-top: 20px;
+            border-radius: 12px;
+            padding: 18px 22px;
+            background: linear-gradient(135deg, #f8f9ff 0%, #f0f4ff 100%);
+            border: 1px dashed #c5cae9;
+        }
+
+        .btn-request-docs {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 10px 22px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-request-docs:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 14px rgba(102, 126, 234, 0.4);
+        }
+
+        .approved-doc-card {
+            background: white;
+            border-radius: 10px;
+            padding: 14px 18px;
+            border: 1px solid #e0e7ff;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            transition: box-shadow 0.2s;
+        }
+
+        .approved-doc-card:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        @media (max-width: 768px) {
+            * {
+                box-sizing: border-box !important;
+                max-width: 100% !important;
+                /* Global overflow prevention */
+            }
+
+            html,
+            body {
+                max-width: 100% !important;
+                overflow-x: hidden !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 100% !important;
+                background-color: #f5f7ff !important;
+                position: relative !important;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            body {
+                display: block !important;
+            }
+
+            .container {
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0 !important;
+                border-radius: 0 !important;
+                padding: 0 !important;
+                box-shadow: none !important;
+                overflow: hidden !important;
+                display: block !important;
+            }
+
+            .header-container {
+                padding: 35px 20px 25px 20px !important;
+                display: flex !important;
+                flex-direction: column !important;
+                justify-content: center !important;
+                align-items: center !important;
+                text-align: center !important;
+                margin: 0 !important;
+                width: 100% !important;
+            }
+
+            .header-container h1 {
+                font-size: 28px !important;
+                margin: 0 0 10px 0 !important;
+                line-height: 1.2 !important;
+                width: 100% !important;
+            }
+
+            .header-container p {
+                font-size: 15px !important;
+                margin: 0 !important;
+                opacity: 1 !important;
+            }
+
+            .tab-container {
+                display: flex !important;
+                flex-direction: row !important;
+                /* Horizontal tabs */
+                gap: 5px !important;
+                padding: 12px 10px !important;
+                background: #ffffff !important;
+                width: 100% !important;
+                justify-content: flex-start !important;
+                margin: 0 !important;
+                overflow-x: auto !important;
+                /* Allow scroll for many tabs */
+                -webkit-overflow-scrolling: touch;
+                border-bottom: 2px solid #edf2f7 !important;
+            }
+
+            /* Hide scrollbar but keep functionality */
+            .tab-container::-webkit-scrollbar {
+                display: none;
+            }
+
+            .tab-button {
+                flex: 0 0 calc(33.33% - 8px) !important;
+                /* Force 3 columns without overflow */
+                min-width: 100px !important;
+                height: auto !important;
+                min-height: 55px !important;
+                font-size: 11px !important;
+                padding: 10px 5px !important;
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: center !important;
+                justify-content: center !important;
+                text-align: center !important;
+                border-radius: 12px !important;
+                border: 1px solid #e2e8f0 !important;
+                background: #f8fafc !important;
+                color: var(--gray-color) !important;
+                margin-bottom: 0 !important;
+                line-height: 1.2 !important;
+            }
+
+            .tab-button i {
+                margin: 0 0 4px 0 !important;
+                font-size: 14px !important;
+                width: auto !important;
+                text-align: center !important;
+            }
+
+            .tab-button.active {
+                background-color: var(--primary-color) !important;
+                color: white !important;
+                border-color: var(--primary-color) !important;
+                box-shadow: 0 4px 10px rgba(67, 97, 238, 0.2) !important;
+            }
+
+            .tab-line {
+                display: block !important;
+                width: 100% !important;
+                white-space: normal !important;
+            }
+
+            .tab-content {
+                padding: 25px 15px !important;
+                width: 100% !important;
+            }
+
+            .form-row {
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 0 !important;
+            }
+
+            .form-col {
+                width: 100% !important;
+                flex: none !important;
+            }
+
+            input,
+            select,
+            textarea,
+            button,
+            .btn-block {
+                min-height: 48px !important;
+                font-size: 16px !important;
+                width: 100% !important;
+                margin-bottom: 12px !important;
+            }
+
+            /* Improved Password Toggle - Anchored to right corner, non-obstructive */
+            div.password-toggle {
+                position: relative !important;
+                display: block !important;
+                width: 100% !important;
+                margin-bottom: 15px !important;
+            }
+
+            div.password-toggle input {
+                padding-right: 60px !important;
+                /* Extra space to ensure text doesn't go under icon */
+                margin-bottom: 0 !important;
+            }
+
+            div.password-toggle button.password-toggle-btn {
+                position: absolute !important;
+                right: 5px !important;
+                top: 50% !important;
+                transform: translateY(-50%) !important;
+                width: 44px !important;
+                /* Fixed width prevents covering input area */
+                height: 44px !important;
+                background: transparent !important;
+                border: none !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                z-index: 10 !important;
+                color: var(--gray-color) !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                left: auto !important;
+                /* Override any stretch */
+            }
+
+            div.password-toggle button.password-toggle-btn i {
+                font-size: 18px !important;
+            }
+
+            div.password-toggle button.password-toggle-btn:focus,
+            div.password-toggle button.password-toggle-btn:active {
+                outline: none !important;
+                background: rgba(0, 0, 0, 0.05) !important;
+                border-radius: 50% !important;
+            }
+
+            .login-options-container {
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 15px !important;
+                width: 100% !important;
+                align-items: center !important;
+                justify-content: center !important;
+                padding: 10px 0 !important;
+            }
+
+            .login-form-card {
+                padding: 15px !important;
+                border-radius: 12px !important;
+                width: 90% !important; /* Slightly wider for 90% scale */
+                max-width: 400px !important;
+                margin: 0 auto 15px auto !important;
+                transform: scale(0.9) !important; /* Increased to 90% as requested */
+                transform-origin: top center !important;
+                box-shadow: 0 6px 15px rgba(0,0,0,0.1) !important;
+                border: 1px solid #e2e8f0 !important;
+            }
+
+            label {
+                font-size: 16px !important;
+                font-weight: 600 !important;
+                margin-bottom: 8px !important;
+                display: block !important;
+            }
+
+            .modal-content {
+                width: 95% !important;
+                margin: 15px auto !important;
+            }
+
+            /* Fix terms checkbox stretching on mobile */
+            .form-check {
+                display: flex !important;
+                align-items: flex-start !important;
+                gap: 12px !important;
+                text-align: left !important;
+                padding-left: 0 !important;
+            }
+            .form-check-input {
+                width: 22px !important;
+                height: 22px !important;
+                min-width: 22px !important;
+                min-height: 22px !important;
+                max-width: 22px !important;
+                max-height: 22px !important;
+                margin: 2px 0 0 0 !important;
+                flex-shrink: 0 !important;
+                cursor: pointer !important;
+                border-radius: 4px !important;
+                border: 2px solid #cbd5e1 !important;
+                background-color: white !important;
+                display: inline-block !important;
+                appearance: checkbox !important;
+                -webkit-appearance: checkbox !important;
+            }
+            .form-check-label {
+                font-size: 15px !important;
+                font-weight: 500 !important;
+                line-height: 1.4 !important;
+                margin-bottom: 0 !important;
+                cursor: pointer !important;
+                color: #334155 !important;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header-container">
+            <h1>GSV Electrical Enterprises</h1>
+            <p>Student Internship Registration Portal</p>
+        </div>
+
+        <div class="tab-container">
+            <button class="tab-button" onclick="openTab('register')">
+                <i class="fas fa-user-graduate"></i>
+                <div><span class="tab-line">Student</span> <span class="tab-line">Registration</span></div>
+            </button>
+            <button class="tab-button active" onclick="openTab('verify')">
+                <i class="fas fa-certificate"></i>
+                <div><span class="tab-line">Certificate</span> <span class="tab-line">Verification</span></div>
+            </button>
+            <button class="tab-button" onclick="openTab('portalLogins')">
+                <i class="fas fa-sign-in-alt"></i>
+                <div><span class="tab-line">Portal</span> <span class="tab-line">Logins</span></div>
+            </button>
+        </div>
+
+        <!-- REGISTRATION TAB -->
+        <div id="register" class="tab-content">
+            <h2>Student Registration</h2>
+            <div class="form-container">
+                <form id="registerForm" novalidate>
+                    <div class="form-row">
+                        <div class="form-col">
+                            <div class="form-group">
+                                <label for="firstName" class="required">First Name</label>
+                                <input type="text" id="firstName" name="firstName" placeholder="Enter first name"
+                                    required class="force-uppercase">
+                                <div class="valid-feedback">Looks good!</div>
+                                <div class="invalid-feedback">Please enter a valid first name.</div>
+                            </div>
+                        </div>
+                        <div class="form-col">
+                            <div class="form-group">
+                                <label for="middleName">Middle Name</label>
+                                <input type="text" id="middleName" name="middleName"
+                                    placeholder="Enter middle name (optional)" class="force-uppercase">
+                                <div class="valid-feedback">Looks good!</div>
+                                <div class="invalid-feedback">Please enter a valid middle name if provided.</div>
+                            </div>
+                        </div>
+                        <div class="form-col">
+                            <div class="form-group">
+                                <label for="lastName" class="required">Last Name</label>
+                                <input type="text" id="lastName" name="lastName" placeholder="Enter last name" required
+                                    class="force-uppercase">
+                                <div class="valid-feedback">Looks good!</div>
+                                <div class="invalid-feedback">Please enter a valid last name.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="address" class="required">Address</label>
+                        <textarea id="address" name="address" placeholder="Enter your full address" required
+                            class="force-uppercase"></textarea>
+                        <div class="valid-feedback"></div>
+                        <div class="invalid-feedback">Address is required.</div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-col">
+                            <div class="form-group">
+                                <label for="pincode" class="required">Pincode</label>
+                                <input type="text" id="pincode" name="pincode" placeholder="Enter 6-digit pincode"
+                                    required maxlength="6">
+                                <div class="valid-feedback">Valid pincode!</div>
+                                <div class="invalid-feedback">Please enter a valid 6-digit pincode.</div>
+                            </div>
+                        </div>
+                        <div class="form-col">
+                            <div class="form-group">
+                                <label for="district" class="required">District</label>
+                                <input type="text" id="district" name="district" placeholder="Enter district" required
+                                    class="force-uppercase">
+                                <div class="valid-feedback">Valid district!</div>
+                                <div class="invalid-feedback">Please enter a valid district name.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="gmail" class="required">Gmail ID</label>
+                        <input type="email" id="gmail" name="gmail" placeholder="example@gmail.com" required>
+                        <div class="valid-feedback">Valid Gmail address!</div>
+                        <div class="invalid-feedback">Please enter a valid Gmail address (ending with @gmail.com).</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="mobile" class="required">Mobile Number</label>
+                        <input type="tel" id="mobile" name="mobile" placeholder="10-digit mobile number" required
+                            maxlength="10">
+                        <div class="valid-feedback">Valid mobile number!</div>
+                        <div class="invalid-feedback">Please enter a valid 10-digit Indian mobile number starting with
+                            6-9.</div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-col">
+                            <div class="form-group">
+                                <label for="college" class="required">College Name</label>
+                                <input type="text" id="college" name="college" placeholder="Enter college name" required
+                                    class="force-uppercase">
+                                <div class="valid-feedback">Valid college name!</div>
+                                <div class="invalid-feedback">Please enter a valid college name.</div>
+                            </div>
+                        </div>
+                        <div class="form-col">
+                            <div class="form-group">
+                                <label for="collegeCode" class="required">College Code</label>
+                                <input type="text" id="collegeCode" name="collegeCode" placeholder="Enter college code"
+                                    required class="force-uppercase">
+                                <div class="valid-feedback">Valid college code!</div>
+                                <div class="invalid-feedback">Please enter a valid college code.</div>
+                            </div>
+                        </div>
+                        <div class="form-col">
+                            <div class="form-group">
+                                <label for="collegeDistrict" class="required">College District</label>
+                                <input type="text" id="collegeDistrict" name="collegeDistrict"
+                                    placeholder="Enter college district" required class="force-uppercase">
+                                <div class="valid-feedback">Looks good!</div>
+                                <div class="invalid-feedback">Please enter the college district.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="registerNo" class="required">Register Number</label>
+                        <input type="text" id="registerNo" name="registerNo"
+                            placeholder="Enter university register number" required class="force-uppercase">
+                        <div class="valid-feedback">Valid register number!</div>
+                        <div class="invalid-feedback">Please enter a valid register number.</div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-col">
+                            <div class="form-group">
+                                <label for="educationType" class="required">Education Type</label>
+                                <select id="educationType" name="educationType" required>
+                                    <option value="">Loading...</option>
+                                </select>
+                                <div class="valid-feedback"></div>
+                                <div class="invalid-feedback">Please select your education type.</div>
+                            </div>
+                        </div>
+                        <div class="form-col">
+                            <div class="form-group">
+                                <label for="department" class="required">Department</label>
+                                <select id="department" name="department" required>
+                                    <option value="">Loading...</option>
+                                </select>
+                                <div class="valid-feedback"></div>
+                                <div class="invalid-feedback">Please select your department.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-col">
+                            <div class="form-group">
+                                <label for="year" class="required">Year</label>
+                                <select id="year" name="year" required>
+                                    <option value="">Select Education Type First</option>
+                                </select>
+                                <div class="valid-feedback"></div>
+                                <div class="invalid-feedback">Please select your year.</div>
+                            </div>
+                        </div>
+                        <div class="form-col" id="semester-group">
+                            <div class="form-group">
+                                <label for="semester" class="required">Semester</label>
+                                <select id="semester" name="semester" required>
+                                    <option value="">Select Year First</option>
+                                </select>
+                                <div class="valid-feedback"></div>
+                                <div class="invalid-feedback">Please select your semester.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-col">
+                            <div class="form-group">
+                                <label for="startDate" class="required">Internship Start Date</label>
+                                <input type="date" id="startDate" name="startDate" required>
+                                <div class="valid-feedback"></div>
+                                <div class="invalid-feedback">Please select a valid start date.</div>
+                            </div>
+                        </div>
+                        <div class="form-col">
+                            <div class="form-group">
+                                <label for="endDate" class="required">Internship End Date</label>
+                                <input type="date" id="endDate" name="endDate" required>
+                                <div class="valid-feedback"></div>
+                                <div class="invalid-feedback">Please select a valid end date.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-col">
+                            <div class="form-group">
+                                <label for="interestedArea" class="required">Work Area / Interested Area</label>
+                                <select id="interestedArea" name="interestedArea" required>
+                                    <option value="">Select Interested Area</option>
+                                    <option value="R&D (IoT & Electronics)">R&D (IoT & Electronics)</option>
+                                    <option value="Production">Production</option>
+                                    <option value="Digital Marketing">Digital Marketing</option>
+                                    <option value="Store Accounting">Store Accounting</option>
+                                    <option value="Site Installation">Site Installation</option>
+                                    <option value="General Electronics">General Electronics</option>
+                                    <option value="Product Development">Product Development</option>
+                                    <option value="Software Development Using AI">Software Development Using AI</option>
+                                </select>
+                                <div class="valid-feedback"></div>
+                                <div class="invalid-feedback">Please select your interested area.</div>
+                            </div>
+                        </div>
+                        <div class="form-col">
+                            <div class="form-group">
+                                <label for="gpa" class="required">GPA / CGPA</label>
+                                <input type="number" step="0.01" id="gpa" name="gpa" placeholder="Enter GPA/CGPA"
+                                    required>
+                                <div class="valid-feedback">Looks good!</div>
+                                <div class="invalid-feedback">Please enter a valid numeric CGPA/GPA.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="duration">Calculated Duration (Days)</label>
+                        <input type="number" id="duration" name="duration" readonly placeholder="Auto-calculated">
+                        <div class="duration-info">Duration must be 7, 15, or 30 days. Start date must be at least 2
+                            days from today.</div>
+                        <div class="invalid-feedback"></div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="dob" class="required">Date of Birth</label>
+                        <input type="date" id="dob" name="dob" required>
+                        <div class="valid-feedback">Valid date of birth.</div>
+                        <div class="invalid-feedback">You must be at least 17 years old.</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="remarks">Remarks Box</label>
+                        <textarea id="remarks" name="remarks" placeholder="Any additional information (optional)"
+                            class="force-uppercase"></textarea>
+                    </div>
+
+                    <div class="form-group"
+                        style="margin-top: 25px; background: #f0f7ff; padding: 15px; border-radius: 8px; border-left: 4px solid var(--primary-color);">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="" id="termsAccepted" required>
+                            <label class="form-check-label" for="termsAccepted"
+                                style="font-weight: 500; cursor: pointer;">
+                                I accept the <a href="#"
+                                    onclick="showTermsModal(); return false;" style="text-decoration: underline; color: var(--primary-color); font-weight: 600;">Terms
+                                    & Conditions</a> and declare that all information provided is true.
+                            </label>
+                            <div class="invalid-feedback">You must accept the terms before submitting.</div>
+                        </div>
+                    </div>
+
+                    <div id="register-message" class="message"></div>
+                    <div id="registrationSuccessActions"
+                        style="display: none; text-align: center; margin-bottom: 20px;">
+                        <button type="button" id="downloadAcknowledgementBtn" class="btn-success" style="width: 100%;">
+                            <i class="fas fa-file-pdf"></i> Download Acknowledgement PDF
+                        </button>
+                    </div>
+
+                    <button type="submit" class="btn-block btn-success" id="register-button">
+                        <i class="fas fa-user-plus"></i> Register Now
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- VERIFICATION TAB -->
+        <div id="verify" class="tab-content active">
+            <div class="form-container">
+                <h2>Certificate Verification</h2>
+                <p
+                    style="text-align:center; color: var(--gray-color); font-size:0.9rem; margin-top:-15px; margin-bottom:20px;">
+                    Search using <strong>Certificate Number</strong> <strong>Student College Registration
+                        Number</strong>
+                </p>
+                <form id="verifyForm" novalidate>
+                    <div class="form-group">
+                        <label for="certificateNumber">
+                            <i class="fas fa-certificate" style="color:var(--primary-color);"></i>
+                            Certificate Number
+                        </label>
+                        <input type="text" id="certificateNumber" name="certificateNumber"
+                            placeholder="e.g., CERT-GSV-2025-01-0023" style="font-family:monospace;" required>
+                    </div>
+
+                    <div style="margin: 10px 0;"></div>
+
+                    <div class="form-group">
+                        <label for="studentRegisterNumber">
+                            <i class="fas fa-id-card" style="color:var(--success-color);"></i>
+                            Student Register Number
+                        </label>
+                        <input type="text" id="studentRegisterNumber" name="studentRegisterNumber"
+                            placeholder="Enter university register number" required>
+                    </div>
+
+                    <button type="submit" class="btn-block" id="verify-btn">
+                        <i class="fas fa-search"></i> Verify &amp; Search
+                    </button>
+                </form>
+
+                <div id="verificationResult" class="verification-result">
+                    <div class="result-header">
+                        <i class="fas"></i>
+                        <div class="result-title">Certificate Details</div>
+                    </div>
+                    <div class="result-details" id="resultDetails"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- LOGINS TAB -->
+        <div id="portalLogins" class="tab-content" style="text-align: center;">
+            <h2 style="margin-bottom: 40px; text-align: center;">Portal Access</h2>
+            <div class="login-options-container">
+
+                <!-- Admin Login -->
+                <div class="login-form-card admin">
+                    <div class="login-logo">
+                        <i class="fas fa-user-shield"></i>
+                    </div>
+                    <h3 class="login-form-title">Admin Login</h3>
+                    <form id="adminLoginFormPortal" novalidate>
+                        <div class="form-group">
+                            <label for="portalAdminId" class="required">Admin ID</label>
+                            <input type="text" id="portalAdminId" name="portalAdminId" placeholder="Enter admin ID"
+                                required>
+                        </div>
+                        <div class="form-group">
+                            <label for="portalAdminPassword" class="required">Password</label>
+                            <div class="password-toggle">
+                                <input type="password" id="portalAdminPassword" name="portalAdminPassword"
+                                    placeholder="Enter password" required>
+                                <button type="button" class="password-toggle-btn"
+                                    onclick="togglePasswordVisibility('portalAdminPassword', this)">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <a href="#" class="forgot-password-link" onclick="openForgotPasswordModal('admin')">Forgot
+                            Password?</a>
+                        <div id="portalAdminMessage" class="message"></div>
+                        <button type="submit" class="btn-block">
+                            <i class="fas fa-sign-in-alt"></i> Admin Login
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Student Login -->
+                <div class="login-form-card student">
+                    <div class="login-logo">
+                        <i class="fas fa-user-graduate"></i>
+                    </div>
+                    <h3 class="login-form-title">Student Login</h3>
+                    <form id="studentLoginFormPortal" novalidate>
+                        <div class="form-group">
+                            <label for="portalStudentRegId" class="required">Registration ID</label>
+                            <input type="text" id="portalStudentRegId" name="portalStudentRegId"
+                                placeholder="e.g., GSV/YYYY/SL/ABCD" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="portalStudentPassword" class="required">Password</label>
+                            <div class="password-toggle">
+                                <input type="password" id="portalStudentPassword" name="portalStudentPassword"
+                                    placeholder="Enter your password" required>
+                                <button type="button" class="password-toggle-btn"
+                                    onclick="togglePasswordVisibility('portalStudentPassword', this)">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="form-group" style="display:none;"> <!-- Keep hidden if mobile is used elsewhere -->
+                            <label for="portalStudentMobile">Mobile Number</label>
+                            <input type="tel" id="portalStudentMobile" name="portalStudentMobile"
+                                placeholder="10-digit mobile" maxlength="10">
+                        </div>
+                        <a href="#" class="forgot-password-link" onclick="openForgotPasswordModal('student')">Forgot
+                            Password?</a>
+                        <div id="portalStudentMessage" class="message"></div>
+                        <button type="submit" class="btn-block btn-success">
+                            <i class="fas fa-sign-in-alt"></i> Student Login
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODALS -->
+    <!-- Existing User Modal -->
+    <div id="existingUserModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Already Registered</h2>
+                <span class="close-btn" onclick="closeModal('existingUserModal')">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p>We found an existing registration with the provided details. Your registration details have been sent
+                    to your email.</p>
+                <div id="existingUserDetails" style="margin-top: 15px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-success" onclick="closeModal('existingUserModal')">
+                    <i class="fas fa-check"></i> OK
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Forgot Password Modal -->
+    <div id="forgotPasswordModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="forgotPasswordTitle">Password Recovery</h2>
+                <span class="close-btn" onclick="closeModal('forgotPasswordModal')">&times;</span>
+            </div>
+            <form id="forgotPasswordForm">
+                <div class="modal-body">
+                    <p>Please enter your details below to receive a recovery link.</p>
+                    <input type="hidden" id="forgotPasswordUserType" value="">
+                    <div class="form-group">
+                        <label for="recoveryIdentifier" id="recoveryIdentifierLabel">Email Address</label>
+                        <input type="text" id="recoveryIdentifier" name="recoveryIdentifier" required>
+                    </div>
+                    <div id="recoveryMessage" class="message"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary" onclick="closeModal('forgotPasswordModal')"
+                        style="background-color: var(--gray-color);">Cancel</button>
+                    <button type="submit" id="recoverySubmitBtn" class="btn-success">
+                        <i class="fas fa-paper-plane"></i> Send Recovery Link
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Document Access Request Modal -->
+    <div id="docAccessRequestModal" class="modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header"
+                style="background: linear-gradient(135deg, #667eea, #764ba2); color: white; border-radius: 8px 8px 0 0; margin: -25px -25px 20px;">
+                <h2 style="color:white; font-size:1.25rem; margin:0;"><i class="fas fa-lock-open"></i> Request
+                    Additional Document Access</h2>
+                <span class="close-btn" onclick="closeModal('docAccessRequestModal')"
+                    style="color:white;">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div
+                    style="background:#f8f9ff; border-radius:8px; padding:12px; margin-bottom:15px; font-size:0.85rem; color:#555; border-left:4px solid #667eea;">
+                    <i class="fas fa-info-circle" style="color:#667eea;"></i>
+                    Access is <strong>time-limited to 3 days (72 hours)</strong> after admin approval.
+                    After expiry, you must submit a new request.
+                </div>
+                <div id="docAccessStudentInfo"
+                    style="font-weight:600; margin-bottom:15px; font-size:0.9rem; padding:10px; background:#f5f5f5; border-radius:8px;">
+                </div>
+                <div class="form-group">
+                    <label for="docRequestorName">Your Full Name <span style="color:red;">*</span></label>
+                    <input type="text" id="docRequestorName" placeholder="Enter your full name">
+                </div>
+                <div class="form-group">
+                    <label for="docRequestorEmail">Your Email Address <span style="color:red;">*</span></label>
+                    <input type="email" id="docRequestorEmail"
+                        placeholder="Enter your email (approval notification will be sent here)">
+                </div>
+                <div class="form-group">
+                    <label for="docRequestPurpose">Purpose of Request <span style="color:red;">*</span></label>
+                    <select id="docRequestPurpose">
+                        <option value="">-- Select Purpose --</option>
+                        <option value="HR Verification">HR / Employer Verification</option>
+                        <option value="University Submission">University Submission</option>
+                        <option value="Bank/Loan">Bank / Loan Application</option>
+                        <option value="Government">Government / Official Use</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Documents to Request <span style="color:red;">*</span></label>
+                    <div id="docRequestCheckboxes"
+                        style="background:#f5f5f5; padding:12px; border-radius:8px; max-height: 200px; overflow-y:auto;">
+                        <div class="text-muted small">Loading available documents...</div>
+                    </div>
+                </div>
+                <div id="docAccessRequestMessage" class="message" style="display:none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button"
+                    style="background-color: var(--gray-color); color: white; border:none; padding: 10px 20px; border-radius:6px; cursor:pointer;"
+                    onclick="closeModal('docAccessRequestModal')">Cancel</button>
+                <button type="button" class="btn-success" id="submitDocRequestBtn" onclick="submitDocAccessRequest()">
+                    <i class="fas fa-paper-plane"></i> Submit Request
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let inactivityTimer;
+        const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+
+        function openTab(tabId, updateHistory = true) {
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-button').forEach(button => button.classList.remove('active'));
+
+            const currentTab = document.getElementById(tabId);
+            if (currentTab) currentTab.classList.add('active');
+
+            const activeButton = document.querySelector(`.tab-button[onclick="openTab('${tabId}')"]`);
+            if (activeButton) activeButton.classList.add('active');
+
+            document.querySelectorAll('.message').forEach(msg => msg.style.display = 'none');
+            const verificationResult = document.getElementById('verificationResult');
+            if (verificationResult) verificationResult.style.display = 'none';
+
+            if (updateHistory) {
+                // page parameter for server side, s parameter for client side fragment
+                if (typeof google !== 'undefined' && google.script && google.script.history) {
+                    google.script.history.push(null, { page: 'home', s: tabId }, tabId);
+                }
+            }
+        }
+
+        function tryInitializeIndex() {
+            if (typeof google === 'undefined' || !google.script || !google.script.run) {
+                console.warn("Google Apps Script client API is not loaded yet. Retrying initialization in 100ms...");
+                setTimeout(tryInitializeIndex, 100);
+                return;
+            }
+            console.log("Google Apps Script client API is loaded. Executing Index Initialization...");
+            executeIndexInitialization();
+        }
+
+        document.addEventListener("DOMContentLoaded", function () {
+            tryInitializeIndex();
+        });
+
+        function executeIndexInitialization() {
+            populateDropdownsFromSheet();
+
+            // HISTORY & INITIALIZATION
+            if (typeof google !== 'undefined' && google.script && google.script.history) {
+                google.script.history.setChangeHandler(function (e) {
+                    if (e && e.state && e.state.s) {
+                        openTab(e.state.s, false);
+                    }
+                });
+            } else {
+                console.warn("google.script.history is not available (running in embedded iframe). History navigation disabled.");
+            }
+
+            const initialPage = '<?= initialPage ?>';
+            const initialSection = '<?= initialSection ?>';
+            const startTab = initialSection || initialPage || 'verify';
+
+            if (startTab && startTab !== 'verify') {
+                openTab(startTab, false);
+            }
+
+            const today = new Date();
+            const localDate = new Date(today.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+            const minStartDate = new Date(localDate);
+            minStartDate.setDate(localDate.getDate() + 2);
+
+            const startDateInput = document.getElementById('startDate');
+            if (startDateInput) {
+                startDateInput.min = minStartDate.toISOString().split('T')[0];
+                startDateInput.addEventListener('input', calculateDuration);
+            }
+            const endDateInput = document.getElementById('endDate');
+            if (endDateInput) {
+                endDateInput.min = minStartDate.toISOString().split('T')[0];
+                endDateInput.addEventListener('input', calculateDuration);
+            }
+
+            const dobInput = document.getElementById('dob');
+            if (dobInput) {
+                const maxDobDate = new Date();
+                maxDobDate.setFullYear(maxDobDate.getFullYear() - 17);
+                dobInput.max = maxDobDate.toISOString().split('T')[0];
+                dobInput.addEventListener('input', validateDOB);
+            }
+
+            setupFormValidation();
+
+            document.getElementById('registerForm')?.addEventListener('submit', submitRegistrationForm);
+            document.getElementById('verifyForm')?.addEventListener('submit', verifyCertificate);
+            document.getElementById('adminLoginFormPortal')?.addEventListener('submit', handleAdminLoginPortal);
+            document.getElementById('studentLoginFormPortal')?.addEventListener('submit', handleStudentLoginPortal);
+            document.getElementById('forgotPasswordForm')?.addEventListener('submit', handleForgotPassword);
+
+            // Add event listeners for dynamic dropdowns
+            document.getElementById('educationType')?.addEventListener('change', updateYearAndSemester);
+            document.getElementById('year')?.addEventListener('change', updateSemesterOptions);
+
+            // Add global event listener for uppercase enforcement
+            document.getElementById('registerForm').addEventListener('input', enforceUppercase);
+
+
+            const urlHash = window.location.hash.substring(1);
+            if (urlHash && (urlHash === 'register' || urlHash === 'verify' || urlHash === 'portalLogins')) {
+                openTab(urlHash);
+            } else {
+                openTab('verify');
+            }
+
+            document.addEventListener('mousemove', resetInactivityTimer);
+            document.addEventListener('keypress', resetInactivityTimer);
+            document.addEventListener('click', resetInactivityTimer);
+            resetInactivityTimer();
+        }
+
+        // NEW: Fetch and populate dropdowns from Google Sheet
+        function populateDropdownsFromSheet() {
+            // Mock implementation. Replace with actual google.script.run call
+            const mockData = {
+                educationTypes: ["Engineering UG", "Diploma", "ITI"],
+                departments: ["Electrical and Electronics Engineering (EEE)", "Electronics and Communication Engineering (ECE)", "Electronics and Instrumentation Engineering (EIE)", "Computer Science and Engineering (CSE)"]
+            };
+
+            const educationTypeSelect = document.getElementById('educationType');
+            const departmentSelect = document.getElementById('department');
+
+            educationTypeSelect.innerHTML = '<option value="">Select Education Type</option>';
+            mockData.educationTypes.forEach(type => {
+                const option = document.createElement('option');
+                option.value = type;
+                option.textContent = type;
+                educationTypeSelect.appendChild(option);
+            });
+
+            departmentSelect.innerHTML = '<option value="">Select Department</option>';
+            mockData.departments.forEach(dept => {
+                const option = document.createElement('option');
+                const deptCodeMatch = dept.match(/\(([^)]+)\)/);
+                if (deptCodeMatch) {
+                    option.value = deptCodeMatch[1];
+                    option.textContent = dept;
+                    departmentSelect.appendChild(option);
+                }
+            });
+
+
+
+            /*
+            google.script.run
+                .withSuccessHandler(data => {
+                    const educationTypeSelect = document.getElementById('educationType');
+                    const departmentSelect = document.getElementById('department');
+
+                    educationTypeSelect.innerHTML = '<option value="">Select Education Type</option>';
+                    data.educationTypes.forEach(type => {
+                        const option = document.createElement('option');
+                        option.value = type;
+                        option.textContent = type;
+                        educationTypeSelect.appendChild(option);
+                    });
+                    
+                    departmentSelect.innerHTML = '<option value="">Select Department</option>';
+                    data.departments.forEach(dept => {
+                        const option = document.createElement('option');
+                        const deptCodeMatch = dept.match(/\(([^)]+)\)/);
+                        if (deptCodeMatch) {
+                            option.value = deptCodeMatch[1];
+                            option.textContent = dept;
+                            departmentSelect.appendChild(option);
+                        }
+                    });
+                })
+                .withFailureHandler(error => {
+                    console.error("Failed to load dropdown options:", error);
+                    // Handle error, maybe show a message to the user
+                })
+                .getDropdownOptions(); // Assumes a backend function `getDropdownOptions`
+            */
+        }
+
+        // NEW: Enforce Uppercase on text fields and provide warning
+        function enforceUppercase(event) {
+            const field = event.target;
+            const fieldsToEnforce = ['firstName', 'middleName', 'lastName', 'address', 'district', 'college', 'collegeCode', 'collegeDistrict', 'registerNo', 'remarks'];
+
+            if (fieldsToEnforce.includes(field.id)) {
+                const originalValue = field.value;
+                const uppercaseValue = originalValue.toUpperCase();
+
+                if (originalValue !== uppercaseValue) {
+                    field.value = uppercaseValue;
+
+                    const feedbackDiv = field.parentElement.querySelector('.invalid-feedback');
+                    if (feedbackDiv && !field.classList.contains('input-invalid')) {
+                        const originalMessage = feedbackDiv.textContent;
+                        const originalDisplay = feedbackDiv.style.display;
+                        const originalColor = feedbackDiv.style.color;
+
+                        feedbackDiv.textContent = 'CAPS LOCK IS RECOMMENDED.';
+                        feedbackDiv.style.color = 'var(--warning-color)';
+                        feedbackDiv.style.display = 'block';
+
+                        setTimeout(() => {
+                            if (!field.classList.contains('input-invalid')) {
+                                feedbackDiv.textContent = originalMessage;
+                                feedbackDiv.style.display = originalDisplay;
+                                feedbackDiv.style.color = originalColor;
+                            }
+                        }, 2000);
+                    }
+                }
+            }
+        }
+
+
+        // NEW: Update Year and Semester based on Education Type
+        function updateYearAndSemester() {
+            const educationType = document.getElementById('educationType').value;
+            const yearSelect = document.getElementById('year');
+            const semesterGroup = document.getElementById('semester-group');
+
+            yearSelect.innerHTML = '<option value="">Select Year</option>';
+            document.getElementById('semester').innerHTML = '<option value="">Select Year First</option>';
+
+            let yearOptions = [];
+            if (educationType === 'Engineering UG') {
+                yearOptions = [1, 2, 3, 4];
+                semesterGroup.style.display = 'block';
+            } else if (educationType === 'Diploma') {
+                yearOptions = [1, 2, 3];
+                semesterGroup.style.display = 'block';
+            } else if (educationType === 'ITI') {
+                yearOptions = [1, 2];
+                semesterGroup.style.display = 'none'; // Hide semester for ITI
+            } else {
+                semesterGroup.style.display = 'block';
+            }
+
+            yearOptions.forEach(year => {
+                const option = document.createElement('option');
+                const label = `${year}${year === 1 ? 'st' : year === 2 ? 'nd' : year === 3 ? 'rd' : 'th'} Year`;
+                option.value = label;
+                option.textContent = label;
+                yearSelect.appendChild(option);
+            });
+
+            updateSemesterOptions();
+        }
+
+        // NEW: Update Semester based on Year
+        function updateSemesterOptions() {
+            const year = document.getElementById('year').value;
+            const semesterSelect = document.getElementById('semester');
+
+            semesterSelect.innerHTML = '<option value="">Select Semester</option>';
+
+            let semesterOptions = [];
+            if (year === '1' || year === '1st Year') {
+                semesterOptions = [1, 2];
+            } else if (year === '2' || year === '2nd Year') {
+                semesterOptions = [3, 4];
+            } else if (year === '3' || year === '3rd Year') {
+                semesterOptions = [5, 6];
+            } else if (year === '4' || year === '4th Year') {
+                semesterOptions = [7, 8];
+            }
+
+            semesterOptions.forEach(sem => {
+                const option = document.createElement('option');
+                const label = `${sem}${sem === 1 ? 'st' : sem === 2 ? 'nd' : sem === 3 ? 'rd' : 'th'} Semester`;
+                option.value = label;
+                option.textContent = label;
+                semesterSelect.appendChild(option);
+            });
+        }
+
+
+        function resetInactivityTimer() {
+            clearTimeout(inactivityTimer);
+            inactivityTimer = setTimeout(function () {
+                window.location.href = window.location.href.split('?')[0].split('#')[0];
+            }, INACTIVITY_TIMEOUT);
+        }
+
+        function setupFormValidation() {
+            const nameFields = ['firstName', 'lastName'];
+            nameFields.forEach(id => {
+                const field = document.getElementById(id);
+                if (field) field.addEventListener('input', function () { validateNameField(this); });
+            });
+            const middleNameField = document.getElementById('middleName');
+            if (middleNameField) middleNameField.addEventListener('input', function () {
+                if (this.value.trim()) validateNameField(this);
+                else resetValidation(this);
+            });
+            document.getElementById('address')?.addEventListener('input', function () { validateField(this, /.+/, 'Address is required.'); });
+            document.getElementById('pincode')?.addEventListener('input', function () { validateField(this, /^\d{6}$/, 'Please enter a valid 6-digit pincode.'); });
+            document.getElementById('district')?.addEventListener('input', function () { validateField(this, /^[A-Za-z\s.]+$/, 'District can only contain letters, spaces, and periods.'); });
+            document.getElementById('collegeDistrict')?.addEventListener('input', function () { validateField(this, /^[A-Za-z\s.]+$/, 'College district can only contain letters, spaces, and periods.'); });
+            document.getElementById('gmail')?.addEventListener('input', function () { validateField(this, /^[a-zA-Z0-9._%+-]+@gmail\.com$/i, 'Please enter a valid Gmail address (e.g., user@gmail.com).'); });
+            document.getElementById('mobile')?.addEventListener('input', function () { validateField(this, /^[6-9]\d{9}$/, 'Please enter a valid 10-digit Indian mobile number starting with 6-9.'); });
+            document.getElementById('college')?.addEventListener('input', function () { validateField(this, /^[A-Za-z0-9\s.,'&()-]+$/, 'Please enter a valid college name.'); });
+            document.getElementById('collegeCode')?.addEventListener('input', function () { validateField(this, /^[A-Za-z0-9]+$/, 'College code can only contain letters and numbers.'); });
+            document.getElementById('registerNo')?.addEventListener('input', function () { validateField(this, /^[A-Za-z0-9]+$/, 'Register number can only contain letters and numbers.'); });
+            ['year', 'semester', 'department', 'educationType', 'interestedArea'].forEach(id => {
+                const selectField = document.getElementById(id);
+                if (selectField) selectField.addEventListener('change', function () { validateSelect(this); });
+            });
+            document.getElementById('gpa')?.addEventListener('input', function () { validateField(this, /^[0-9.]+$/, 'Please enter a valid numeric CGPA/GPA.'); });
+            document.getElementById('termsAccepted')?.addEventListener('change', function () {
+                if (this.checked) {
+                    this.classList.remove('is-invalid');
+                }
+            });
+        }
+
+        function validateSelect(selectField) {
+            const feedbackParent = selectField.parentElement;
+            const feedbackValid = feedbackParent.querySelector('.valid-feedback');
+            const feedbackInvalid = feedbackParent.querySelector('.invalid-feedback');
+
+            if (selectField.value) {
+                selectField.classList.add('input-valid');
+                selectField.classList.remove('input-invalid');
+                if (feedbackValid) feedbackValid.style.display = 'block';
+                if (feedbackInvalid) feedbackInvalid.style.display = 'none';
+                return true;
+            } else {
+                selectField.classList.add('input-invalid');
+                selectField.classList.remove('input-valid');
+                if (feedbackInvalid) {
+                    feedbackInvalid.textContent = `Please select an option for ${selectField.previousElementSibling.textContent.replace(' *', '')}.`;
+                    feedbackInvalid.style.display = 'block';
+                }
+                if (feedbackValid) feedbackValid.style.display = 'none';
+                return false;
+            }
+        }
+
+        function validateField(field, regex, errorMessage) {
+            const parent = field.parentElement;
+            const feedbackValid = parent.querySelector('.valid-feedback');
+            const feedbackInvalid = parent.querySelector('.invalid-feedback');
+
+            if (!field.value.trim() && field.required) {
+                field.classList.add('input-invalid');
+                field.classList.remove('input-valid');
+                if (feedbackInvalid) {
+                    feedbackInvalid.textContent = 'This field is required.';
+                    feedbackInvalid.style.display = 'block';
+                }
+                if (feedbackValid) feedbackValid.style.display = 'none';
+                return false;
+            }
+
+            if (!field.required && !field.value.trim()) {
+                resetValidation(field);
+                return true;
+            }
+
+            if (regex.test(field.value.toUpperCase().trim())) { // Validate against uppercase version
+                field.classList.add('input-valid');
+                field.classList.remove('input-invalid');
+                if (feedbackValid) {
+                    feedbackValid.textContent = 'Looks good!';
+                    feedbackValid.style.display = 'block';
+                }
+                if (feedbackInvalid) feedbackInvalid.style.display = 'none';
+                return true;
+            } else {
+                field.classList.add('input-invalid');
+                field.classList.remove('input-valid');
+                if (feedbackInvalid) {
+                    feedbackInvalid.textContent = errorMessage;
+                    feedbackInvalid.style.display = 'block';
+                }
+                if (feedbackValid) feedbackValid.style.display = 'none';
+                return false;
+            }
+        }
+
+        function validateNameField(field) {
+            const regex = /^[A-Z\s]*$/; // Updated regex for only uppercase letters and spaces
+            const errorMessage = `Name must contain only uppercase letters and spaces.`;
+            if (!field.value.trim() && field.id === 'middleName') {
+                resetValidation(field);
+                return true;
+            }
+            return validateField(field, regex, errorMessage);
+        }
+
+        function resetValidation(field) {
+            field.classList.remove('input-valid', 'input-invalid');
+            const parent = field.parentElement;
+            const feedbackValid = parent.querySelector('.valid-feedback');
+            const feedbackInvalid = parent.querySelector('.invalid-feedback');
+            if (feedbackValid) feedbackValid.style.display = 'none';
+            if (feedbackInvalid) feedbackInvalid.style.display = 'none';
+        }
+
+        function calculateDuration() {
+            const startDateInput = document.getElementById('startDate');
+            const endDateInput = document.getElementById('endDate');
+            const durationInput = document.getElementById('duration');
+            const feedbackParent = durationInput.parentElement;
+            const durationInvalidFeedback = feedbackParent.querySelector('.invalid-feedback');
+            const startDateInvalidFeedback = startDateInput.parentElement.querySelector('.invalid-feedback');
+            const endDateInvalidFeedback = endDateInput.parentElement.querySelector('.invalid-feedback');
+
+
+            if (!startDateInput.value || !endDateInput.value) {
+                durationInput.value = '';
+                resetValidation(startDateInput);
+                resetValidation(endDateInput);
+                if (durationInvalidFeedback) durationInvalidFeedback.style.display = "none";
+                return false;
+            }
+
+            const startDate = new Date(startDateInput.value);
+            const endDate = new Date(endDateInput.value);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            const minValidStartDate = new Date(today);
+            minValidStartDate.setDate(today.getDate() + 2);
+            minValidStartDate.setHours(0, 0, 0, 0);
+
+            let currentValidity = true;
+
+            if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+                durationInput.value = 'Invalid Dates';
+                startDateInput.classList.add('input-invalid');
+                endDateInput.classList.add('input-invalid');
+                currentValidity = false;
+                if (startDateInvalidFeedback) { startDateInvalidFeedback.textContent = "Invalid date format."; startDateInvalidFeedback.style.display = "block"; }
+                if (endDateInvalidFeedback) { endDateInvalidFeedback.textContent = "Invalid date format."; endDateInvalidFeedback.style.display = "block"; }
+            } else {
+                if (startDate < minValidStartDate) {
+                    durationInput.value = 'Start Date Too Soon';
+                    startDateInput.classList.add('input-invalid');
+                    startDateInput.classList.remove('input-valid');
+                    if (startDateInvalidFeedback) { startDateInvalidFeedback.textContent = "Start date must be at least 2 days from today."; startDateInvalidFeedback.style.display = "block"; }
+                    currentValidity = false;
+                } else {
+                    startDateInput.classList.add('input-valid');
+                    startDateInput.classList.remove('input-invalid');
+                    if (startDateInvalidFeedback) startDateInvalidFeedback.style.display = "none";
+                }
+
+                if (startDate > endDate) {
+                    durationInput.value = 'End Date Invalid';
+                    endDateInput.classList.add('input-invalid');
+                    endDateInput.classList.remove('input-valid');
+                    if (endDateInvalidFeedback) { endDateInvalidFeedback.textContent = "End date must be after start date."; endDateInvalidFeedback.style.display = "block"; }
+                    currentValidity = false;
+                } else {
+                    endDateInput.classList.add('input-valid');
+                    endDateInput.classList.remove('input-invalid');
+                    if (endDateInvalidFeedback) endDateInvalidFeedback.style.display = "none";
+                }
+            }
+
+            if (!currentValidity) {
+                if (durationInvalidFeedback) { durationInvalidFeedback.textContent = "Please fix date errors."; durationInvalidFeedback.style.display = "block"; }
+                return false;
+            }
+
+            const diffTime = endDate.getTime() - startDate.getTime();
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+
+            durationInput.value = diffDays;
+
+            const isValidDuration = [7, 15, 30].includes(diffDays);
+
+            if (isValidDuration) {
+                if (durationInvalidFeedback) durationInvalidFeedback.style.display = "none";
+                return true;
+            } else {
+                if (durationInvalidFeedback) { durationInvalidFeedback.textContent = "Duration must be 7, 15, or 30 days."; durationInvalidFeedback.style.display = "block"; }
+                return false;
+            }
+        }
+
+        function validateDOB() {
+            const dobField = document.getElementById('dob');
+            const feedbackParent = dobField.parentElement;
+            const feedbackValid = feedbackParent.querySelector('.valid-feedback');
+            const feedbackInvalid = feedbackParent.querySelector('.invalid-feedback');
+
+            if (!dobField.value) {
+                dobField.classList.add('input-invalid');
+                dobField.classList.remove('input-valid');
+                if (feedbackInvalid) { feedbackInvalid.textContent = 'Date of birth is required.'; feedbackInvalid.style.display = 'block'; }
+                return false;
+            }
+            const dob = new Date(dobField.value);
+            const today = new Date();
+            let age = today.getFullYear() - dob.getFullYear();
+            const monthDiff = today.getMonth() - dob.getMonth();
+
+            if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+                age--;
+            }
+
+            if (age >= 17) {
+                dobField.classList.add('input-valid');
+                dobField.classList.remove('input-invalid');
+                if (feedbackValid) feedbackValid.style.display = 'block';
+                if (feedbackInvalid) feedbackInvalid.style.display = 'none';
+                return true;
+            } else {
+                dobField.classList.add('input-invalid');
+                dobField.classList.remove('input-valid');
+                if (feedbackInvalid) { feedbackInvalid.textContent = 'You must be at least 17 years old.'; feedbackInvalid.style.display = 'block'; }
+                if (feedbackValid) feedbackValid.style.display = 'none';
+                return false;
+            }
+        }
+
+        function validateFullRegistrationForm() {
+            let isValid = true;
+            let missingFields = [];
+
+            const checkField = (el, pattern, errorMsg, fieldName) => {
+                const res = validateField(el, pattern, errorMsg);
+                if (!res) {
+                    isValid = false;
+                    missingFields.push(fieldName);
+                }
+            };
+
+            const checkSelect = (el, fieldName) => {
+                const res = validateSelect(el);
+                if (!res) {
+                    isValid = false;
+                    missingFields.push(fieldName);
+                }
+            };
+
+            // Individual field validations
+            const firstNameEl = document.getElementById('firstName');
+            if (!validateNameField(firstNameEl)) {
+                isValid = false;
+                missingFields.push("First Name (capital letters only, e.g. VIJAY)");
+            }
+
+            const lastNameEl = document.getElementById('lastName');
+            if (!validateNameField(lastNameEl)) {
+                isValid = false;
+                missingFields.push("Last Name (capital letters only)");
+            }
+
+            checkField(document.getElementById('address'), /.+/, 'Address is required.', "Home Address");
+            checkField(document.getElementById('pincode'), /^\d{6}$/, 'Pincode must be 6 digits.', "Pincode");
+            checkField(document.getElementById('district'), /^[A-Z\s.]+$/, 'Invalid district.', "District");
+            checkField(document.getElementById('college'), /^[A-Z0-9\s.,'&()-]+$/, 'Invalid college name.', "College Name");
+            checkField(document.getElementById('collegeCode'), /^[A-Z0-9]+$/, 'Invalid college code.', "College Code");
+            checkField(document.getElementById('collegeDistrict'), /^[A-Z\s.]+$/, 'Invalid college district.', "College District");
+            checkField(document.getElementById('gmail'), /^[a-zA-Z0-9._%+-]+@gmail\.com$/i, 'Invalid Gmail.', "Gmail (must end with @gmail.com)");
+            checkField(document.getElementById('mobile'), /^[6-9]\d{9}$/, 'Invalid mobile number.', "Mobile Number");
+            checkField(document.getElementById('registerNo'), /^[A-Z0-9]+$/, 'Invalid register no.', "Register Number");
+            
+            checkSelect(document.getElementById('educationType'), "Education Type");
+            checkSelect(document.getElementById('year'), "Academic Year");
+
+            if (document.getElementById('semester-group').style.display !== 'none') {
+                checkSelect(document.getElementById('semester'), "Academic Semester");
+            }
+
+            checkSelect(document.getElementById('interestedArea'), "Interested Area");
+            checkField(document.getElementById('gpa'), /^[0-9.]+$/, 'Invalid GPA.', "GPA/Percentage");
+
+            if (!document.getElementById('termsAccepted').checked) {
+                document.getElementById('termsAccepted').classList.add('is-invalid');
+                isValid = false;
+                missingFields.push("Declaration and Terms Acceptance");
+            }
+
+            const isDurationValid = calculateDuration();
+            if (!isDurationValid) {
+                isValid = false;
+                missingFields.push("Internship Period (Duration calculation)");
+            }
+
+            const isDOBValid = validateDOB();
+            if (!isDOBValid) {
+                isValid = false;
+                missingFields.push("Date of Birth");
+            }
+
+            if (!isValid) {
+                window.lastValidationErrors = missingFields;
+            }
+
+            return isValid;
+        }
+
+        function submitRegistrationForm(event) {
+            event.preventDefault();
+
+            if (!validateFullRegistrationForm()) {
+                const errors = window.lastValidationErrors || ["Please fill in all required fields."];
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Incomplete Registration Form',
+                    html: `<p style="text-align: left; font-size: 0.92rem; margin-bottom: 10px;">Please correct or complete the following fields before submitting:</p>
+                           <ul style="text-align: left; color: #dc3545; padding-left: 20px; font-size: 0.88rem; line-height: 1.5; font-weight: 600;">
+                               ${errors.map(err => `<li>${err}</li>`).join('')}
+                           </ul>`,
+                    confirmButtonColor: '#4361ee',
+                    confirmButtonText: 'Let me fix it'
+                });
+                showGeneralMessage('register-message', '❌ Please correct the errors in the form before submitting.', true);
+                return;
+            }
+
+            const formData = {
+                firstName: document.getElementById('firstName').value.trim(),
+                middleName: document.getElementById('middleName').value.trim(),
+                lastName: document.getElementById('lastName').value.trim(),
+                address: document.getElementById('address').value.trim(),
+                pincode: document.getElementById('pincode').value.trim(),
+                district: document.getElementById('district').value.trim(),
+                gmail: document.getElementById('gmail').value.trim(),
+                mobile: document.getElementById('mobile').value.trim(),
+                college: document.getElementById('college').value.trim(),
+                collegeCode: document.getElementById('collegeCode').value.trim(),
+                collegeDistrict: document.getElementById('collegeDistrict').value.trim(),
+                registerNo: document.getElementById('registerNo').value.trim(),
+                educationType: document.getElementById('educationType').value,
+                year: document.getElementById('year').value,
+                semester: document.getElementById('semester').value,
+                department: document.getElementById('department').value,
+                startDate: document.getElementById('startDate').value,
+                endDate: document.getElementById('endDate').value,
+                duration: document.getElementById('duration').value,
+                dob: document.getElementById('dob').value,
+                interestedArea: document.getElementById('interestedArea').value,
+                gpa: document.getElementById('gpa').value,
+                remarks: document.getElementById('remarks').value
+            };
+
+            const submitBtn = document.getElementById('register-button');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner"></span> Processing...';
+
+            google.script.run
+                .withSuccessHandler(function (response) {
+                    if (response.status === "success") {
+                        const successMsg = `
+                            <div class="registration-success-container" style="background: #f0fdf4; border: 1px solid #bbf7d0; border-left: 5px solid #22c55e; border-radius: 12px; padding: 20px; text-align: left; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); font-family: inherit;">
+                                <h3 style="color: #15803d; margin-top: 0; font-size: 1.25rem; font-weight: 800; text-align: center; border-bottom: 1px solid #bbf7d0; padding-bottom: 12px; margin-bottom: 15px;">
+                                    <i class="fas fa-check-circle" style="color:#22c55e; margin-right:8px;"></i> Registered Successfully!
+                                </h3>
+                                <p style="color: #166534; font-weight: 500; font-size: 0.95rem; line-height: 1.5; margin-bottom: 15px; text-align: center;">
+                                    Your internship application has been successfully submitted and is currently <strong>Pending Review</strong>.
+                                </p>
+
+                                <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 15px; font-size: 0.88rem; color: #1e40af; line-height: 1.5; margin-bottom: 15px;">
+                                    <h5 style="margin: 0 0 8px 0; color: #1e3a8a; font-weight: 700; font-size: 0.95rem;"><i class="fas fa-info-circle" style="margin-right:6px; color:#3b82f6;"></i> Important Registration Information:</h5>
+                                    <ul style="margin: 0; padding-left: 20px;">
+                                        <li style="margin-bottom: 4px;"><strong>Admin Approval Required:</strong> You have registered. You will receive approval from the Admin side.</li>
+                                        <li style="margin-bottom: 4px;"><strong>Onboarding Documents:</strong> After that, we will send you the application form and joining letter. On the date you join, please collect these.</li>
+                                        <li><strong>RFID Card &amp; Attendance:</strong> You will also automatically receive an RFID card for attendance.</li>
+                                    </ul>
+                                </div>
+                                
+                                <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+                                    <h4 style="color: var(--primary-color); margin-top: 0; margin-bottom: 12px; font-size: 1rem; font-weight: 700; border-bottom: 1px dashed #e2e8f0; padding-bottom: 6px;">
+                                        <i class="fas fa-id-card-alt" style="margin-right:6px;"></i> Registration Acknowledgment
+                                    </h4>
+                                    <table style="width: 100%; font-size: 0.9rem; border-collapse: collapse;">
+                                        <tr style="border-bottom: 1px solid #f1f5f9;"><td style="font-weight: 700; padding: 8px 0; color: #64748b; width: 45%;">Registration ID:</td><td style="font-weight: 800; padding: 8px 0; color: #1e293b; font-family: monospace; font-size: 1rem;">${response.registrationId}</td></tr>
+                                        <tr style="border-bottom: 1px solid #f1f5f9;"><td style="font-weight: 700; padding: 8px 0; color: #64748b;">Application Date:</td><td style="font-weight: 600; padding: 8px 0; color: #1e293b;">${response.appliedDate || ''}</td></tr>
+                                        <tr style="border-bottom: 1px solid #f1f5f9;"><td style="font-weight: 700; padding: 8px 0; color: #64748b;">Application Status:</td><td style="font-weight: 800; padding: 8px 0; color: #e67e22; text-transform: uppercase;">PENDING</td></tr>
+                                        <tr style="border-bottom: 1px solid #f1f5f9;"><td style="font-weight: 700; padding: 8px 0; color: #64748b;">Student Name:</td><td style="font-weight: 600; padding: 8px 0; color: #1e293b; text-transform: uppercase;">${formData.firstName} ${formData.middleName ? formData.middleName + ' ' : ''}${formData.lastName}</td></tr>
+                                        <tr style="border-bottom: 1px solid #f1f5f9;"><td style="font-weight: 700; padding: 8px 0; color: #64748b;">Register Number:</td><td style="font-weight: 600; padding: 8px 0; color: #1e293b; font-family: monospace;">${formData.registerNo}</td></tr>
+                                        <tr style="border-bottom: 1px solid #f1f5f9;"><td style="font-weight: 700; padding: 8px 0; color: #64748b;">College Name:</td><td style="font-weight: 600; padding: 8px 0; color: #1e293b; text-transform: uppercase;">${formData.college}</td></tr>
+                                        <tr style="border-bottom: 1px solid #f1f5f9;"><td style="font-weight: 700; padding: 8px 0; color: #64748b;">Department:</td><td style="font-weight: 600; padding: 8px 0; color: #1e293b;">${formData.department}</td></tr>
+                                        <tr style="border-bottom: 1px solid #f1f5f9;"><td style="font-weight: 700; padding: 8px 0; color: #64748b;">Internship Period:</td><td style="font-weight: 600; padding: 8px 0; color: #1e293b;">${formData.startDate} to ${formData.endDate}</td></tr>
+                                        <tr><td style="font-weight: 700; padding: 8px 0; color: #64748b;">Duration:</td><td style="font-weight: 600; padding: 8px 0; color: #1e293b;">${formData.duration} Days</td></tr>
+                                    </table>
+                                </div>
+                                
+                                <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px; font-size: 0.85rem; color: #1e40af; line-height: 1.4; margin-top: 10px;">
+                                    <i class="fas fa-info-circle" style="margin-right:4px;"></i> An acknowledgment PDF has been successfully generated and sent to your email <strong>${formData.gmail}</strong>. Please download it below for your records.
+                                </div>
+                            </div>
+                        `;
+                        showGeneralMessage('register-message', successMsg, false, true);
+
+                        // Hide the register button and show PDF download option
+                        submitBtn.style.display = 'none';
+                        document.getElementById('registrationSuccessActions').style.display = 'block';
+
+                        if (response.pdfUrl) {
+                            document.getElementById('downloadAcknowledgementBtn').onclick = function () {
+                                window.open(response.pdfUrl, '_blank');
+                                setTimeout(function () {
+                                    // Reset register form and switch tabs cleanly instead of hard reload (which crashes sandbox dynamic URL)
+                                    document.getElementById('registerForm').reset();
+                                    if (submitBtn) submitBtn.style.display = 'inline-block';
+                                    const actionsDiv = document.getElementById('registrationSuccessActions');
+                                    if (actionsDiv) actionsDiv.style.display = 'none';
+                                    const regMsg = document.getElementById('register-message');
+                                    if (regMsg) regMsg.style.display = 'none';
+                                    openTab('verify');
+                                }, 500);
+                            };
+                        } else {
+                            document.getElementById('downloadAcknowledgementBtn').disabled = true;
+                            document.getElementById('downloadAcknowledgementBtn').innerText = 'PDF Not Available';
+                        }
+
+                        document.getElementById('registerForm').reset();
+                        document.querySelectorAll('#registerForm input, #registerForm select, #registerForm textarea').forEach(field => {
+                            resetValidation(field);
+                        });
+                        document.getElementById('duration').value = '';
+                    } else if (response.status === "existing_user") {
+                        const detailsDiv = document.getElementById('existingUserDetails');
+                        const sData = response.studentData || {};
+                        detailsDiv.innerHTML = `
+                            <p><strong>Name:</strong> ${(sData.firstName || '')} ${(sData.middleName || '')} ${(sData.lastName || '')}</p>
+                            <p><strong>Registration ID:</strong> ${sData.registrationId || 'N/A'}</p>
+                            <p><strong>Mobile:</strong> ${sData.mobile || 'N/A'}</p>
+                            <p><strong>Internship Period:</strong> ${(sData.startDate || 'N/A')} to ${(sData.endDate || 'N/A')}</p>
+                        `;
+                        openModal('existingUserModal');
+                        showGeneralMessage('register-message', `⚠️ ${response.message}`, false);
+                    } else {
+                        showGeneralMessage('register-message', `❌ ${response.message}`, true);
+                    }
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fas fa-user-plus"></i> Register Now';
+                })
+                .withFailureHandler(function (error) {
+                    showGeneralMessage('register-message', `❌ System Error: ${error.message}`, true);
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fas fa-user-plus"></i> Register Now';
+                }).registerStudent(formData);
+        }
+        // === doGet removed (server-side code) ===
+
+
+
+        // ========================================
+        // CERTIFICATE VERIFICATION LOGIC
+        // ========================================
+
+        // Holds the last verified student's response (used by doc request modal)
+        let currentVerifiedStudent = null;
+
+        // Document types that are publicly visible without admin approval
+        const PUBLIC_DOC_KEYWORDS = ['certificate', 'completion', 'joining', 'offer'];
+
+        function isPublicDoc(type) {
+            const t = (type || '').toLowerCase().replace(/[_\s-]/g, '');
+            return PUBLIC_DOC_KEYWORDS.some(k => t.includes(k));
+        }
+
+        function getDocLabel(type) {
+            const t = (type || '').toLowerCase();
+            if (t.includes('cert') || t.includes('completion')) return 'Completion Certificate';
+            if (t.includes('offer')) return 'Offer Letter';
+            if (t.includes('join')) return 'Joining Letter';
+            return (type || '').replace(/([A-Z])/g, ' $1').trim();
+        }
+
+        function getDocIcon(type) {
+            const t = (type || '').toLowerCase();
+            if (t.includes('cert') || t.includes('completion')) return 'fa-certificate';
+            if (t.includes('offer')) return 'fa-file-signature';
+            if (t.includes('join')) return 'fa-handshake';
+            return 'fa-file-alt';
+        }
+
+        function getDocBtnClass(type) {
+            const t = (type || '').toLowerCase();
+            if (t.includes('cert') || t.includes('completion')) return 'cert-btn';
+            if (t.includes('offer')) return 'offer-btn';
+            if (t.includes('join')) return 'joining-btn';
+            return 'cert-btn';
+        }
+
+        function verifyCertificate(event) {
+            event.preventDefault();
+            const certNumInput = document.getElementById('certificateNumber');
+            const regNumInput = document.getElementById('studentRegisterNumber');
+            const resultDiv = document.getElementById('verificationResult');
+            const detailsDiv = document.getElementById('resultDetails');
+            const verifyBtn = document.getElementById('verify-btn');
+
+            resultDiv.style.display = 'none';
+            detailsDiv.innerHTML = '';
+            currentVerifiedStudent = null;
+
+            const certNum = (certNumInput.value || '').trim().toUpperCase();
+            const regNum = (regNumInput.value || '').trim().toUpperCase();
+
+            // Both fields must be filled
+            if (!certNum || !regNum) {
+                displayVerificationResult(resultDiv, detailsDiv, 'error', 'Input Required',
+                    'Please enter both Certificate Number and Student Register Number to search.');
+                return;
+            }
+
+            verifyBtn.disabled = true;
+            verifyBtn.innerHTML = '<span class="spinner"></span> Verifying...';
+
+            google.script.run
+                .withSuccessHandler(function (response) {
+                    verifyBtn.disabled = false;
+                    verifyBtn.innerHTML = '<i class="fas fa-search"></i> Verify &amp; Search';
+
+                    if (response.status === 'success') {
+                        currentVerifiedStudent = response;
+                        renderVerificationSuccess(resultDiv, detailsDiv, response);
+                    } else {
+                        const errorHTML = `
+                            <div class="row px-3 py-4 text-center">
+                                <div class="col-12">
+                                    <h4 class="text-danger fw-bold text-uppercase mb-3">
+                                        <i class="fas fa-exclamation-triangle"></i> No Record Found
+                                    </h4>
+                                    <div class="alert alert-warning border-warning bg-light fw-bold" style="font-size:1.05rem; color:#856404;">
+                                        ${response.message || 'No matching certificate or student record found.'}
+                                    </div>
+                                    <p class="text-muted small mt-2">Please double-check the details entered, or contact the administrator for assistance.</p>
+                                </div>
+                            </div>`;
+                        displayVerificationResult(resultDiv, detailsDiv, 'error', '', '', errorHTML);
+                    }
+                })
+                .withFailureHandler(function (error) {
+                    verifyBtn.disabled = false;
+                    verifyBtn.innerHTML = '<i class="fas fa-search"></i> Verify &amp; Search';
+                    displayVerificationResult(resultDiv, detailsDiv, 'error', 'System Error',
+                        'An error occurred: ' + error.message + '. Please try again later.');
+                })
+                .verifyCertificateDetails(certNum, regNum);
+        }
+
+        function renderVerificationSuccess(resultDiv, detailsDiv, response) {
+            const statusColor = response.performanceStatus === 'Dedicated' ? '#8a2be2' :
+                (response.performanceStatus === 'Completed Good' ? '#00b09b' : '#28a745');
+            const statusIcon = response.performanceStatus === 'Dedicated' ? 'fa-gem' :
+                (response.performanceStatus === 'Completed Good' ? 'fa-award' : 'fa-check-circle');
+
+            // ── Student Details Card ──────────────────────────
+            const detailsHTML = `
+                <div class="row g-3 px-3 py-2 text-start">
+                    <div class="col-12 text-center mb-2">
+                        <h4 style="color:${statusColor}; font-weight:800; text-transform:uppercase;">
+                            <i class="fas ${statusIcon}"></i> ${response.performanceStatus || 'Completed'}
+                        </h4>
+                        <span class="badge bg-success" style="font-size:0.85rem;">
+                            <i class="fas fa-shield-alt"></i> Verified Record
+                        </span>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="detail-item border-bottom pb-2">
+                            <div class="detail-label text-muted small"><i class="fas fa-user text-primary"></i> Student Name</div>
+                            <div class="detail-value fw-bold text-dark" style="font-size:1.05rem;">${response.studentName || 'N/A'}</div>
+                        </div>
+                        <div class="detail-item border-bottom pb-2 mt-2">
+                            <div class="detail-label text-muted small"><i class="fas fa-id-card text-danger"></i> Register Number</div>
+                            <div class="detail-value fw-bold text-dark">${response.registerNumber || 'N/A'}</div>
+                        </div>
+                        <div class="detail-item border-bottom pb-2 mt-2">
+                            <div class="detail-label text-muted small"><i class="fas fa-birthday-cake text-warning"></i> Date of Birth</div>
+                            <div class="detail-value fw-bold text-dark">${response.dob || 'N/A'}</div>
+                        </div>
+                        <div class="detail-item border-bottom pb-2 mt-2">
+                            <div class="detail-label text-muted small"><i class="fas fa-university text-info"></i> College Name</div>
+                            <div class="detail-value fw-bold text-dark text-wrap">${response.collegeName || 'N/A'}</div>
+                        </div>
+                        <div class="detail-item border-bottom pb-2 mt-2">
+                            <div class="detail-label text-muted small"><i class="fas fa-graduation-cap text-warning"></i> Year of Study</div>
+                            <div class="detail-value fw-bold text-dark">${response.studentYear || 'N/A'}</div>
+                        </div>
+                        <div class="detail-item border-bottom pb-2 mt-2">
+                            <div class="detail-label text-muted small"><i class="fas fa-building text-secondary"></i> Department</div>
+                            <div class="detail-value fw-bold text-dark">${response.department || 'N/A'}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="detail-item border-bottom pb-2">
+                            <div class="detail-label text-muted small"><i class="fas fa-certificate text-success"></i> Certificate No.</div>
+                            <div class="detail-value fw-bold text-dark" style="font-size:1.05rem; letter-spacing:1px;">${response.certificateNumber || 'N/A'}</div>
+                        </div>
+                        <div class="detail-item border-bottom pb-2 mt-2">
+                            <div class="detail-label text-muted small"><i class="fas fa-calendar-alt text-primary"></i> Issue Date</div>
+                            <div class="detail-value fw-bold text-dark">${formatDate(response.issuedDate)}</div>
+                        </div>
+                        <div class="detail-item border-bottom pb-2 mt-2">
+                            <div class="detail-label text-muted small"><i class="fas fa-calendar-check text-success"></i> Internship Period</div>
+                            <div class="detail-value fw-bold text-dark" style="font-size:0.9rem;">
+                                ${formatDate(response.startDate)} <span class="text-muted">to</span> ${formatDate(response.endDate)}
+                            </div>
+                        </div>
+                        <div class="detail-item border-bottom pb-2 mt-2">
+                            <div class="detail-label text-muted small"><i class="fas fa-clock text-warning"></i> Duration Total Days</div>
+                            <div class="detail-value fw-bold text-dark">${response.duration || 'N/A'}</div>
+                        </div>
+                        <div class="detail-item border-bottom pb-2 mt-2">
+                            <div class="detail-label text-muted small"><i class="fas fa-project-diagram text-info"></i> Projects Done</div>
+                            <div class="detail-value fw-bold text-dark">${response.projectDone || 'N/A'}</div>
+                        </div>
+                    </div>
+                </div>`;
+
+            // ── Split documents into public vs restricted ──────
+            const allDocs = (response.documents && response.documents.length > 0) ? response.documents : [];
+            const publicDocs = allDocs.filter(d => isPublicDoc(d.type));
+            const restrictedDocs = allDocs.filter(d => !isPublicDoc(d.type));
+
+            // ── Public Documents (always visible) ─────────────
+            let publicDocsHTML = '';
+            if (publicDocs.length > 0) {
+                const sName = (response.studentName || '').replace(/'/g, "\\'");
+                const rNo = response.registerNumber || '';
+                publicDocsHTML = `<div class="mt-4 border-top pt-3 text-start">
+                    <h6 class="fw-bold mb-3">
+                        <i class="fas fa-shield-alt text-success"></i> Publicly Verified Documents
+                    </h6>
+                    <div class="d-flex flex-wrap gap-3">`;
+                publicDocs.forEach(doc => {
+                    const lbl = getDocLabel(doc.type);
+                    const ico = getDocIcon(doc.type);
+                    const cls = getDocBtnClass(doc.type);
+                    publicDocsHTML += `<button class="doc-public-btn ${cls}"
+                        onclick="downloadWatermarkedDocument(this, '${doc.url}', '${sName}', '${rNo}')">
+                        <i class="fas ${ico}"></i> ${lbl}
+                    </button>`;
+                });
+                publicDocsHTML += `</div></div>`;
+            } else {
+                publicDocsHTML = `<div class="mt-4 border-top pt-3 text-center">
+                    <p class="text-muted small"><i class="fas fa-info-circle"></i> No public documents are currently available for this record.</p>
+                </div>`;
+            }
+
+            // ── Admin-Approved Additional Documents ───────────
+            let approvedDocsHTML = '';
+            const approvedAccess = response.approvedDocAccess;
+            if (approvedAccess && approvedAccess.docs && approvedAccess.docs.length > 0) {
+                const now = new Date();
+                const expiresOn = new Date(approvedAccess.expiresOn);
+                const hoursLeft = Math.max(0, Math.ceil((expiresOn - now) / (1000 * 60 * 60)));
+                const isExpired = now > expiresOn;
+                const isExpiring = !isExpired && hoursLeft <= 12;
+                const badgeClass = isExpired ? 'expired-badge' : (isExpiring ? 'expiring' : '');
+                const badgeText = isExpired
+                    ? '<i class="fas fa-ban"></i> Approval Expired'
+                    : ('<i class="fas fa-hourglass-half"></i> Expires in ' + hoursLeft + 'h');
+
+                if (!isExpired) {
+                    approvedDocsHTML = `<div class="mt-3 border-top pt-3 text-start">
+                        <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                            <h6 class="fw-bold mb-0">
+                                <i class="fas fa-unlock text-primary"></i> Approved Additional Documents
+                            </h6>
+                            <span class="doc-access-badge ${badgeClass}">${badgeText}</span>
+                        </div>`;
+                    const sName = (response.studentName || '').replace(/'/g, "\\'");
+                    const rNo = response.registerNumber || '';
+                    approvedAccess.docs.forEach(doc => {
+                        if (!isPublicDoc(doc.type)) {
+                            const lbl = getDocLabel(doc.type);
+                            const ico = getDocIcon(doc.type);
+                            approvedDocsHTML += `<div class="approved-doc-card">
+                                <span class="fw-bold" style="font-size:0.9rem;">
+                                    <i class="fas ${ico} text-primary" style="margin-right:8px;"></i>${lbl}
+                                </span>
+                                <button class="doc-public-btn cert-btn" style="padding:7px 16px; font-size:0.82rem;"
+                                    onclick="downloadWatermarkedDocument(this, '${doc.url}', '${sName}', '${rNo}')">
+                                    <i class="fas fa-download"></i> Download
+                                </button>
+                            </div>`;
+                        }
+                    });
+                    approvedDocsHTML += `</div>`;
+                }
+            }
+
+            // ── Request Access Panel (only if restricted docs exist & no active approval) ──
+            let requestPanelHTML = '';
+            const hasActiveApproval = approvedAccess && !(new Date() > new Date(approvedAccess.expiresOn));
+            if (restrictedDocs.length > 0 && !hasActiveApproval) {
+                const docListHTML = restrictedDocs.map(d =>
+                    `<li><i class="fas ${getDocIcon(d.type)}" style="width:18px; color:#667eea;"></i> ${getDocLabel(d.type)}</li>`
+                ).join('');
+                const sName = (response.studentName || '').replace(/'/g, "\\'");
+                const rNo = response.registerNumber || '';
+                const certNo = response.certificateNumber || '';
+                requestPanelHTML = `<div class="doc-request-panel">
+                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+                        <div style="flex:1;">
+                            <h6 class="fw-bold mb-1">
+                                <i class="fas fa-lock" style="color:#f59e0b;"></i> Additional Documents (Admin Approval Required)
+                            </h6>
+                            <p class="text-muted small mb-2">The following documents are restricted and require admin approval:</p>
+                            <ul class="small text-muted" style="padding-left:16px; margin:0; list-style:none;">${docListHTML}</ul>
+                        </div>
+                        <button class="btn-request-docs"
+                            onclick="openDocAccessRequestModal('${sName}', '${rNo}', '${certNo}')">
+                            <i class="fas fa-key"></i> Request Access
+                        </button>
+                    </div>
+                </div>`;
+            }
+
+            displayVerificationResult(resultDiv, detailsDiv, 'success', '', '',
+                detailsHTML + publicDocsHTML + approvedDocsHTML + requestPanelHTML);
+        }
+
+        function displayVerificationResult(resultDiv, detailsDiv, type, title, message, detailsContent) {
+            resultDiv.className = 'verification-result ' + type;
+            const iconClass = type === 'success' ? 'fa-check-circle' : 'fa-times-circle';
+            resultDiv.querySelector('.result-header i').className = 'fas ' + iconClass;
+            resultDiv.querySelector('.result-header .result-title').textContent = title;
+            if (detailsContent) {
+                detailsDiv.innerHTML = detailsContent;
+            } else {
+                detailsDiv.innerHTML = '<div class="detail-item"><div class="detail-value">' + message + '</div></div>';
+            }
+            resultDiv.style.display = 'block';
+            setTimeout(() => resultDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 100);
+        }
+
+        // ========================================
+        // DOCUMENT ACCESS REQUEST FUNCTIONS
+        // ========================================
+        let _docReqStudentData = {};
+
+        function openDocAccessRequestModal(studentName, registerNumber, certificateNumber) {
+            _docReqStudentData = { studentName, registerNumber, certificateNumber };
+
+            document.getElementById('docAccessStudentInfo').innerHTML =
+                '<i class="fas fa-user" style="color:var(--primary-color);"></i> Requesting access for: <strong>' +
+                studentName + '</strong> &nbsp;&mdash;&nbsp; Reg&nbsp;No:&nbsp;<strong>' + registerNumber + '</strong>';
+
+            // Reset fields
+            document.getElementById('docRequestorName').value = '';
+            document.getElementById('docRequestorEmail').value = '';
+            document.getElementById('docRequestPurpose').value = '';
+            const msgEl = document.getElementById('docAccessRequestMessage');
+            msgEl.style.display = 'none';
+            msgEl.textContent = '';
+
+            // Build checkboxes for restricted docs only
+            const container = document.getElementById('docRequestCheckboxes');
+            const allDocs = (currentVerifiedStudent && currentVerifiedStudent.documents)
+                ? currentVerifiedStudent.documents : [];
+            const restrictedDocs = allDocs.filter(d => !isPublicDoc(d.type));
+
+            if (restrictedDocs.length === 0) {
+                container.innerHTML = '<p class="text-muted small">No additional restricted documents available.</p>';
+            } else {
+                container.innerHTML = restrictedDocs.map(d =>
+                    `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;border-bottom:1px solid #eee;">
+                        <input type="checkbox" name="docRequestItem" value="${d.type}" checked
+                            style="width:16px;height:16px;accent-color:var(--primary-color);">
+                        <i class="fas ${getDocIcon(d.type)}" style="color:var(--primary-color);"></i>
+                        ${getDocLabel(d.type)}
+                    </label>`
+                ).join('');
+            }
+
+            openModal('docAccessRequestModal');
+        }
+
+        function submitDocAccessRequest() {
+            const name = document.getElementById('docRequestorName').value.trim();
+            const email = document.getElementById('docRequestorEmail').value.trim();
+            const purpose = document.getElementById('docRequestPurpose').value;
+            const msgEl = document.getElementById('docAccessRequestMessage');
+            const btn = document.getElementById('submitDocRequestBtn');
+
+            const selectedDocs = Array.from(
+                document.querySelectorAll('input[name="docRequestItem"]:checked')
+            ).map(cb => cb.value);
+
+            if (!name) { showGeneralMessageElement(msgEl, 'Please enter your full name.', true); return; }
+            if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) {
+                showGeneralMessageElement(msgEl, 'Please enter a valid email address.', true); return;
+            }
+            if (!purpose) { showGeneralMessageElement(msgEl, 'Please select the purpose of your request.', true); return; }
+            if (selectedDocs.length === 0) {
+                showGeneralMessageElement(msgEl, 'Please select at least one document to request.', true); return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Submitting...';
+
+            const payload = {
+                studentName: _docReqStudentData.studentName,
+                registerNumber: _docReqStudentData.registerNumber,
+                certificateNumber: _docReqStudentData.certificateNumber,
+                requestorName: name,
+                requestorEmail: email,
+                purpose: purpose,
+                requestedDocs: selectedDocs,
+                requestedOn: new Date().toISOString(),
+                accessDurationHours: 72   // 3 days; admin grants for this duration
+            };
+
+            google.script.run
+                .withSuccessHandler(function (res) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-paper-plane"></i> Submit Request';
+                    if (res && res.status === 'success') {
+                        showGeneralMessageElement(msgEl,
+                            'Your request has been submitted. You will receive an email at ' + email +
+                            ' once the admin reviews it. Access (if approved) will be valid for 3 days.', false);
+                        setTimeout(() => closeModal('docAccessRequestModal'), 5000);
+                    } else {
+                        showGeneralMessageElement(msgEl,
+                            (res && res.message) ? res.message : 'Submission failed. Please try again.', true);
+                    }
+                })
+                .withFailureHandler(function (err) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-paper-plane"></i> Submit Request';
+                    showGeneralMessageElement(msgEl, 'System error: ' + err.message, true);
+                })
+                .submitPublicDocumentAccessRequest(payload);
+        }
+
+
+
+        function handleAdminLoginPortal(event) {
+            event.preventDefault();
+
+            const adminId = document.getElementById('portalAdminId').value.trim();
+            const password = document.getElementById('portalAdminPassword').value;
+            const messageDiv = document.getElementById('portalAdminMessage');
+            const submitBtn = document.querySelector('#adminLoginFormPortal button[type="submit"]');
+
+            if (!adminId || !password) {
+                showGeneralMessageElement(messageDiv, 'Please enter both Admin ID and Password.', true);
+                return;
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner"></span> Logging in...';
+
+            google.script.run
+                .withSuccessHandler(function (response) {
+                    if (response.status === "success") {
+                        showGeneralMessageElement(messageDiv, '✅ Login successful! Redirecting...', false);
+                        google.script.run.withSuccessHandler(function (url) {
+                            window.location.href = url + "?page=admin_dashboard";
+                        }).getPublishedUrl();
+                    } else {
+                        showGeneralMessageElement(messageDiv, `❌ ${response.message}`, true);
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Admin Login';
+                    }
+                })
+                .withFailureHandler(function (error) {
+                    showGeneralMessageElement(messageDiv, `❌ Error: ${error.message}`, true);
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Admin Login';
+                })
+                .adminLogin(adminId, password);
+        }
+
+        async function downloadWatermarkedDocument(btnElem, driveUrl, studentName, regNo) {
+            const originalHtml = btnElem.innerHTML;
+            btnElem.disabled = true;
+            btnElem.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
+
+            try {
+                // Get Base64 of PDF from our Apps Script backend
+                google.script.run
+                    .withSuccessHandler(async function (base64Pdf) {
+                        try {
+                            if (!base64Pdf) throw new Error("Could not retrieve the document file. Make sure it's accessible.");
+
+                            const { PDFDocument, rgb, degrees } = PDFLib;
+
+                            // Convert Base64 to ArrayBuffer
+                            const binaryString = window.atob(base64Pdf);
+                            const len = binaryString.length;
+                            const bytes = new Uint8Array(len);
+                            for (let i = 0; i < len; i++) {
+                                bytes[i] = binaryString.charCodeAt(i);
+                            }
+
+                            const pdfDoc = await PDFDocument.load(bytes);
+                            const pages = pdfDoc.getPages();
+
+                            const watermarkText = "THIS IS A COPY OF CERTIFICATE SYSTEM GENERATED\n(" + studentName + " - " + regNo + ")\nONLY FOR VERIFICATION PURPOSE.\nNOT FOR OFFICIALLY USE IN UNIVERSITY,\nADMINISTRATION AND ORGANISATION USE.";
+
+                            for (let page of pages) {
+                                const { width, height } = page.getSize();
+                                page.drawText(watermarkText, {
+                                    x: 30,
+                                    y: height / 2 - 50,
+                                    size: 16,
+                                    color: rgb(0.8, 0, 0),
+                                    opacity: 0.35,
+                                    rotate: degrees(30),
+                                    lineHeight: 22,
+                                });
+                            }
+
+                            const pdfBytes = await pdfDoc.save();
+                            const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                            const url = URL.createObjectURL(blob);
+
+                            // Download
+                            const link = document.createElement('a');
+                            link.href = url;
+                            link.download = `VERIFICATION_COPY_${regNo}.pdf`;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+
+                            // Cleanup
+                            setTimeout(() => URL.revokeObjectURL(url), 100);
+
+                            btnElem.innerHTML = '✅ Downloaded';
+                            setTimeout(() => {
+                                btnElem.disabled = false;
+                                btnElem.innerHTML = originalHtml;
+                            }, 3000);
+
+                        } catch (e) {
+                            console.error(e);
+                            Swal.fire({
+                                icon: 'error',
+                                title: 'Watermark Error',
+                                text: "Failed to process document watermark: " + e.message
+                            });
+                            btnElem.disabled = false;
+                            btnElem.innerHTML = originalHtml;
+                        }
+                    })
+                    .withFailureHandler(function (err) {
+                        console.error(err);
+                        showAlertModal("Failed to load document from server: " + err.message);
+                        btnElem.disabled = false;
+                        btnElem.innerHTML = originalHtml;
+                    })
+                    .getSecurePdfBase64(driveUrl);
+            } catch (e) {
+                console.error(e);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Initialization Error',
+                    text: "Error initializing download."
+                });
+                btnElem.disabled = false;
+                btnElem.innerHTML = originalHtml;
+            }
+        }
+
+        function handleStudentLoginPortal(event) {
+            event.preventDefault();
+
+            const regId = document.getElementById('portalStudentRegId').value.trim();
+            const password = document.getElementById('portalStudentPassword').value;
+            const messageDiv = document.getElementById('portalStudentMessage');
+            const submitBtn = document.querySelector('#studentLoginFormPortal button[type="submit"]');
+
+            if (!regId || !password) {
+                showGeneralMessageElement(messageDiv, 'Please enter both Registration ID and Password.', true);
+                return;
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner"></span> Logging in...';
+
+            google.script.run
+                .withSuccessHandler(function (response) {
+                    if (response.status === "success" && response.studentData) {
+                        showGeneralMessageElement(messageDiv, '✅ Login successful! Redirecting...', false);
+
+                        // Save to session storage for robustness
+                        sessionStorage.setItem('gsv_student_regId', regId);
+
+                        google.script.run.withSuccessHandler(function (url) {
+                            window.location.href = `${url}?page=student_dashboard&regno=${regId}`;
+                        }).getPublishedUrl();
+                    } else {
+                        showGeneralMessageElement(messageDiv, `❌ ${response.message}`, true);
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Student Login';
+                    }
+                })
+                .withFailureHandler(function (error) {
+                    showGeneralMessageElement(messageDiv, `❌ Error: ${error.message}`, true);
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Student Login';
+                })
+                .studentLogin(regId, password);
+        }
+
+        function openForgotPasswordModal(userType) {
+            const modal = document.getElementById('forgotPasswordModal');
+            const title = document.getElementById('forgotPasswordTitle');
+            const label = document.getElementById('recoveryIdentifierLabel');
+            const input = document.getElementById('recoveryIdentifier');
+            const messageDiv = document.getElementById('recoveryMessage');
+
+            messageDiv.style.display = 'none';
+            input.value = '';
+            document.getElementById('forgotPasswordUserType').value = userType;
+
+            if (userType === 'admin') {
+                title.textContent = 'Admin Password Recovery';
+                label.textContent = 'Admin Email Address';
+                input.placeholder = 'Enter your admin email';
+                input.type = 'email';
+            } else { // student
+                title.textContent = 'Student Details Recovery';
+                label.textContent = 'Registration ID or Registered Email';
+                input.placeholder = 'Enter Reg ID or Email';
+                input.type = 'text';
+            }
+            openModal('forgotPasswordModal');
+        }
+
+        function handleForgotPassword(event) {
+            event.preventDefault();
+            const identifier = document.getElementById('recoveryIdentifier').value.trim();
+            const userType = document.getElementById('forgotPasswordUserType').value;
+            const messageDiv = document.getElementById('recoveryMessage');
+            const submitBtn = document.getElementById('recoverySubmitBtn');
+
+            if (!identifier) {
+                showGeneralMessageElement(messageDiv, "Please enter your details.", true);
+                return;
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner"></span> Processing...';
+
+            if (userType === 'student') {
+                google.script.run
+                    .withSuccessHandler(function (response) {
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Recovery Link';
+                        if (response.status === 'success') {
+                            showGeneralMessageElement(messageDiv, `✅ ${response.message}`, false);
+                        } else {
+                            showGeneralMessageElement(messageDiv, `❌ ${response.message}`, true);
+                        }
+                    })
+                    .withFailureHandler(function (error) {
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Recovery Link';
+                        showGeneralMessageElement(messageDiv, `❌ System Error: ${error.message}`, true);
+                    })
+                    .recoverStudentLoginDetails(identifier);
+            } else {
+                // Admin recovery (as before or simulated)
+                setTimeout(() => {
+                    showGeneralMessageElement(messageDiv, "✅ If an account exists, a recovery link has been sent.", false);
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Recovery Link';
+                }, 1500);
+            }
+        }
+
+        function togglePasswordVisibility(fieldId, btnElement) {
+            const field = document.getElementById(fieldId);
+            const icon = btnElement.querySelector('i');
+            if (field.type === 'password') {
+                field.type = 'text';
+                icon.classList.replace('fa-eye', 'fa-eye-slash');
+            } else {
+                field.type = 'password';
+                icon.classList.replace('fa-eye-slash', 'fa-eye');
+            }
+        }
+
+        function parseSafeDate(dateInput) {
+            if (!dateInput || dateInput === 'N/A' || dateInput === '') return null;
+            if (dateInput instanceof Date) return dateInput;
+            const s = String(dateInput).trim();
+            if (s.includes('T')) return new Date(s);
+            if (s.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/)) {
+                const parts = s.split(/[\/\-]/);
+                return new Date(parts[2], parts[1] - 1, parts[0]);
+            }
+            if (s.match(/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}$/)) {
+                const parts = s.split(/[\/\-]/);
+                return new Date(parts[0], parts[1] - 1, parts[2]);
+            }
+            return new Date(s);
+        }
+
+        function formatDate(dateInput) {
+            if (!dateInput || dateInput === 'N/A' || dateInput === '') return 'N/A';
+
+            let date;
+            if (dateInput instanceof Date) {
+                date = dateInput;
+            } else {
+                const s = String(dateInput).trim();
+                // Handle YYYY-MM-DDTHH:mm:ss.sssZ (ISO)
+                if (s.includes('T')) {
+                    date = new Date(s);
+                }
+                // Handle DD/MM/YYYY or DD-MM-YYYY
+                else if (s.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/)) {
+                    const parts = s.split(/[\/\-]/);
+                    date = new Date(parts[2], parts[1] - 1, parts[0]);
+                }
+                // Handle YYYY-MM-DD
+                else if (s.match(/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}$/)) {
+                    const parts = s.split(/[\/\-]/);
+                    date = new Date(parts[0], parts[1] - 1, parts[2]);
+                }
+                else {
+                    date = new Date(s);
+                }
+            }
+
+            if (isNaN(date.getTime())) {
+                return dateInput;
+            }
+
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const year = date.getFullYear();
+
+            return `${day}/${month}/${year}`;
+        }
+
+
+        function showGeneralMessage(elementId, message, isError = false, persist = false) {
+            const messageDiv = document.getElementById(elementId);
+            showGeneralMessageElement(messageDiv, message, isError, persist);
+        }
+
+        function showGeneralMessageElement(element, message, isError = false, persist = false) {
+            if (!element) return;
+            element.innerHTML = message;
+            element.className = isError ? 'message error' : 'message success';
+            element.style.display = 'block';
+            if (!persist) {
+                setTimeout(() => {
+                    element.style.display = 'none';
+                }, 7000);
+            }
+        }
+
+        function openModal(modalId) {
+            document.getElementById(modalId).style.display = 'flex';
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+        }
+
+    </script>
+
+    <!-- Custom Native Terms & Conditions Modal -->
+    <style>
+        .custom-native-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 9999999 !important;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Poppins', sans-serif;
+        }
+        .custom-native-modal-backdrop {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(15, 23, 42, 0.45);
+            backdrop-filter: blur(4px);
+            transition: opacity 0.25s ease;
+        }
+        .custom-native-modal-content {
+            position: relative;
+            background-color: #ffffff;
+            border-radius: 16px;
+            width: 90%;
+            max-width: 460px;
+            padding: 32px 24px 28px 24px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            animation: customModalScaleUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+            z-index: 10;
+            text-align: center;
+        }
+        @keyframes customModalScaleUp {
+            from { transform: scale(0.9); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+        .custom-native-modal-close {
+            position: absolute;
+            top: 16px;
+            right: 18px;
+            background: transparent;
+            border: none;
+            font-size: 1.5rem;
+            color: #94a3b8;
+            cursor: pointer;
+            transition: color 0.15s ease;
+            line-height: 1;
+        }
+        .custom-native-modal-close:hover {
+            color: #475569;
+        }
+        .custom-native-modal-icon {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            border: 4px solid #e0f2fe;
+            color: #0ea5e9;
+            font-size: 2.2rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        .custom-native-modal-title {
+            font-size: 1.6rem;
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 12px;
+            margin-top: 0;
+        }
+        .custom-native-modal-body {
+            font-size: 0.98rem;
+            color: #475569;
+            line-height: 1.6;
+            margin-bottom: 28px;
+            padding: 0 8px;
+            text-align: center;
+        }
+        .custom-native-modal-actions {
+            display: flex;
+            gap: 12px;
+            width: 100%;
+            justify-content: center;
+        }
+        .custom-native-btn {
+            flex: 1;
+            border-radius: 8px;
+            padding: 11px 16px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+        .btn-read {
+            background-color: #f1f5f9;
+            color: #475569;
+            border: 1px solid #cbd5e1;
+        }
+        .btn-read:hover {
+            background-color: #e2e8f0;
+            color: #334155;
+        }
+        .btn-ok {
+            background-color: #4361ee;
+            color: #ffffff;
+            border: none;
+            box-shadow: 0 4px 6px rgba(67, 97, 238, 0.15);
+        }
+        .btn-ok:hover {
+            background-color: #3f37c9;
+            box-shadow: 0 6px 12px rgba(67, 97, 238, 0.25);
+        }
+    </style>
+
+    <div id="termsCustomModal" class="custom-native-modal" style="display: none;">
+        <div class="custom-native-modal-backdrop" onclick="closeTermsCustomModal();"></div>
+        <div class="custom-native-modal-content">
+            <button class="custom-native-modal-close" onclick="closeTermsCustomModal();">&times;</button>
+            <div class="custom-native-modal-icon">
+                <i class="fas fa-info"></i>
+            </div>
+            <h3 class="custom-native-modal-title">Notification</h3>
+            <div class="custom-native-modal-body">
+                Terms &amp; Conditions: I hereby declare that all information provided is true and correct...
+            </div>
+            <div class="custom-native-modal-actions">
+                <a href="https://www.gsvee.in/interships/terms-and-conditions-of-internshinp" 
+                   target="_blank" 
+                   rel="noopener noreferrer" 
+                   class="custom-native-btn btn-read"
+                   onclick="closeTermsCustomModal();">
+                    <i class="fas fa-book-open"></i> Read
+                </a>
+                <button type="button" class="custom-native-btn btn-ok" onclick="acceptTermsAndCloseCustomModal();">
+                    <i class="fas fa-check-circle"></i> OK
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        window.closeTermsCustomModal = function () {
+            const modal = document.getElementById('termsCustomModal');
+            if (modal) modal.style.display = 'none';
+        };
+
+        window.acceptTermsAndCloseCustomModal = function () {
+            const cb = document.getElementById('termsAccepted');
+            if (cb) {
+                cb.checked = true;
+                cb.classList.remove('is-invalid');
+            }
+            closeTermsCustomModal();
+        };
+    </script>
+</body>
+
+</html>

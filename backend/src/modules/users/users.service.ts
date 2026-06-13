@@ -6,6 +6,7 @@ import { Repository, Like, FindOptionsWhere } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import * as fs from 'fs';
 import * as path from 'path';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { User } from './user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/create-user.dto';
@@ -277,12 +278,24 @@ export class UsersService implements OnApplicationBootstrap {
       const roles = await this.usersRepo.query(`SELECT id, name, description, color, level, is_system AS "isSystem" FROM roles WHERE deleted_at IS NULL`);
       const settings = await this.usersRepo.query(`SELECT key, value, category, description FROM system_settings`);
 
-      // 2. Fetch sheet sync settings
+      // 2. Fetch sheet sync settings (with fallback)
+      let deploymentId = '';
       const deployResult = await this.usersRepo.query(`SELECT value FROM system_settings WHERE key = 'google_sheets_deployment_id'`);
-      const deploymentId = deployResult.length > 0 && deployResult[0].value ? deployResult[0].value : '';
+      if (deployResult.length > 0 && deployResult[0].value) {
+        deploymentId = deployResult[0].value;
+      } else {
+        const altDeployResult = await this.usersRepo.query(`SELECT value FROM system_settings WHERE key = 'google_appscript_deployment_id'`);
+        if (altDeployResult.length > 0) deploymentId = altDeployResult[0].value;
+      }
       
+      let spreadsheetUrl = '';
       const sheetUrlResult = await this.usersRepo.query(`SELECT value FROM system_settings WHERE key = 'google_sheets_spreadsheet_url'`);
-      const spreadsheetUrl = sheetUrlResult.length > 0 && sheetUrlResult[0].value ? sheetUrlResult[0].value : '';
+      if (sheetUrlResult.length > 0 && sheetUrlResult[0].value) {
+        spreadsheetUrl = sheetUrlResult[0].value;
+      } else {
+        const altSheetUrlResult = await this.usersRepo.query(`SELECT value FROM system_settings WHERE key = 'google_sheet_link'`);
+        if (altSheetUrlResult.length > 0) spreadsheetUrl = altSheetUrlResult[0].value;
+      }
 
       let syncUrl = 'https://script.google.com/macros/s/AKfycbw6pAarz91qhP5HfTgnustbqF8ftTEpRV0Y03AuwaLRfzoILd3HIeVez0AqerATPyE8/exec';
       if (deploymentId && deploymentId.trim() !== '') {
@@ -448,6 +461,51 @@ export class UsersService implements OnApplicationBootstrap {
       }
     } catch (err) {
       console.error(`[UsersService] Failed to create private folder for user ${user.loginId}:`, err);
+    }
+  }
+
+  @Cron(CronExpression.EVERY_MINUTE)
+  async handleAutoSync() {
+    try {
+      // 1. Check if sync is enabled
+      const syncEnabledResult = await this.usersRepo.query(
+        `SELECT value FROM system_settings WHERE key = 'google_sheets_sync_enabled'`
+      );
+      const isEnabled = syncEnabledResult.length > 0 ? syncEnabledResult[0].value === 'true' : true;
+      if (!isEnabled) return;
+
+      // 2. Read sync interval in minutes
+      const intervalResult = await this.usersRepo.query(
+        `SELECT value FROM system_settings WHERE key = 'google_sheets_sync_interval_minutes'`
+      );
+      const intervalMinutes = intervalResult.length > 0 ? parseInt(intervalResult[0].value, 10) || 60 : 60;
+
+      // 3. Read last sync timestamp
+      const lastSyncResult = await this.usersRepo.query(
+        `SELECT value FROM system_settings WHERE key = 'google_sheets_last_sync'`
+      );
+      const lastSyncStr = lastSyncResult.length > 0 ? lastSyncResult[0].value : '';
+
+      const lastSync = lastSyncStr ? new Date(lastSyncStr) : new Date(0);
+      const now = new Date();
+      const diffMs = now.getTime() - lastSync.getTime();
+      const diffMins = diffMs / (1000 * 60);
+
+      if (diffMins >= intervalMinutes) {
+        console.log(`[UsersService] Triggering auto-sync to Google Sheets (Interval: ${intervalMinutes}m)...`);
+        await this.syncSheets();
+        
+        // Update last sync timestamp in database
+        const timestamp = new Date().toISOString();
+        await this.usersRepo.query(
+          `INSERT INTO system_settings (key, value, category, description, updated_at)
+           VALUES ('google_sheets_last_sync', $1, 'system', 'Timestamp of last Google Sheets sync', NOW())
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+          [timestamp]
+        );
+      }
+    } catch (err) {
+      console.error('[UsersService] Error in automatic Google Sheets sync:', err);
     }
   }
 }
