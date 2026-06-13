@@ -2,61 +2,6 @@
 <html lang="en">
 
 <head>
-<!-- START GOOGLE SCRIPT RUN SHIM -->
-<script>
-(function() {
-  if (typeof google === 'undefined') {
-    function createRunProxy(onSuccess, onFailure) {
-      return new Proxy({}, {
-        get(target, prop) {
-          if (prop === 'withSuccessHandler') {
-            return function(newSuccess) {
-              return createRunProxy(newSuccess, onFailure);
-            };
-          }
-          if (prop === 'withFailureHandler') {
-            return function(newFailure) {
-              return createRunProxy(onSuccess, newFailure);
-            };
-          }
-          return function(...args) {
-            console.log('[google.script.run] Calling function:', prop, 'with arguments:', args);
-            fetch('/api/internship/run', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ functionName: prop, arguments: args })
-            })
-            .then(res => {
-              if (!res.ok) throw new Error('Network response not OK');
-              return res.json();
-            })
-            .then(data => {
-              if (data && data.status === 'error') {
-                if (onFailure) onFailure(data.message || data.error);
-              } else {
-                if (onSuccess) {
-                  onSuccess(data !== null && data.data !== undefined ? data.data : data);
-                }
-              }
-            })
-            .catch(err => {
-              if (onFailure) onFailure(err.message || err);
-            });
-          };
-        }
-      });
-    }
-
-    window.google = {
-      script: {
-        run: createRunProxy(console.log, console.error)
-      }
-    };
-  }
-})();
-</script>
-<!-- END GOOGLE SCRIPT RUN SHIM -->
-
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GSV Electrical Enterprises Internship Portal</title>
@@ -2829,7 +2774,9 @@
                 .withSuccessHandler(function (response) {
                     if (response.status === "success") {
                         showGeneralMessageElement(messageDiv, '✅ Login successful! Redirecting...', false);
-                        window.location.href = "/internship/admin.html";
+                        google.script.run.withSuccessHandler(function (url) {
+                            window.location.href = url + "?page=admin_dashboard";
+                        }).getPublishedUrl();
                     } else {
                         showGeneralMessageElement(messageDiv, `❌ ${response.message}`, true);
                         submitBtn.disabled = false;
@@ -2959,7 +2906,9 @@
                         // Save to session storage for robustness
                         sessionStorage.setItem('gsv_student_regId', regId);
 
-                        window.location.href = `/internship/student.html?regno=${regId}`;
+                        google.script.run.withSuccessHandler(function (url) {
+                            window.location.href = `${url}?page=student_dashboard&regno=${regId}`;
+                        }).getPublishedUrl();
                     } else {
                         showGeneralMessageElement(messageDiv, `❌ ${response.message}`, true);
                         submitBtn.disabled = false;

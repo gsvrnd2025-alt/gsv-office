@@ -25,7 +25,111 @@ export class AuthService {
   ) {}
 
   async validateUser(loginId: string, password: string): Promise<User | null> {
-    // Try login by loginId, email, or phone (mobile number)
+    const inputClean = loginId.trim();
+    const inputUpper = inputClean.toUpperCase();
+    const inputLower = inputClean.toLowerCase();
+    const passClean = password.trim();
+    const passUpper = passClean.toUpperCase();
+    const passLower = passClean.toLowerCase();
+
+    // 1. Try to find a matching student in the local copy of Google Sheets
+    let studentObj: any = null;
+    try {
+      const studentRows = await this.usersRepo.query(
+        `SELECT data FROM internship_tables WHERE table_name = 'Internship Registrations'`
+      );
+      
+      studentObj = studentRows.find((r: any) => {
+        const s = r.data || {};
+        const sRegId = s.RegistrationID ? String(s.RegistrationID).trim().toUpperCase() : '';
+        const sRegNum = s.RegisterNumber ? String(s.RegisterNumber).trim().toUpperCase() : '';
+        const sPhone = s.MobileNumber ? String(s.MobileNumber).trim() : '';
+        const sEmail = s.GmailID ? String(s.GmailID).trim().toLowerCase() : '';
+        return sRegId === inputUpper || sRegNum === inputUpper || sPhone === inputClean || sEmail === inputLower;
+      });
+    } catch (dbErr) {
+      this.logger.error('Failed to read student registrations from DB:', dbErr);
+    }
+
+    if (studentObj) {
+      const s = studentObj.data || {};
+      const regId = s.RegistrationID ? String(s.RegistrationID).trim().toUpperCase() : '';
+      const regNum = s.RegisterNumber ? String(s.RegisterNumber).trim().toUpperCase() : '';
+      const phone = s.MobileNumber ? String(s.MobileNumber).trim() : '';
+      const email = s.GmailID ? String(s.GmailID).trim().toLowerCase() : '';
+      const status = String(s.ApplicationStatus || s.Status || '').toLowerCase();
+
+      // Check student status
+      const allowedStatuses = ['approved', 'completed', 'active', 'assigned'];
+      if (['pending', 'optout', 'deleted', 'rejected', 'on-hold'].includes(status)) {
+        let msg = `Your account status is '${status}'. Login is not permitted.`;
+        if (status === 'pending') msg = "Your application is still 'Pending' approval. Please wait for the admin to approve your request.";
+        if (status === 'rejected') msg = "Your application has been 'Rejected'. Please contact the administrator.";
+        throw new UnauthorizedException(msg);
+      }
+      if (status && !allowedStatuses.includes(status)) {
+        throw new UnauthorizedException(`Access denied. Your current status is '${status}'. Please contact the administrator.`);
+      }
+
+      // Check password matching
+      const isPasswordMatch = passClean === phone || passLower === email || passUpper === regId || passUpper === regNum;
+      
+      if (isPasswordMatch) {
+        // Find if they exist in core users
+        let user = await this.usersRepo.findOne({
+          where: { loginId: regId },
+          relations: ['role', 'department'],
+        });
+
+        // Ensure "Student" role exists
+        let [studentRole] = await this.usersRepo.query(`SELECT id FROM roles WHERE name = 'Student' LIMIT 1`);
+        if (!studentRole) {
+          const roleId = crypto.randomUUID();
+          await this.usersRepo.query(
+            `INSERT INTO roles (id, name, description, color, level, is_system, created_at, updated_at)
+             VALUES ($1, 'Student', 'Student Internship Portal Access', '#10b981', 0, false, NOW(), NOW())`,
+            [roleId]
+          );
+          studentRole = { id: roleId };
+        }
+
+        const passwordHash = await bcrypt.hash(password, 12);
+        const fullName = (s.FirstName || '') + (s.MiddleName ? ' ' + s.MiddleName : '') + (s.LastName ? ' ' + s.LastName : '');
+
+        if (!user) {
+          // Create student user dynamically in core users
+          const userId = crypto.randomUUID();
+          await this.usersRepo.query(
+            `INSERT INTO users (id, employee_id, login_id, email, password_hash, full_name, phone, role_id, status, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', NOW(), NOW())`,
+            [userId, s.RegisterNumber || null, regId, email || `${regId.replace(/[^a-zA-Z0-9]/g, '')}@gsv.local`, passwordHash, fullName, phone || null, studentRole.id]
+          );
+
+          user = await this.usersRepo.findOne({
+            where: { id: userId },
+            relations: ['role', 'department'],
+          });
+        } else {
+          // Update details & password hash to keep them in sync
+          await this.usersRepo.update(user.id, {
+            passwordHash,
+            fullName,
+            phone: phone || undefined,
+            status: 'active',
+            roleId: studentRole.id,
+          });
+          // Refresh user object
+          user = await this.usersRepo.findOne({
+            where: { id: user.id },
+            relations: ['role', 'department'],
+          });
+        }
+
+        return user;
+      }
+    }
+
+    // 2. If not a student or password didn't match student details, fall back to standard core user login
     const user = await this.usersRepo.findOne({
       where: [{ loginId }, { email: loginId }, { phone: loginId }],
       relations: ['role', 'department'],

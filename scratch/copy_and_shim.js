@@ -13,9 +13,19 @@ const SHIM_HTML = `
 <script>
 (function() {
   if (typeof google === 'undefined') {
-    function createApiProxy(onSuccess, onFailure) {
+    function createRunProxy(onSuccess, onFailure) {
       return new Proxy({}, {
         get(target, prop) {
+          if (prop === 'withSuccessHandler') {
+            return function(newSuccess) {
+              return createRunProxy(newSuccess, onFailure);
+            };
+          }
+          if (prop === 'withFailureHandler') {
+            return function(newFailure) {
+              return createRunProxy(onSuccess, newFailure);
+            };
+          }
           return function(...args) {
             console.log('[google.script.run] Calling function:', prop, 'with arguments:', args);
             fetch('/api/internship/run', {
@@ -31,7 +41,6 @@ const SHIM_HTML = `
               if (data && data.status === 'error') {
                 if (onFailure) onFailure(data.message || data.error);
               } else {
-                // If it was successful, trigger the success callback
                 if (onSuccess) {
                   onSuccess(data !== null && data.data !== undefined ? data.data : data);
                 }
@@ -47,24 +56,7 @@ const SHIM_HTML = `
 
     window.google = {
       script: {
-        run: {
-          withSuccessHandler: function(onSuccess) {
-            return {
-              withFailureHandler: function(onFailure) {
-                return createApiProxy(onSuccess, onFailure);
-              },
-              ...createApiProxy(onSuccess, console.error)
-            };
-          },
-          withFailureHandler: function(onFailure) {
-            return {
-              withSuccessHandler: function(onSuccess) {
-                return createApiProxy(onSuccess, onFailure);
-              }
-            };
-          },
-          ...createApiProxy(console.log, console.error)
-        }
+        run: createRunProxy(console.log, console.error)
       }
     };
   }

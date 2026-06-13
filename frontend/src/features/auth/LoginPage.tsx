@@ -38,7 +38,11 @@ export default function LoginPage() {
       
       login(user, accessToken);
       toast.success(`Welcome back, ${user.fullName.split(' ')[0]}! 🎉`);
-      navigate('/dashboard');
+      if (user.role?.name === 'Student') {
+        window.location.replace(`/internship/student.html?regno=${user.loginId}`);
+      } else {
+        navigate('/dashboard');
+      }
     } catch (err: any) {
       toast.error(err.response?.data?.message || err.message || 'Invalid credentials');
     } finally {

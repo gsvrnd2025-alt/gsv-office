@@ -134,6 +134,13 @@ export default function App() {
     }
   }, [isAuthenticated, setUser, logout]);
 
+  const { user } = useAuthStore();
+  useEffect(() => {
+    if (isAuthenticated && user?.role?.name === 'Student') {
+      window.location.replace(`/internship/student.html?regno=${user.loginId}`);
+    }
+  }, [isAuthenticated, user]);
+
   useEffect(() => {
     const handleGlobalClick = (e: MouseEvent) => {
       let target = e.target as HTMLElement | null;

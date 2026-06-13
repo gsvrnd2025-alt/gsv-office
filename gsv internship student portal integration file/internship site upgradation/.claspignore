@@ -1,0 +1,9 @@
+# Ignore all files by default
+**/*
+
+# Allow only these specific Google Apps Script project files
+!code.js
+!appsscript.json
+!Index.html
+!StudentDashboard.html
+!AdminDashboard.html

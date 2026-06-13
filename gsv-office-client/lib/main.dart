@@ -51,10 +51,22 @@ class _MainScreenState extends State<MainScreen> {
   String _errorMessage = '';
   bool _isFirstLoad = true;
   Timer? _splashTimeoutTimer;
+  PullToRefreshController? _pullToRefreshController;
 
   @override
   void initState() {
     super.initState();
+    _pullToRefreshController = PullToRefreshController(
+      settings: PullToRefreshSettings(
+        color: const Color(0xFF6366F1),
+        backgroundColor: const Color(0xFF1E293B),
+      ),
+      onRefresh: () async {
+        if (mounted) {
+          _webViewController?.reload();
+        }
+      },
+    );
     _loadSettings();
     _startSplashTimeout();
   }
@@ -197,6 +209,7 @@ class _MainScreenState extends State<MainScreen> {
               // WebView container
               InAppWebView(
                 initialUrlRequest: URLRequest(url: WebUri(_serverUrl)),
+                pullToRefreshController: _pullToRefreshController,
                 initialSettings: InAppWebViewSettings(
                   useShouldOverrideUrlLoading: true,
                   mediaPlaybackRequiresUserGesture: false,
@@ -219,6 +232,7 @@ class _MainScreenState extends State<MainScreen> {
                   });
                 },
                 onLoadStop: (controller, url) async {
+                  _pullToRefreshController?.endRefreshing();
                   setState(() {
                     _isLoading = false;
                     _isFirstLoad = false;
@@ -234,6 +248,7 @@ class _MainScreenState extends State<MainScreen> {
                   });
                 },
                 onLoadError: (controller, url, code, message) {
+                  _pullToRefreshController?.endRefreshing();
                   setState(() {
                     _isLoading = false;
                     _hasError = true;

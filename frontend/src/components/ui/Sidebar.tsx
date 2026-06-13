@@ -124,43 +124,71 @@ export function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose, hidden
 
       {/* Navigation */}
       <nav className={styles.nav}>
-        {sections.map(section => {
-          const items = navItems.filter(i => i.section === section.key).map(item => {
-            if (item.to === '/requests') {
-              return { ...item, badge: pendingCount > 0 ? pendingCount : undefined };
+        {sections
+          .filter(section => {
+            if (user?.role?.name === 'Student') {
+              return section.key === 'internship' || section.key === 'main';
             }
-            return item;
-          });
-          return (
-            <div key={section.key} className={styles.navSection}>
-              {!collapsed && <span className={section.key === 'main' ? styles.sectionLabel : styles.sectionLabel}>{section.label}</span>}
-              {items.map(item => {
-                const isLocked = item.module && item.action && !hasPermission(user, item.module, item.action);
-                return (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    className={({ isActive }) => `${styles.navItem} ${isActive ? styles.active : ''}`}
-                    onClick={(e) => {
-                      onMobileClose();
-                    }}
-                    title={collapsed ? item.label + (isLocked ? ' (Locked)' : '') : undefined}
-                    style={isLocked ? { opacity: 0.65 } : undefined}
-                  >
-                    <span className={styles.navIcon}><item.icon size={18} /></span>
-                    {!collapsed && <span className={styles.navLabel} style={isLocked ? { color: 'var(--text-secondary)' } : undefined}>{item.label}</span>}
-                    {!collapsed && isLocked && (
-                      <span style={{ fontSize: '11px', marginLeft: 'auto', opacity: 0.7 }} title="Access Locked">
-                        🔒
-                      </span>
-                    )}
-                    {!collapsed && item.badge ? <span className={styles.badge}>{item.badge}</span> : null}
-                  </NavLink>
-                );
-              })}
-            </div>
-          );
-        })}
+            return true;
+          })
+          .map(section => {
+            const items = navItems
+              .filter(i => i.section === section.key)
+              .filter(i => {
+                if (user?.role?.name === 'Student') {
+                  return i.to === '/internship-student' || i.to === '/downloads';
+                }
+                // Hide student portal for administrators/non-students
+                if (i.to === '/internship-student') return false;
+                return true;
+              })
+              .map(item => {
+                if (item.to === '/requests') {
+                  return { ...item, badge: pendingCount > 0 ? pendingCount : undefined };
+                }
+                return item;
+              });
+
+            if (items.length === 0) return null;
+
+            return (
+              <div key={section.key} className={styles.navSection}>
+                {!collapsed && <span className={styles.sectionLabel}>{section.label}</span>}
+                {items.map(item => {
+                  const isLocked = item.module && item.action && !hasPermission(user, item.module, item.action);
+                  return (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      className={({ isActive }) => `${styles.navItem} ${isActive ? styles.active : ''}`}
+                      onClick={(e) => {
+                        if (item.to === '/internship-admin') {
+                          e.preventDefault();
+                          window.open('/internship/admin.html', '_blank');
+                        } else if (item.to === '/internship-student') {
+                          e.preventDefault();
+                          window.location.href = `/internship/student.html?regno=${user?.loginId}`;
+                        } else {
+                          onMobileClose();
+                        }
+                      }}
+                      title={collapsed ? item.label + (isLocked ? ' (Locked)' : '') : undefined}
+                      style={isLocked ? { opacity: 0.65 } : undefined}
+                    >
+                      <span className={styles.navIcon}><item.icon size={18} /></span>
+                      {!collapsed && <span className={styles.navLabel} style={isLocked ? { color: 'var(--text-secondary)' } : undefined}>{item.label}</span>}
+                      {!collapsed && isLocked && (
+                        <span style={{ fontSize: '11px', marginLeft: 'auto', opacity: 0.7 }} title="Access Locked">
+                          🔒
+                        </span>
+                      )}
+                      {!collapsed && item.badge ? <span className={styles.badge}>{item.badge}</span> : null}
+                    </NavLink>
+                  );
+                })}
+              </div>
+            );
+          })}
       </nav>
 
       {/* Bottom: User profile */}

@@ -828,6 +828,20 @@ CREATE TABLE system_settings (
 );
 
 -- ═══════════════════════════════════════════════════════════════════
+-- INTERNSHIP PORTAL SYNCHRONIZED TABLES
+-- ═══════════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS internship_tables (
+    table_name VARCHAR(100) NOT NULL,
+    record_id VARCHAR(255) NOT NULL,
+    data JSONB NOT NULL DEFAULT '{}',
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    is_synced BOOLEAN DEFAULT false,
+    PRIMARY KEY (table_name, record_id)
+);
+CREATE INDEX IF NOT EXISTS idx_internship_tables_name ON internship_tables(table_name);
+
+-- ═══════════════════════════════════════════════════════════════════
 -- INDEXES
 -- ═══════════════════════════════════════════════════════════════════
 
