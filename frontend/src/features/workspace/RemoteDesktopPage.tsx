@@ -1802,8 +1802,8 @@ export default function RemoteDesktopPage() {
   // Host local input tracking for Interlock mechanism (Keyboard only to prevent simulated mouse movement self-lockouts)
   useEffect(() => {
     const handleLocalInput = () => {
-      if (isHosting && isHostControlled && socket && activePartnerId && !isControlLocked) {
-        socket.emit('remote:control-lock', { targetUserId: activePartnerId, isLocked: true });
+      if (isHosting && isHostControlled && socketRef.current && activePartnerId && !isControlLocked) {
+        socketRef.current.emit('remote:control-lock', { targetUserId: activePartnerId, isLocked: true });
         setIsControlLocked(true);
       }
     };
@@ -1817,7 +1817,7 @@ export default function RemoteDesktopPage() {
     };
   }, [isHosting, isHostControlled, socket, activePartnerId, isControlLocked]);
 
-  // WebRTC Setup Helper
+  // WebRTC Setup Helper — always use socketRef.current (live ref) not socket state (stale closure)
   const setupWebRTC = async (isHost: boolean, partnerId: string) => {
     try {
       const configuration = {
@@ -1827,10 +1827,23 @@ export default function RemoteDesktopPage() {
       const pc = new RTCPeerConnection(configuration);
       peerConnectionRef.current = pc;
 
+      // FIX: use socketRef.current (not socket state) — state is a stale closure here
       pc.onicecandidate = (event) => {
-        if (event.candidate && socket) {
-          socket.emit('remote:ice-candidate', { targetUserId: partnerId, candidate: event.candidate });
+        if (event.candidate && socketRef.current) {
+          socketRef.current.emit('remote:ice-candidate', { targetUserId: partnerId, candidate: event.candidate });
+          addGlobalLog(`ICE candidate sent to ${partnerId}`);
         }
+      };
+
+      pc.onconnectionstatechange = () => {
+        addGlobalLog(`WebRTC connection state: ${pc.connectionState}`);
+        if (pc.connectionState === 'failed') {
+          addGlobalLog('WebRTC connection failed. Peer may be unreachable.');
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        addGlobalLog(`ICE connection state: ${pc.iceConnectionState}`);
       };
 
       pc.ontrack = (event) => {
@@ -1852,6 +1865,9 @@ export default function RemoteDesktopPage() {
       if (isHost) {
         if (localStreamRef.current) {
           localStreamRef.current.getTracks().forEach(track => pc.addTrack(track, localStreamRef.current!));
+          addLog(`Added ${localStreamRef.current.getTracks().length} local stream track(s) to peer connection.`);
+        } else {
+          addLog('WARNING: localStreamRef is null when setting up host WebRTC. Screen capture may have failed.');
         }
 
         const dc = pc.createDataChannel('control');
@@ -1860,8 +1876,9 @@ export default function RemoteDesktopPage() {
 
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        socket?.emit('remote:signal', { targetUserId: partnerId, signal: offer });
-        addLog('Signaling offer dispatched.');
+        // FIX: use socketRef.current — not stale socket state
+        socketRef.current?.emit('remote:signal', { targetUserId: partnerId, signal: offer });
+        addLog('WebRTC signaling offer dispatched to requester.');
       } else {
         pc.ondatachannel = (event) => {
           dataChannelRef.current = event.channel;
@@ -1922,7 +1939,8 @@ export default function RemoteDesktopPage() {
     setDialingStatus('calling');
     addLog(`Requesting connection handshake with ${target.fullName}...`);
     
-    socket?.emit('remote:request', {
+    // FIX: use socketRef.current — socket state may be stale at this point
+    socketRef.current?.emit('remote:request', {
       targetUserId: target.id,
       callerName: user?.fullName,
       callerPhone: user?.phone || user?.loginId,
@@ -1951,7 +1969,7 @@ export default function RemoteDesktopPage() {
     const targetId = targetPhone.replace(/\s+/g, '');
     const target = teammates.find(t => t.id === targetPhone || t.phone?.replace(/\s+/g, '') === targetId || t.loginId === targetId);
     if (socket && target) {
-      socket.emit('remote:terminate', { targetUserId: target.id });
+      socketRef.current?.emit('remote:terminate', { targetUserId: target.id });
     }
     setIsConnecting(false);
     setDialingStatus('idle');
@@ -2056,7 +2074,8 @@ export default function RemoteDesktopPage() {
         console.error('History logger error:', histErr);
       }
 
-      socket?.emit('remote:response', {
+      // FIX: use socketRef.current — socket state is stale in async context
+      socketRef.current?.emit('remote:response', {
         targetUserId: data.callerId,
         status: 'accepted',
         permissions: grantedPermissions,
@@ -2064,11 +2083,20 @@ export default function RemoteDesktopPage() {
         isDesktopAgent: !!(window as any).gsvDesktop || localAgentActive
       });
 
+      addLog('Acceptance signal sent. Setting up WebRTC peer connection...');
       await setupWebRTC(true, data.callerId);
       toast.success(`Sharing screen and control permissions!`);
 
+      // FIX: Do NOT minimize window immediately after accept — the main window must remain
+      // visible (not minimized) during the WebRTC handshake so the DisplayMediaRequest
+      // handler in Electron can respond. Minimizing too early kills the media capture session.
+      // Instead, minimize AFTER a short delay to let the WebRTC offer/answer exchange complete.
       if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.minimizeWindow === 'function') {
-        (window as any).gsvDesktop.minimizeWindow();
+        setTimeout(() => {
+          if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.minimizeWindow === 'function') {
+            (window as any).gsvDesktop.minimizeWindow();
+          }
+        }, 3000); // 3 second delay — enough for offer/answer/ICE to complete
       }
       
       const durationMs = sessionDuration === '1h' ? 3600000 : sessionDuration === '3h' ? 10800000 : 0;
@@ -2079,7 +2107,8 @@ export default function RemoteDesktopPage() {
         }, durationMs);
       }
     } catch (e) {
-      console.error(e);
+      console.error('acceptRequest error:', e);
+      addLog(`Accept request failed: ${e instanceof Error ? e.message : String(e)}`);
       rejectRequest('error', data);
     }
   };
@@ -2097,7 +2126,7 @@ export default function RemoteDesktopPage() {
         status: 'Rejected'
       });
 
-      socket?.emit('remote:response', {
+      socketRef.current?.emit('remote:response', {
         targetUserId: data.callerId,
         status: 'rejected',
         reason: reasonStr
@@ -2160,8 +2189,8 @@ export default function RemoteDesktopPage() {
 
   // Release Control lock
   const requestControlRelease = () => {
-    if (socket && activePartnerId) {
-      socket.emit('remote:control-lock', { targetUserId: activePartnerId, isLocked: false });
+    if (socketRef.current && activePartnerId) {
+      socketRef.current.emit('remote:control-lock', { targetUserId: activePartnerId, isLocked: false });
       setIsControlLocked(false);
     }
   };
@@ -2185,10 +2214,10 @@ export default function RemoteDesktopPage() {
         addLog('Voice meeting audio stopped.');
 
         // Trigger WebRTC offer-answer renegotiation
-        if (socket && activePartnerId && peerConnectionRef.current) {
+        if (socketRef.current && activePartnerId && peerConnectionRef.current) {
           const offer = await peerConnectionRef.current.createOffer();
           await peerConnectionRef.current.setLocalDescription(offer);
-          socket.emit('remote:signal', { targetUserId: activePartnerId, signal: offer });
+          socketRef.current.emit('remote:signal', { targetUserId: activePartnerId, signal: offer });
           addLog('WebRTC renegotiation offer sent (removed audio).');
         }
       } else {
@@ -2207,10 +2236,10 @@ export default function RemoteDesktopPage() {
           addLog('WebRTC microphone track attached.');
           
           // Trigger WebRTC offer-answer renegotiation
-          if (socket && activePartnerId) {
+          if (socketRef.current && activePartnerId) {
             const offer = await peerConnectionRef.current.createOffer();
             await peerConnectionRef.current.setLocalDescription(offer);
-            socket.emit('remote:signal', { targetUserId: activePartnerId, signal: offer });
+            socketRef.current.emit('remote:signal', { targetUserId: activePartnerId, signal: offer });
             addLog('WebRTC renegotiation offer sent (added audio).');
           }
         }
@@ -2233,8 +2262,8 @@ export default function RemoteDesktopPage() {
       });
     }
 
-    if (socket && activePartnerId && !remoteEvent) {
-      socket.emit('remote:terminate', { targetUserId: activePartnerId });
+    if (socketRef.current && activePartnerId && !remoteEvent) {
+      socketRef.current.emit('remote:terminate', { targetUserId: activePartnerId });
     }
 
     if (localStreamRef.current) {
