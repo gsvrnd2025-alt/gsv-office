@@ -7,11 +7,11 @@
 image:
   api:
     repository: ghcr.io/gsvrnd2025-alt/gsv-office-api
-    tag: "v1.0.33"
+    tag: "v1.0.34"
     pullPolicy: Always
   nginx:
     repository: ghcr.io/gsvrnd2025-alt/gsv-office-nginx
-    tag: "v1.0.33"
+    tag: "v1.0.34"
     pullPolicy: Always
 
 # ─── Network / Port Configuration ────────────────────────────
@@ -76,7 +76,7 @@ minio:
   enabled: true
   image:
     repository: minio/minio
-    tag: "v1.0.33"
+    tag: "v1.0.34"
   rootUser: "gsv_minio_admin"
   rootPassword: "gsv_minio_password_2026"
   storage:
