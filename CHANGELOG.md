@@ -1,3 +1,21 @@
+## Release v1.0.29 (2026-06-13)
+
+8ba0798 feat: integrate internship portal and background sync schedule
+c8eafe0 chore(release): bump version to v1.0.28 [skip ci]
+af18d44 Merge branch 'main' of https://github.com/gsvrnd2025-alt/gsv-office
+a4e7903 fix: resolve 500 error when sending file note in chat
+3ad450f chore(release): bump version to v1.0.27 [skip ci]
+9de78cf test: fix widget test app class name to match GSVOfficeApp
+534edb2 fix: chat SQL GROUP BY bug, group member removal workflows, desktop shortcuts & context menu, mobile Safearea layout & logo splash
+8beeed6 chore(release): bump version to v1.0.26 [skip ci]
+c1221a9 fix: remote desktop P2P - fix stale socket closures, premature window minimize, and missing ICE candidate delivery
+b9503d0 chore(release): bump version to v1.0.25 [skip ci]
+5a31268 feat: fix remote desktop P2P accept flow, auto-fit monitor scaling, overlay z-index, and secure origin relaunch
+a7ac5ad chore(release): bump version to v1.0.24 [skip ci]
+af369ac feat: GSV Office - Settings window try-catch error overlay and console logs
+d30b077 chore(release): bump version to v1.0.23 [skip ci]
+b20aa44 feat: GSV Office - register PublicSettingsController, fix update check 404, and bump to v1.0.22
+
 ## Release v1.0.28 (2026-06-13)
 
 af18d44 Merge branch 'main' of https://github.com/gsvrnd2025-alt/gsv-office
