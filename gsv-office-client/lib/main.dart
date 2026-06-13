@@ -49,11 +49,30 @@ class _MainScreenState extends State<MainScreen> {
   double _loadProgress = 0;
   bool _hasError = false;
   String _errorMessage = '';
+  bool _isFirstLoad = true;
+  Timer? _splashTimeoutTimer;
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
+    _startSplashTimeout();
+  }
+
+  void _startSplashTimeout() {
+    _splashTimeoutTimer = Timer(const Duration(seconds: 12), () {
+      if (mounted && _isFirstLoad) {
+        setState(() {
+          _isFirstLoad = false;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _splashTimeoutTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadSettings() async {
@@ -121,6 +140,21 @@ class _MainScreenState extends State<MainScreen> {
           ],
         ),
         actions: [
+          TextButton.icon(
+            onPressed: () {
+              setState(() {
+                _isLoading = true;
+                _hasError = false;
+              });
+              _webViewController?.reload();
+              Navigator.pop(context);
+            },
+            icon: const Icon(Icons.refresh, size: 16),
+            label: const Text('Reload App'),
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFF6366F1),
+            ),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Cancel'),
@@ -157,239 +191,221 @@ class _MainScreenState extends State<MainScreen> {
         }
       },
       child: Scaffold(
-        appBar: AppBar(
-          backgroundColor: const Color(0xFF1E293B),
-          title: Row(
+        body: SafeArea(
+          child: Stack(
             children: [
-              Container(
-                width: 28,
-                height: 28,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+              // WebView container
+              InAppWebView(
+                initialUrlRequest: URLRequest(url: WebUri(_serverUrl)),
+                initialSettings: InAppWebViewSettings(
+                  useShouldOverrideUrlLoading: true,
+                  mediaPlaybackRequiresUserGesture: false,
+                  allowsInlineMediaPlayback: true,
+                  iframeAllow: "camera; microphone",
+                  iframeAllowFullscreen: true,
+                  javaScriptEnabled: true,
+                  domStorageEnabled: true,
+                  databaseEnabled: true,
+                  useOnDownloadStart: true,
+                  applicationNameForUserAgent: 'GSVOfficeApp',
+                ),
+                onWebViewCreated: (controller) {
+                  _webViewController = controller;
+                },
+                onLoadStart: (controller, url) {
+                  setState(() {
+                    _isLoading = true;
+                    _hasError = false;
+                  });
+                },
+                onLoadStop: (controller, url) async {
+                  setState(() {
+                    _isLoading = false;
+                    _isFirstLoad = false;
+                  });
+                },
+                onProgressChanged: (controller, progress) {
+                  setState(() {
+                    _loadProgress = progress / 100;
+                    if (progress >= 100) {
+                      _isLoading = false;
+                      _isFirstLoad = false;
+                    }
+                  });
+                },
+                onLoadError: (controller, url, code, message) {
+                  setState(() {
+                    _isLoading = false;
+                    _hasError = true;
+                    _errorMessage = message;
+                  });
+                },
+                onPermissionRequest: (controller, permissionRequest) async {
+                  return PermissionResponse(
+                    resources: permissionRequest.resources,
+                    action: PermissionResponseAction.GRANT,
+                  );
+                },
+                onDownloadStartRequest: (controller, downloadStartRequest) async {
+                  final url = downloadStartRequest.url.toString();
+                  if (await canLaunchUrl(Uri.parse(url))) {
+                    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Cannot download from $url')),
+                    );
+                  }
+                },
+                shouldOverrideUrlLoading: (controller, navigationAction) async {
+                  final url = navigationAction.request.url.toString();
+                  // Let the webview handle local domain requests, but open external links in system browser
+                  if (!url.contains(_serverUrl.replaceAll('http://', '').replaceAll('https://', '').split(':')[0])) {
+                    if (await canLaunchUrl(Uri.parse(url))) {
+                      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+                      return NavigationActionPolicy.CANCEL;
+                    }
+                  }
+                  return NavigationActionPolicy.ALLOW;
+                },
+              ),
+
+              // Floating Settings Gear Button
+              Positioned(
+                top: 10,
+                right: 10,
+                child: Opacity(
+                  opacity: 0.3,
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.black54,
+                    ),
+                    child: IconButton(
+                      icon: const Icon(Icons.settings, color: Colors.white, size: 20),
+                      onPressed: _showSettingsDialog,
+                      tooltip: 'Configure connection',
+                    ),
                   ),
                 ),
-                child: const Icon(Icons.work, size: 16, color: Colors.white),
               ),
-              const SizedBox(width: 10),
-              const Text(
-                'GSV Office Node',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 0.5),
-              ),
-            ],
-          ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.refresh, color: Colors.white70),
-              onPressed: () {
-                setState(() {
-                  _isLoading = true;
-                  _hasError = false;
-                });
-                _webViewController?.reload();
-              },
-              tooltip: 'Reload workspace',
-            ),
-            IconButton(
-              icon: const Icon(Icons.settings, color: Colors.white70),
-              onPressed: _showSettingsDialog,
-              tooltip: 'Configure connection',
-            ),
-          ],
-          bottom: _isLoading
-              ? PreferredSize(
-                  preferredSize: const Size.fromHeight(3.0),
+
+              // Loading Progress Bar
+              if (_isLoading && !_isFirstLoad)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: 3,
                   child: LinearProgressIndicator(
                     value: _loadProgress > 0 ? _loadProgress : null,
                     backgroundColor: Colors.transparent,
                     valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
                   ),
-                )
-              : null,
-        ),
-        body: Stack(
-          children: [
-            // WebView container
-            InAppWebView(
-              initialUrlRequest: URLRequest(url: WebUri(_serverUrl)),
-              initialSettings: InAppWebViewSettings(
-                useShouldOverrideUrlLoading: true,
-                mediaPlaybackRequiresUserGesture: false,
-                allowsInlineMediaPlayback: true,
-                iframeAllow: "camera; microphone",
-                iframeAllowFullscreen: true,
-                javaScriptEnabled: true,
-                domStorageEnabled: true,
-                databaseEnabled: true,
-                useOnDownloadStart: true,
-                applicationNameForUserAgent: 'GSVOfficeApp',
-              ),
-              onWebViewCreated: (controller) {
-                _webViewController = controller;
-              },
-              onLoadStart: (controller, url) {
-                setState(() {
-                  _isLoading = true;
-                  _hasError = false;
-                });
-              },
-              onLoadStop: (controller, url) async {
-                setState(() {
-                  _isLoading = false;
-                });
-              },
-              onProgressChanged: (controller, progress) {
-                setState(() {
-                  _loadProgress = progress / 100;
-                  if (progress >= 100) {
-                    _isLoading = false;
-                  }
-                });
-              },
-              onLoadError: (controller, url, code, message) {
-                setState(() {
-                  _isLoading = false;
-                  _hasError = true;
-                  _errorMessage = message;
-                });
-              },
-              onPermissionRequest: (controller, permissionRequest) async {
-                return PermissionResponse(
-                  resources: permissionRequest.resources,
-                  action: PermissionResponseAction.GRANT,
-                );
-              },
-              onDownloadStartRequest: (controller, downloadStartRequest) async {
-                final url = downloadStartRequest.url.toString();
-                if (await canLaunchUrl(Uri.parse(url))) {
-                  await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Cannot download from $url')),
-                  );
-                }
-              },
-              shouldOverrideUrlLoading: (controller, navigationAction) async {
-                final url = navigationAction.request.url.toString();
-                // Let the webview handle local domain requests, but open external links in system browser
-                if (!url.contains(_serverUrl.replaceAll('http://', '').replaceAll('https://', '').split(':')[0])) {
-                  if (await canLaunchUrl(Uri.parse(url))) {
-                    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-                    return NavigationActionPolicy.CANCEL;
-                  }
-                }
-                return NavigationActionPolicy.ALLOW;
-              },
-            ),
+                ),
 
-            // Connection Error Overlay
-            if (_hasError)
-              Container(
-                color: const Color(0xFF0F172A),
-                padding: const EdgeInsets.all(24),
-                child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.wifi_off, size: 64, color: Color(0xFFEF4444)),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'Unable to Connect',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Could not load workspace at $_serverUrl.\nVerify the server address or check your connection.',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 13, color: Colors.white70),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Error Details: $_errorMessage',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 11, color: Colors.white38, fontStyle: FontStyle.italic),
-                      ),
-                      const SizedBox(height: 24),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          OutlinedButton.icon(
-                            onPressed: _showSettingsDialog,
-                            icon: const Icon(Icons.settings),
-                            label: const Text('Change Server'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFF6366F1),
-                              side: const BorderSide(color: Color(0xFF6366F1)),
+              // Connection Error Overlay
+              if (_hasError)
+                Container(
+                  color: const Color(0xFF0F172A),
+                  padding: const EdgeInsets.all(24),
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.wifi_off, size: 64, color: Color(0xFFEF4444)),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Unable to Connect',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Could not load workspace at $_serverUrl.\nVerify the server address or check your connection.',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 13, color: Colors.white70),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Error Details: $_errorMessage',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 11, color: Colors.white38, fontStyle: FontStyle.italic),
+                        ),
+                        const SizedBox(height: 24),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: _showSettingsDialog,
+                              icon: const Icon(Icons.settings),
+                              label: const Text('Change Server'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF6366F1),
+                                side: const BorderSide(color: Color(0xFF6366F1)),
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          ElevatedButton.icon(
-                            onPressed: () {
-                              setState(() {
-                                _isLoading = true;
-                                _hasError = false;
-                              });
-                              _webViewController?.loadUrl(
-                                urlRequest: URLRequest(url: WebUri(_serverUrl)),
-                              );
-                            },
-                            icon: const Icon(Icons.refresh),
-                            label: const Text('Retry Connection'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF6366F1),
-                              foregroundColor: Colors.white,
+                            const SizedBox(width: 12),
+                            ElevatedButton.icon(
+                              onPressed: () {
+                                setState(() {
+                                  _isLoading = true;
+                                  _hasError = false;
+                                });
+                                _webViewController?.loadUrl(
+                                  urlRequest: URLRequest(url: WebUri(_serverUrl)),
+                                );
+                              },
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('Retry Connection'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF6366F1),
+                                foregroundColor: Colors.white,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
 
-            // First-time Startup / Initial Loading Cover
-            if (_isLoading && _loadProgress == 0 && !_hasError)
-              Container(
-                color: const Color(0xFF0F172A),
-                child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        width: 72,
-                        height: 72,
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: LinearGradient(
-                            colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+              // First-time Startup / Initial Loading Cover (Splash screen)
+              if (_isFirstLoad)
+                Container(
+                  color: const Color(0xFF0F172A),
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Image.asset(
+                          'assets/images/gsvlogo.png',
+                          width: 120,
+                          height: 120,
+                          fit: BoxFit.contain,
+                        ),
+                        const SizedBox(height: 24),
+                        const Text(
+                          'GSV Office Node',
+                          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Establishing secure handshake...',
+                          style: TextStyle(fontSize: 13, color: Colors.white38),
+                        ),
+                        const SizedBox(height: 32),
+                        const SizedBox(
+                          width: 40,
+                          height: 40,
+                          child: CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
                           ),
                         ),
-                        child: const Icon(Icons.work, size: 36, color: Colors.white),
-                      ),
-                      const SizedBox(height: 24),
-                      const Text(
-                        'GSV Office Node',
-                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Establishing secure handshake...',
-                        style: TextStyle(fontSize: 13, color: Colors.white38),
-                      ),
-                      const SizedBox(height: 32),
-                      const SizedBox(
-                        width: 40,
-                        height: 40,
-                        child: CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );

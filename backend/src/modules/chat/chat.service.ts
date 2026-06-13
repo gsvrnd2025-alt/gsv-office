@@ -35,6 +35,28 @@ export class ChatService implements OnModuleInit {
     }
 
     try {
+      await this.dataSource.query(`
+        CREATE TABLE IF NOT EXISTS member_removal_requests (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+          target_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          requester_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          status VARCHAR(20) DEFAULT 'pending',
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `);
+      await this.dataSource.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_removal_requests 
+        ON member_removal_requests(conversation_id, target_user_id) 
+        WHERE status = 'pending';
+      `);
+      console.log('[ChatService] Verified member_removal_requests table exists.');
+    } catch (err) {
+      console.error('Error creating member_removal_requests table:', err);
+    }
+
+    try {
       // Ensure folder_id column exists on messages table
       await this.dataSource.query(`
         ALTER TABLE messages ADD COLUMN IF NOT EXISTS folder_id UUID REFERENCES folders(id) ON DELETE SET NULL;
@@ -387,6 +409,11 @@ export class ChatService implements OnModuleInit {
       LEFT JOIN folders fold ON fold.id = m.folder_id
       WHERE m.id = $1
       GROUP BY m.id, m.conversation_id, m.sender_id, m.content, m.file_id, m.folder_id, m.reply_to_id, m.created_at, m.deleted_at,
+             CASE
+               WHEN m.type::text = 'image' THEN 'photo'
+               WHEN m.type::text = 'audio' THEN 'music'
+               ELSE m.type::text
+             END,
              u.full_name, u.avatar_url, f.original_name, f.name, fold.name, f.mime_type, f.size, f.storage_url
     `, [msg.id]);
 
@@ -846,6 +873,137 @@ export class ChatService implements OnModuleInit {
           content: systemContent
         });
       }
+    } catch (e) {}
+
+    return { success: true };
+  }
+
+  async createRemovalRequest(conversationId: string, targetUserId: string, requesterId: string) {
+    // 1. Verify target is a member of the conversation
+    const [targetMember] = await this.dataSource.query(
+      `SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
+      [conversationId, targetUserId]
+    );
+    if (!targetMember) {
+      throw new Error('Target user is not a member of this conversation');
+    }
+
+    // 2. Verify requester is a member of the conversation
+    const [requesterMember] = await this.dataSource.query(
+      `SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
+      [conversationId, requesterId]
+    );
+    if (!requesterMember) {
+      throw new Error('Requester is not a member of this conversation');
+    }
+
+    if (requesterMember.role === 'admin') {
+      throw new Error('Admins can remove members directly without a request');
+    }
+
+    // 3. Insert the removal request
+    await this.dataSource.query(
+      `INSERT INTO member_removal_requests (conversation_id, target_user_id, requester_id, status)
+       VALUES ($1, $2, $3, 'pending')
+       ON CONFLICT (conversation_id, target_user_id) DO NOTHING`,
+      [conversationId, targetUserId, requesterId]
+    );
+
+    // Broadcast update to the group's admins so they see it in real-time
+    try {
+      const admins = await this.dataSource.query(
+        `SELECT user_id FROM conversation_members WHERE conversation_id = $1 AND role = 'admin'`,
+        [conversationId]
+      );
+      for (const admin of admins) {
+        this.chatGateway.emitToUser(admin.user_id, 'member_removal:request_created', {
+          conversationId,
+          targetUserId,
+          requesterId
+        });
+      }
+    } catch (e) {}
+
+    return { success: true };
+  }
+
+  async getRemovalRequests(conversationId: string) {
+    return this.dataSource.query(
+      `SELECT r.*,
+              u_req.full_name AS requester_name, u_req.avatar_url AS requester_avatar,
+              u_target.full_name AS target_name, u_target.avatar_url AS target_avatar
+       FROM member_removal_requests r
+       JOIN users u_req ON u_req.id = r.requester_id
+       JOIN users u_target ON u_target.id = r.target_user_id
+       WHERE r.conversation_id = $1 AND r.status = 'pending'`,
+      [conversationId]
+    );
+  }
+
+  async approveRemovalRequest(requestId: string, adminId: string) {
+    // Get the request
+    const [request] = await this.dataSource.query(
+      `SELECT * FROM member_removal_requests WHERE id = $1 AND status = 'pending'`,
+      [requestId]
+    );
+    if (!request) {
+      throw new Error('Removal request not found or not pending');
+    }
+
+    const { conversation_id: conversationId, target_user_id: targetUserId } = request;
+
+    // Verify adminId is admin of the conversation
+    const [adminMember] = await this.dataSource.query(
+      `SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
+      [conversationId, adminId]
+    );
+    if (!adminMember || adminMember.role !== 'admin') {
+      throw new Error('Only admins can approve removal requests');
+    }
+
+    // Update the request status
+    await this.dataSource.query(
+      `UPDATE member_removal_requests SET status = 'approved', updated_at = NOW() WHERE id = $1`,
+      [requestId]
+    );
+
+    // Call removeMember
+    return this.removeMember(conversationId, targetUserId, adminId);
+  }
+
+  async rejectRemovalRequest(requestId: string, adminId: string) {
+    // Get the request
+    const [request] = await this.dataSource.query(
+      `SELECT * FROM member_removal_requests WHERE id = $1 AND status = 'pending'`,
+      [requestId]
+    );
+    if (!request) {
+      throw new Error('Removal request not found or not pending');
+    }
+
+    const { conversation_id: conversationId } = request;
+
+    // Verify adminId is admin of the conversation
+    const [adminMember] = await this.dataSource.query(
+      `SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
+      [conversationId, adminId]
+    );
+    if (!adminMember || adminMember.role !== 'admin') {
+      throw new Error('Only admins can reject removal requests');
+    }
+
+    // Update request status to 'rejected'
+    await this.dataSource.query(
+      `UPDATE member_removal_requests SET status = 'rejected', updated_at = NOW() WHERE id = $1`,
+      [requestId]
+    );
+
+    // Broadcast rejected state to admins
+    try {
+      this.chatGateway.emitToUser(adminId, 'member_removal:request_rejected', {
+        requestId,
+        conversationId
+      });
     } catch (e) {}
 
     return { success: true };

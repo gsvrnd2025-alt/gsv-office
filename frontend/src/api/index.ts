@@ -121,6 +121,10 @@ export const chatApi = {
   rejectInvitation: (id: string) => api.post(`/chat/invitations/${id}/reject`),
   removeMember: (id: string, userId: string) => api.delete(`/chat/conversations/${id}/members/${userId}`),
   changeMemberRole: (id: string, userId: string, role: string) => api.post(`/chat/conversations/${id}/members/${userId}/role`, { role }),
+  createRemovalRequest: (id: string, targetUserId: string) => api.post(`/chat/conversations/${id}/remove-requests`, { targetUserId }),
+  getRemovalRequests: (id: string) => api.get(`/chat/conversations/${id}/remove-requests`),
+  approveRemovalRequest: (id: string, requestId: string) => api.post(`/chat/conversations/${id}/remove-requests/${requestId}/approve`),
+  rejectRemovalRequest: (id: string, requestId: string) => api.post(`/chat/conversations/${id}/remove-requests/${requestId}/reject`),
 };
 
 export const filesApi = {

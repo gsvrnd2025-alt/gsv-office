@@ -1993,6 +1993,50 @@ export default function ChatPage() {
   const currentUserMember = activeConv?.members?.find((m: any) => m.id === user?.id);
   const isCurrentUserAdmin = currentUserMember?.role === 'admin' || activeConv?.created_by === user?.id;
 
+  const { data: removalRequests = [], refetch: refetchRemovalRequests } = useQuery({
+    queryKey: ['removal-requests', conversationId],
+    queryFn: () => {
+      if (!conversationId || activeConv?.type !== 'group') return Promise.resolve([]);
+      return chatApi.getRemovalRequests(conversationId).then(r => r.data?.data || r.data || []);
+    },
+    refetchInterval: 5000,
+    enabled: !!conversationId && activeConv?.type === 'group',
+  });
+
+  const handleRequestRemoval = async (targetUserId: string, targetName: string) => {
+    if (!conversationId) return;
+    try {
+      await chatApi.createRemovalRequest(conversationId, targetUserId);
+      toast.success(`Sent request to remove ${targetName} from group.`);
+      refetchRemovalRequests();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || 'Failed to create removal request');
+    }
+  };
+
+  const handleApproveRemovalRequest = async (requestId: string) => {
+    if (!conversationId) return;
+    try {
+      await chatApi.approveRemovalRequest(conversationId, requestId);
+      toast.success('Removal request approved and user removed.');
+      refetchRemovalRequests();
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || 'Failed to approve removal request');
+    }
+  };
+
+  const handleRejectRemovalRequest = async (requestId: string) => {
+    if (!conversationId) return;
+    try {
+      await chatApi.rejectRemovalRequest(conversationId, requestId);
+      toast.success('Removal request rejected.');
+      refetchRemovalRequests();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || 'Failed to reject removal request');
+    }
+  };
+
   useEffect(() => {
     if (activeConv) {
       setEditGroupName(activeConv.name || '');
@@ -4452,6 +4496,43 @@ export default function ChatPage() {
                       </div>
                     </div>
 
+                    {/* Member Removal Requests (Admin only) */}
+                    {isCurrentUserAdmin && activeConv?.type === 'group' && removalRequests.length > 0 && (
+                      <div style={{ marginBottom: '16px', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '10px', background: 'var(--bg-secondary)' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--brand-danger)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
+                          ⚠️ Pending Member Removal Requests ({removalRequests.length})
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          {removalRequests.map((req: any) => (
+                            <div key={req.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '6px 0', borderBottom: '1px solid var(--border-color)' }}>
+                              <div style={{ fontSize: '11px', color: 'var(--text-primary)' }}>
+                                Request to remove <strong>{req.target_name}</strong>
+                              </div>
+                              <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+                                Requested by {req.requester_name}
+                              </div>
+                              <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+                                <button
+                                  className="btn btn-primary btn-xs"
+                                  style={{ flex: 1, height: '22px', fontSize: '9px', background: '#00a884', border: 'none' }}
+                                  onClick={() => handleApproveRemovalRequest(req.id)}
+                                >
+                                  Approve & Remove
+                                </button>
+                                <button
+                                  className="btn btn-secondary btn-xs danger"
+                                  style={{ flex: 1, height: '22px', fontSize: '9px' }}
+                                  onClick={() => handleRejectRemovalRequest(req.id)}
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Members list (Simulated or actual) */}
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
@@ -4509,6 +4590,30 @@ export default function ChatPage() {
                                 </div>
                               </div>
                               
+                              {/* Direct message and Call buttons */}
+                              {!isSelf && (
+                                <div style={{ display: 'flex', gap: '4px', marginRight: '6px' }}>
+                                  <button
+                                    type="button"
+                                    className="btn btn-ghost btn-icon btn-xs"
+                                    onClick={() => startDM(m)}
+                                    title={`Message ${m.fullName}`}
+                                    style={{ padding: 0, width: '20px', height: '20px', color: 'var(--brand-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                  >
+                                    <MessageSquare size={13} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn btn-ghost btn-icon btn-xs"
+                                    onClick={() => initiateCall && initiateCall(m.id, m.fullName, 'audio')}
+                                    title={`Call ${m.fullName}`}
+                                    style={{ padding: 0, width: '20px', height: '20px', color: 'var(--brand-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                  >
+                                    <Phone size={13} />
+                                  </button>
+                                </div>
+                              )}
+
                               {/* Admin actions */}
                               {isCurrentUserAdmin && activeConv?.type === 'group' && !isSelf && (
                                 <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
@@ -4562,6 +4667,32 @@ export default function ChatPage() {
                                     }}
                                   >
                                     {m.role === 'blocked' ? 'Unblock' : 'Block'}
+                                  </button>
+                                </div>
+                              )}
+
+                              {/* Non-admin Request Removal action */}
+                              {!isCurrentUserAdmin && activeConv?.type === 'group' && !isSelf && (
+                                <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                                  <button
+                                    type="button"
+                                    className="btn btn-ghost btn-xs text-danger"
+                                    style={{ fontSize: '10px', padding: '2px 4px', height: '20px', color: 'var(--brand-danger)' }}
+                                    onClick={() => {
+                                      setConfirmModal({
+                                        title: 'Request Member Removal?',
+                                        message: `Are you sure you want to request the removal of ${m.fullName} from this group? An admin will review your request.`,
+                                        iconType: 'info',
+                                        confirmText: 'Submit Request',
+                                        brandColor: 'var(--brand-danger)',
+                                        onConfirm: () => {
+                                          handleRequestRemoval(m.id, m.fullName);
+                                          setConfirmModal(null);
+                                        }
+                                      });
+                                    }}
+                                  >
+                                    Request Delete
                                   </button>
                                 </div>
                               )}

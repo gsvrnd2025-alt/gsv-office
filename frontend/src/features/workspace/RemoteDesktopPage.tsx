@@ -1063,10 +1063,27 @@ export default function RemoteDesktopPage() {
       addGlobalLog(`Auto-accepting incoming request from ${data.callerName} (${data.callerPhone})`, setTerminalLogs);
       setIncomingRequestData(data);
       
-      const timer = setTimeout(() => {
+      let timer: any = null;
+      const triggerAccept = () => {
         acceptRequest(data);
-      }, 500);
-      return () => clearTimeout(timer);
+      };
+
+      const onConnect = () => {
+        addGlobalLog('Signaling socket connected. Accepting request...', setTerminalLogs);
+        timer = setTimeout(triggerAccept, 500);
+      };
+
+      if (socket.connected) {
+        timer = setTimeout(triggerAccept, 500);
+      } else {
+        addGlobalLog('Signaling socket connecting... waiting to accept.', setTerminalLogs);
+        socket.once('connect', onConnect);
+      }
+      
+      return () => {
+        if (timer) clearTimeout(timer);
+        socket.off('connect', onConnect);
+      };
     }
   }, [location.state, socket, navigate]);
   const [iceServers, setIceServers] = useState<any[]>([

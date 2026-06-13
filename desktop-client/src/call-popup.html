@@ -90,6 +90,31 @@
       0%, 100% { transform: translateY(0); }
       50% { transform: translateY(-5px); }
     }
+    
+    /* Style for text-based remote desktop buttons */
+    .actions.remote-desktop {
+      gap: 12px;
+      width: 90%;
+    }
+    .actions.remote-desktop .btn {
+      width: auto;
+      height: 38px;
+      flex: 1;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: bold;
+      color: white;
+      text-transform: uppercase;
+      padding: 0 16px;
+      animation: none; /* remove bounce */
+    }
+    .actions.remote-desktop .btn-reject {
+      background: #ef4444;
+    }
+    .actions.remote-desktop .btn-accept {
+      background: #0ea5e9;
+      box-shadow: 0 4px 10px rgba(14, 165, 233, 0.3);
+    }
   </style>
 </head>
 <body>
@@ -114,16 +139,23 @@
       currentData = data;
       document.getElementById('callerName').textContent = data.callerName || 'Teammate';
       document.getElementById('avatar').textContent = (data.callerName || '?').charAt(0).toUpperCase();
+      const actionsEl = document.querySelector('.actions');
       if (data.type === 'remote-desktop') {
         document.getElementById('callType').textContent = `Incoming Remote Desktop Request...`;
-        document.getElementById('btnAccept').innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>`;
+        actionsEl.classList.add('remote-desktop');
+        document.getElementById('btnAccept').innerHTML = `Accept`;
         document.getElementById('btnAccept').title = "Accept Request";
+        document.getElementById('btnReject').innerHTML = `Reject`;
+        document.getElementById('btnReject').title = "Reject Request";
         document.getElementById('avatar').style.background = "linear-gradient(135deg, #0ea5e9, #3b82f6)";
         document.getElementById('avatar').style.boxShadow = "0 0 20px rgba(14, 165, 233, 0.4)";
       } else {
         document.getElementById('callType').textContent = `Incoming ${data.type === 'video' ? 'Video' : 'Voice'} Call...`;
+        actionsEl.classList.remove('remote-desktop');
         document.getElementById('btnAccept').innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>`;
         document.getElementById('btnAccept').title = "Accept Call";
+        document.getElementById('btnReject').innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="23" y1="1" x2="1" y2="23"/></svg>`;
+        document.getElementById('btnReject').title = "Reject Call";
       }
     });
 

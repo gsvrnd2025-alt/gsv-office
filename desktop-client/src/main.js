@@ -417,6 +417,31 @@ function createMainWindow(showWindow = true) {
     } catch (e) {}
   });
 
+  // Handle frame navigation (like link clicks inside a PDF iframe)
+  mainWindow.webContents.on('will-frame-navigate', (event) => {
+    try {
+      const url = event.url;
+      const targetUrl = new URL(url);
+      const serverUrl = new URL(config.serverUrl);
+      if (targetUrl.hostname !== serverUrl.hostname) {
+        event.preventDefault();
+        shell.openExternal(url);
+      }
+    } catch (e) {}
+  });
+
+  // Add right-click context menu (Cut, Copy, Paste, Select All)
+  mainWindow.webContents.on('context-menu', (event, params) => {
+    const contextMenu = Menu.buildFromTemplate([
+      { role: 'cut', label: 'Cut' },
+      { role: 'copy', label: 'Copy' },
+      { role: 'paste', label: 'Paste' },
+      { type: 'separator' },
+      { role: 'selectAll', label: 'Select All' }
+    ]);
+    contextMenu.popup({ window: mainWindow });
+  });
+
   // Handle new windows
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -993,6 +1018,24 @@ app.on('second-instance', (event, commandLine, workingDirectory) => {
 
 // ─── App Ready ────────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
+  // Setup application menu to enable standard keyboard shortcuts (Ctrl+C, Ctrl+V, etc.)
+  const template = [
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' }
+      ]
+    }
+  ];
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+
   // Create tray - try different icon formats
   const iconCandidates = ['icon-tray.png', 'icon.png', 'icon.ico'].map(assetPath);
   let trayImage = nativeImage.createEmpty();

@@ -107,6 +107,42 @@ export class ChatController {
     return this.svc.removeMember(id, userIdToRemove, userId);
   }
 
+  @Post('conversations/:id/remove-requests')
+  @RequirePermissions(['chat', 'send'])
+  createRemovalRequest(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('targetUserId', ParseUUIDPipe) targetUserId: string,
+    @CurrentUser('id') requesterId: string
+  ) {
+    return this.svc.createRemovalRequest(id, targetUserId, requesterId);
+  }
+
+  @Get('conversations/:id/remove-requests')
+  @RequirePermissions(['chat', 'read'])
+  getRemovalRequests(@Param('id', ParseUUIDPipe) id: string) {
+    return this.svc.getRemovalRequests(id);
+  }
+
+  @Post('conversations/:id/remove-requests/:requestId/approve')
+  @RequirePermissions(['chat', 'send'])
+  approveRemovalRequest(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('requestId', ParseUUIDPipe) requestId: string,
+    @CurrentUser('id') adminId: string
+  ) {
+    return this.svc.approveRemovalRequest(requestId, adminId);
+  }
+
+  @Post('conversations/:id/remove-requests/:requestId/reject')
+  @RequirePermissions(['chat', 'send'])
+  rejectRemovalRequest(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('requestId', ParseUUIDPipe) requestId: string,
+    @CurrentUser('id') adminId: string
+  ) {
+    return this.svc.rejectRemovalRequest(requestId, adminId);
+  }
+
   @Post('conversations/:id/members/:userId/role')
   @RequirePermissions(['chat', 'send'])
   changeMemberRole(
