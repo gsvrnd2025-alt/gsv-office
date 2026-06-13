@@ -43,6 +43,10 @@ export class InternshipController {
       console.log(`[InternshipController] Executing function "${functionName}" locally in PostgreSQL...`);
       return await this.executeLocalFunction(functionName, funcArgs);
     } catch (err: any) {
+      if (err.message && err.message.includes('not implemented locally')) {
+        console.log(`[InternshipController] Function "${functionName}" is not implemented locally. Proxying to Apps Script...`);
+        return this.proxyToAppsScript(functionName, funcArgs);
+      }
       console.error(`[InternshipController] Error executing local function "${functionName}":`, err.message);
       return {
         status: 'error',

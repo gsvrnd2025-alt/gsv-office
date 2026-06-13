@@ -10664,6 +10664,9 @@
         function loadDashboardStats(providedStats = null) {
             const container = document.getElementById('dashboardStats');
             if (providedStats) {
+                if (providedStats && typeof providedStats === 'object' && !providedStats.status) {
+                    providedStats.status = 'success';
+                }
                 renderDashboardStats(providedStats, container);
                 return;
             }
