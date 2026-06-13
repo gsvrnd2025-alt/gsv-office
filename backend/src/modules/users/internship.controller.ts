@@ -315,58 +315,7 @@ export class InternshipController {
         };
       }
 
-      case 'getAdminComprehensiveData': {
-        const studentsList = await this.getSheetDataAsObjects('Internship Registrations');
-        const attendance = await this.getSheetDataAsObjects('Attendance');
-        
-        const totalStudents = studentsList.length;
-        const activeStudents = studentsList.filter((s: any) => ['approved', 'active', 'assigned'].includes(String(s.ApplicationStatus || s.Status || '').toLowerCase())).length;
-        const pendingStudents = studentsList.filter((s: any) => String(s.ApplicationStatus || s.Status || '').toLowerCase() === 'pending').length;
 
-        // Attendance stats for today
-        const todayStr = new Date().toLocaleDateString('en-IN');
-        const todayAttendance = attendance.filter((a: any) => a.Date === todayStr);
-        const todayPresent = todayAttendance.filter((a: any) => String(a.Status).toLowerCase().includes('present') || String(a.Status).toLowerCase().includes('late')).length;
-
-        const stats = {
-          totalStudents,
-          activeStudents,
-          pendingStudents,
-          todayPresent
-        };
-
-        const notifications = await this.getSheetDataAsObjects('AdminNotifications');
-        
-        const settings: any = {};
-        const appSettingsRows = await this.getSheetDataAsObjects('AppSettings');
-        for (const s of appSettingsRows) {
-          if (s.SettingKey) settings[s.SettingKey] = s.SettingValue || '';
-        }
-
-        const switchStatus: any = {};
-        const switchStatusRows = await this.getSheetDataAsObjects('Switch_Status');
-        for (const s of switchStatusRows) {
-          if (s.SwitchKey) switchStatus[s.SwitchKey] = s.Status || false;
-        }
-
-        const templates = await this.getSheetDataAsObjects('EmailTemplates');
-        const batches = await this.getSheetDataAsObjects('Batches');
-        const recentActivity = await this.getSheetDataAsObjects('RecentActivityLog');
-        const applications = studentsList.filter((s: any) => !['completed', 'optout', 'deleted', 'rejected'].includes(String(s.ApplicationStatus || s.Status || '').toLowerCase()));
-
-        return {
-          status: 'success',
-          stats,
-          notifications: notifications.slice(0, 50),
-          settings,
-          switchStatus,
-          templates,
-          batches,
-          recentActivity: recentActivity.slice(0, 20),
-          applications,
-          students: studentsList
-        };
-      }
 
       case 'recordWebCheckin':
       case 'studentCheckin': {
