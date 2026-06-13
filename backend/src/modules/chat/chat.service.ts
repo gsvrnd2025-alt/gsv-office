@@ -347,7 +347,7 @@ export class ChatService implements OnModuleInit {
       for (const m of members) {
         await this.dataSource.query(
           `INSERT INTO file_shares (file_id, shared_by, shared_with_user_id, permission)
-           VALUES ($1, $2, $3, 'read') ON CONFLICT DO NOTHING`,
+           VALUES ($1, $2, $3, 'view') ON CONFLICT DO NOTHING`,
           [fileId, dto.senderId, m.user_id]
         );
       }

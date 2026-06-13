@@ -65,7 +65,7 @@ export class FilesController {
       storagePath: file.path,
       storageUrl: `/uploads/${file.filename}`,
       ownerId: userId,
-      folderId: dto.folderId,
+      folderId: dto?.folderId,
     });
   }
 
