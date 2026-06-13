@@ -435,6 +435,12 @@ export default function LoginPage() {
                 Create Account
               </Link>
             </p>
+            <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px', marginTop: '10px' }}>
+              Are you an intern?{' '}
+              <a href="/internship/index.html" style={{ color: '#8b5cf6', textDecoration: 'none', fontWeight: 600 }}>
+                Internship Student Portal
+              </a>
+            </p>
           </div>
         )}
       </div>

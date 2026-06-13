@@ -21479,6 +21479,25 @@ function doPost(e) {
     const postData = JSON.parse(e.postData.contents);
     const action = postData.action;
 
+    if (action === 'executeFunction') {
+      const funcName = postData.functionName;
+      const funcArgs = postData.arguments || [];
+      const globalObject = typeof globalThis !== 'undefined' ? globalThis : this;
+      if (typeof globalObject[funcName] === 'function') {
+        try {
+          const data = globalObject[funcName].apply(null, funcArgs);
+          return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: data }))
+            .setMimeType(ContentService.MimeType.JSON);
+        } catch (funcErr) {
+          return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: funcErr.toString() }))
+            .setMimeType(ContentService.MimeType.JSON);
+        }
+      } else {
+        return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Function not found on Apps Script: ' + funcName }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+
     if (action === 'sync' || action === 'sync_eoffice') {
       var ss = getOrCreateSpreadsheet();
       if (postData.users) syncUsers(ss, postData.users);
