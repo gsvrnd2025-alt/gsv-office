@@ -30,6 +30,8 @@ const PluginsPage = lazy(() => import('./features/plugins/PluginsPage'));
 const ServerPage = lazy(() => import('./features/server/ServerPage'));
 const ProfilePage = lazy(() => import('./features/profile/ProfilePage'));
 const DownloadsPage = lazy(() => import('./features/plugins/DownloadsPage'));
+const InternshipStudentPage = lazy(() => import('./features/internship/InternshipStudentPage'));
+const InternshipAdminPage = lazy(() => import('./features/internship/InternshipAdminPage'));
 
 function hasPermission(user: any, module: string, action: string): boolean {
   if (!user) return false;
@@ -256,6 +258,8 @@ export default function App() {
             <Route path="server" element={<PermittedRoute module="server" action="view"><ServerPage /></PermittedRoute>} />
             <Route path="profile" element={<ProfilePage />} />
             <Route path="downloads" element={<DownloadsPage />} />
+            <Route path="internship-student" element={<InternshipStudentPage />} />
+            <Route path="internship-admin" element={<PermittedRoute module="users" action="update"><InternshipAdminPage /></PermittedRoute>} />
           </Route>
 
           {/* 404 */}

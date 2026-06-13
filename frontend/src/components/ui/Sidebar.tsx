@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard, MessageSquare, FolderOpen, Ticket, Mail, Users,
   Shield, Receipt, Package, ShoppingCart, BarChart3, Puzzle, Server,
-  ChevronLeft, ChevronRight, LogOut, Settings, Inbox, HardDrive, Laptop, Monitor, Download
+  ChevronLeft, ChevronRight, LogOut, Settings, Inbox, HardDrive, Laptop, Monitor, Download,
+  GraduationCap
 } from 'lucide-react';
 import { useAuthStore } from '../../store/auth.store';
 import { authApi, usersApi } from '../../api';
@@ -30,6 +31,8 @@ const navItems: NavItem[] = [
   { to: '/tickets', icon: Ticket, label: 'Helpdesk', section: 'main', module: 'tickets', action: 'read' },
   { to: '/email', icon: Mail, label: 'Email', section: 'main', module: 'email', action: 'read' },
   { to: '/downloads', icon: Download, label: 'Downloads & App', section: 'main' },
+  { to: '/internship-student', icon: GraduationCap, label: 'Student Portal', section: 'internship' },
+  { to: '/internship-admin', icon: Shield, label: 'Internship Admin', section: 'internship', module: 'users', action: 'update' },
   { to: '/users', icon: Users, label: 'Users', section: 'admin', module: 'users', action: 'read' },
   { to: '/roles', icon: Shield, label: 'Roles & Access', section: 'admin', module: 'roles', action: 'read' },
   { to: '/requests', icon: Inbox, label: 'Requests', section: 'admin', module: 'users', action: 'update' },
@@ -44,6 +47,7 @@ const navItems: NavItem[] = [
 
 const sections: { key: string; label: string }[] = [
   { key: 'main', label: 'Workspace' },
+  { key: 'internship', label: 'Internship Portal' },
   { key: 'admin', label: 'Administration' },
   { key: 'business', label: 'Business' },
   { key: 'system', label: 'System' },
