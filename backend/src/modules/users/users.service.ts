@@ -463,7 +463,10 @@ export class UsersService implements OnApplicationBootstrap {
 
       return { success: true, message: 'Google Sheets synchronization completed successfully' };
     } catch (err: any) {
-      throw new BadRequestException(`Google Sheets Synchronization failed: ${err.message}`);
+      const msg = err.message?.startsWith('Google Sheets Synchronization failed:')
+        ? err.message
+        : `Google Sheets Synchronization failed: ${err.message}`;
+      throw new BadRequestException(msg);
     }
   }
 

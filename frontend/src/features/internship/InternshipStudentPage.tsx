@@ -6,7 +6,7 @@ export default function InternshipStudentPage() {
   const iframeUrl = '/internship/student.html';
 
   return (
-    <div className="h-100 w-100 d-flex flex-column animate-fade-in" style={{ height: 'calc(100vh - 120px)', minHeight: '80vh' }}>
+    <div className="w-100 d-flex flex-column animate-fade-in" style={{ flex: 1, minHeight: 0 }}>
       <div className="d-flex justify-content-between align-items-center mb-3">
         <div>
           <h2 style={{ fontSize: '22px', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
