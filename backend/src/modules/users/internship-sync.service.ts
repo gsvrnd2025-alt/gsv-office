@@ -211,6 +211,7 @@ export class InternshipSyncService implements OnApplicationBootstrap {
       this.logger.log('Internship portal synchronization completed successfully.');
     } catch (err: any) {
       this.logger.error(`Internship portal synchronization failed: ${err.message}`);
+      throw err;
     } finally {
       this.isSyncing = false;
     }
