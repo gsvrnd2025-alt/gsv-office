@@ -86,7 +86,27 @@ export class InternshipController {
         return { status: 'error', message: `Google Apps Script returned status ${response.status}` };
       }
 
-      return await response.json();
+      const responseText = await response.text();
+      let res: any;
+      try {
+        res = JSON.parse(responseText);
+      } catch (e) {
+        let errorMsg = 'Google Sheets connection failed: Unexpected response format from Google Apps Script (not valid JSON).';
+        if (responseText.includes('Script function not found: doPost')) {
+          errorMsg = 'Google Sheets connection failed: The Apps Script Web App deployment does not contain the doPost function. Please update your Web App deployment to the latest version in the Google Apps Script Editor.';
+        } else if (responseText.includes('You need permission') || responseText.includes('You need access') || responseText.includes('requesting_access')) {
+          errorMsg = 'Google Sheets connection failed: Access denied. Please ensure the Apps Script Web App is deployed with "Execute as: Me" and "Who has access: Anyone".';
+        } else if (responseText.includes('unable to open the file') || responseText.includes('Sorry, unable to open')) {
+          errorMsg = 'Google Sheets connection failed: Unable to open the Spreadsheet. Please check your Google Sheet link/permissions and ensure the Apps Script has access to it.';
+        } else {
+          const titleMatch = responseText.match(/<title>([\s\S]*?)<\/title>/i);
+          const title = titleMatch ? titleMatch[1].trim() : 'Error';
+          errorMsg += ` [Page Title: "${title}"] Preview: ${responseText.substring(0, 100).replace(/\s+/g, ' ')}...`;
+        }
+        return { status: 'error', message: errorMsg };
+      }
+
+      return res;
     } catch (err: any) {
       console.error(`[InternshipController] Proxy error:`, err.message);
       return { status: 'error', message: `Proxy failed: ${err.message}` };

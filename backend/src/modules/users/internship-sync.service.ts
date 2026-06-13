@@ -84,7 +84,26 @@ export class InternshipSyncService implements OnApplicationBootstrap {
         throw new Error(`Google Apps Script returned status ${response.status}`);
       }
 
-      const res = await response.json();
+      const responseText = await response.text();
+      let res: any;
+      try {
+        res = JSON.parse(responseText);
+      } catch (e) {
+        let errorMsg = 'Google Sheets Synchronization failed: Unexpected response format from Google Apps Script (not valid JSON).';
+        if (responseText.includes('Script function not found: doPost')) {
+          errorMsg = 'Google Sheets Synchronization failed: The Apps Script Web App deployment does not contain the doPost function. Please update your Web App deployment to the latest version in the Google Apps Script Editor.';
+        } else if (responseText.includes('You need permission') || responseText.includes('You need access') || responseText.includes('requesting_access')) {
+          errorMsg = 'Google Sheets Synchronization failed: Access denied. Please ensure the Apps Script Web App is deployed with "Execute as: Me" and "Who has access: Anyone".';
+        } else if (responseText.includes('unable to open the file') || responseText.includes('Sorry, unable to open')) {
+          errorMsg = 'Google Sheets Synchronization failed: Unable to open the Spreadsheet. Please check your Google Sheet link/permissions and ensure the Apps Script has access to it.';
+        } else {
+          const titleMatch = responseText.match(/<title>([\s\S]*?)<\/title>/i);
+          const title = titleMatch ? titleMatch[1].trim() : 'Error';
+          errorMsg += ` [Page Title: "${title}"] Preview: ${responseText.substring(0, 100).replace(/\s+/g, ' ')}...`;
+        }
+        throw new Error(errorMsg);
+      }
+
       if (res.status === 'error') {
         throw new Error(res.message || 'Sync failed on Apps Script');
       }
