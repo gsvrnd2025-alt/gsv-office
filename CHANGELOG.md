@@ -1,3 +1,21 @@
+## Release v1.0.33 (2026-06-13)
+
+2601e74 Improve Google Sheets sync response parsing and error handling
+a420f9b chore(release): bump version to v1.0.32 [skip ci]
+1e6f21a feat: fix google.script.run shims, implement real backend resolvers, add manual sync settings, and add pull-to-refresh on mobile client
+083cb47 chore(release): bump version to v1.0.31 [skip ci]
+5305e1d feat: serve internship portal HTML pages locally with google.script.run proxy shims
+64de167 chore(release): bump version to v1.0.30 [skip ci]
+31c482a feat: integrate student and admin portal submenus in e-office sidebar
+143842c chore(release): bump version to v1.0.29 [skip ci]
+8ba0798 feat: integrate internship portal and background sync schedule
+c8eafe0 chore(release): bump version to v1.0.28 [skip ci]
+af18d44 Merge branch 'main' of https://github.com/gsvrnd2025-alt/gsv-office
+a4e7903 fix: resolve 500 error when sending file note in chat
+3ad450f chore(release): bump version to v1.0.27 [skip ci]
+9de78cf test: fix widget test app class name to match GSVOfficeApp
+534edb2 fix: chat SQL GROUP BY bug, group member removal workflows, desktop shortcuts & context menu, mobile Safearea layout & logo splash
+
 ## Release v1.0.32 (2026-06-13)
 
 1e6f21a feat: fix google.script.run shims, implement real backend resolvers, add manual sync settings, and add pull-to-refresh on mobile client
