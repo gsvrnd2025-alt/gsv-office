@@ -13,11 +13,16 @@ export class WebrtcController {
   constructor(private config: ConfigService, private dataSource: DataSource) {}
   @Get('config') getConfig() {
     return {
-      iceServers: [{
-        urls: [`turn:${this.config.get('TURN_SERVER', 'localhost')}:${this.config.get('TURN_PORT', '3478')}`],
-        username: this.config.get('TURN_USERNAME', 'gsv_turn'),
-        credential: this.config.get('TURN_PASSWORD', 'turn_password'),
-      }],
+      iceServers: [
+        {
+          urls: [`turn:${this.config.get('TURN_SERVER', 'localhost')}:${this.config.get('TURN_PORT', '3478')}`],
+          username: this.config.get('TURN_USERNAME', 'gsv_turn'),
+          credential: this.config.get('TURN_PASSWORD', 'turn_password'),
+        },
+        // Always include public STUN as fallback for direct P2P on same LAN
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+      ],
     };
   }
 

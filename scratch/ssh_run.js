@@ -1,9 +1,9 @@
-const { Client } = require('ssh2');
+const { Client } = require('../backend/node_modules/ssh2');
 
 const conn = new Client();
 conn.on('ready', () => {
   console.log('SSH Connection Ready!');
-  conn.exec('cat /mnt/GSVR_Movies/apps/gsv-office/docker-compose.yml', (err, stream) => {
+  conn.exec('docker logs --tail 30 gsv_api', (err, stream) => {
     if (err) throw err;
     stream.on('close', (code, signal) => {
       console.log('Stream :: close :: code: ' + code + ', signal: ' + signal);

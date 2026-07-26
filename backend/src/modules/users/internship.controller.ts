@@ -1,4 +1,4 @@
-import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, HttpStatus, Delete } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/public.decorator';
 import { UsersService } from './users.service';
@@ -11,6 +11,15 @@ export class InternshipController {
     private usersService: UsersService,
     private syncService: InternshipSyncService
   ) {}
+
+  @Public()
+  @Delete('wipe-local-data')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Wipe all local internship portal tables and trigger a fresh full sync' })
+  async wipeLocalData() {
+    console.log('[InternshipController] Wiping local data and triggering fresh sync...');
+    return await this.syncService.wipeAndResync();
+  }
 
   @Public()
   @Post('run')
@@ -71,7 +80,7 @@ export class InternshipController {
         if (altDeployResult.length > 0) deploymentId = altDeployResult[0].value;
       }
 
-      let syncUrl = 'https://script.google.com/macros/s/AKfycbw6pAarz91qhP5HfTgnustbqF8ftTEpRV0Y03AuwaLRfzoILd3HIeVez0AqerATPyE8/exec';
+      let syncUrl = 'https://script.google.com/macros/s/AKfycbxvPlPHaajzeUdf8JqzPBe_5n7vswC18RPv1N9rwprjf1w6k-4slmE2aCzjDgDRsoIGDw/exec';
       if (deploymentId && deploymentId.trim() !== '') {
         syncUrl = `https://script.google.com/macros/s/${deploymentId.trim()}/exec`;
       }
@@ -262,12 +271,35 @@ export class InternshipController {
         const allFiles = await this.getSheetDataAsObjects('FileManager');
         const files = allFiles.filter((f: any) => String(f.StudentRegistrationID).toUpperCase() === regIdUpper);
 
+        const allGenDocs = await this.getSheetDataAsObjects('GeneratedDocuments');
+        const genDocs = allGenDocs.filter((d: any) => String(d.StudentRegistrationID).toUpperCase() === regIdUpper);
+
+        const filesMapped = [
+          ...files.map((f: any) => ({
+            id: f.FileID || '',
+            name: f.FileName || '',
+            url: f.FileUrl || '',
+            type: f.DocType || 'Upload',
+            date: f.UploadDate || '',
+            size: f.FileSize || 0
+          })),
+          ...genDocs.map((d: any) => ({
+            id: d.PdfFileId || '',
+            name: `${d.DocType || 'Document'}_${d.ReferenceNumber || 'Manual'}.pdf`,
+            url: d.DocUrl || (d.PdfFileId ? `https://drive.google.com/uc?export=view&id=${d.PdfFileId}` : ''),
+            type: d.DocType || 'Generated',
+            date: d.GeneratedDate || '',
+            size: 0,
+            isMandatory: true
+          }))
+        ];
+
         const presentCount = attendance.filter((a: any) => String(a.Status).toLowerCase().includes('present') || String(a.Status).toLowerCase().includes('late')).length;
         const absentCount = attendance.filter((a: any) => String(a.Status).toLowerCase().includes('absent')).length;
         const totalDays = attendance.length;
         const attPercentage = totalDays > 0 ? Math.round((presentCount / totalDays) * 100) : 0;
 
-        return {
+        const details = {
           registrationId: student.RegistrationID,
           name: `${student.FirstName || ''} ${student.LastName || ''}`.trim(),
           firstName: student.FirstName || '',
@@ -287,25 +319,38 @@ export class InternshipController {
           status: String(student.ApplicationStatus || student.Status || '').toLowerCase(),
           startDate: student.InternshipStartDate || '',
           endDate: student.InternshipEndDate || '',
+          InternshipStartDate: student.InternshipStartDate || '',
+          InternshipEndDate: student.InternshipEndDate || '',
+          internshipStart: student.InternshipStartDate || '',
+          internshipEnd: student.InternshipEndDate || '',
+          rawInternshipStart: student.InternshipStartDate || '',
+          rawInternshipEnd: student.InternshipEndDate || '',
           educationType: student.EducationType || '',
           semester: student.Semester || '',
           durationDays: student.DurationDays || 0,
           lastLogin: student.LastLogin || '',
           profilePhotoUrl: student.ProfilePhotoUrl || '',
-          rfidTag: student.RFID_TagID || '',
-          attendance: attendance,
-          tasks: tasks,
-          projects: projects,
+          rfidTag: student.RFID_TagID || ''
+        };
+
+        const certMapped = certificate ? {
+          CertificateNumber: certificate.CertificateNumber,
+          IssuedDate: certificate.IssuedDate,
+          Status: certificate.Status || 'Issued',
+          Link: certificate.CertificatePdfId || ''
+        } : null;
+
+        return {
+          status: 'success',
+          details,
+          tasks,
+          projects,
+          attendance,
           diary: { status: 'success', diary: diaryMap },
-          certificate: certificate ? {
-            CertificateNumber: certificate.CertificateNumber,
-            IssuedDate: certificate.IssuedDate,
-            Status: certificate.Status || 'Issued',
-            Link: certificate.CertificatePdfId || ''
-          } : null,
-          notifications: notifications,
-          attendanceRequests: attendanceRequests,
-          files: files,
+          certificate: certMapped,
+          notifications,
+          attendanceRequests,
+          files: filesMapped,
           summary: {
             totalDays,
             presentCounter: presentCount,
@@ -593,6 +638,282 @@ export class InternshipController {
         console.log('[InternshipController] Manual sync triggered from Admin Panel.');
         await this.syncService.syncInternshipData();
         return { status: 'success', message: 'Synchronization with Google Sheets completed successfully!' };
+      }
+
+      case 'getAllStudents': {
+        const students = await this.getSheetDataAsObjects('Internship Registrations');
+        const mapped = students.map((s: any) => ({
+          registrationId: s.RegistrationID || '',
+          name: s.Name || `${s.FirstName || ''} ${s.LastName || ''}`.trim() || '',
+          firstName: s.FirstName || '',
+          middleName: s.MiddleName || '',
+          lastName: s.LastName || '',
+          gmail: s.GmailID || '',
+          batch: s.Batch || '',
+          college: s.CollegeName || '',
+          department: s.Department || '',
+          mobile: s.MobileNumber || '',
+          registerNumber: s.RegisterNumber || '',
+          year: s.Year || '',
+          semester: s.Semester || '',
+          status: s.ApplicationStatus || s.Status || 'Pending',
+          appliedDate: s.Timestamp || '',
+          InternshipStartDate: s.InternshipStartDate || '',
+          InternshipEndDate: s.InternshipEndDate || '',
+          internshipStart: s.InternshipStartDate || '',
+          internshipEnd: s.InternshipEndDate || '',
+          rawInternshipStart: s.InternshipStartDate || '',
+          rawInternshipEnd: s.InternshipEndDate || '',
+          profilePhotoUrl: s.ProfilePhotoUrl || '',
+          rfidTag: s.RFID_TagID || ''
+        }));
+        return { status: 'success', data: mapped };
+      }
+
+      case 'getDashboardStats': {
+        const allStudentsSt = await this.getSheetDataAsObjects('Internship Registrations');
+        const allAttSt = await this.getSheetDataAsObjects('Attendance');
+        const allTasksSt = await this.getSheetDataAsObjects('Tasks');
+        const allReqSt = await this.getSheetDataAsObjects('StudentRequests');
+        const allCerts = await this.getSheetDataAsObjects('Certificate Data');
+        const allBatches = await this.getSheetDataAsObjects('Batches');
+
+        const approved = allStudentsSt.filter((s: any) => String(s.ApplicationStatus || s.Status || '').toLowerCase() === 'approved').length;
+        const pending = allStudentsSt.filter((s: any) => {
+          const st = String(s.ApplicationStatus || s.Status || '').toLowerCase();
+          return st === 'pending' || st === 'submitted' || st === '';
+        }).length;
+        const rejected = allStudentsSt.filter((s: any) => {
+          const st = String(s.ApplicationStatus || s.Status || '').toLowerCase();
+          return st === 'rejected' || st === 'opt-out' || st === 'optout';
+        }).length;
+        const completed = allStudentsSt.filter((s: any) => String(s.ApplicationStatus || s.Status || '').toLowerCase() === 'completed').length;
+
+        let certificatesIssued = allCerts.filter((c: any) => String(c.Status || '').toLowerCase() === 'issued').length;
+        let certificatesPending = allCerts.length - certificatesIssued;
+
+        const todayStr = new Date().toLocaleDateString('en-IN');
+        const presentToday = allAttSt.filter((a: any) => a.Date === todayStr && String(a.Status || '').toLowerCase() === 'present').length;
+        const absentToday = allAttSt.filter((a: any) => a.Date === todayStr && String(a.Status || '').toLowerCase() === 'absent').length;
+        const odToday = allAttSt.filter((a: any) => a.Date === todayStr && (String(a.Status || '').toLowerCase() === 'od' || String(a.Status || '').toLowerCase().includes('on duty'))).length;
+
+        const isPending = (status: string) => {
+          if (!status) return false;
+          const str = status.toLowerCase();
+          return str.includes('pending') && !str.includes('awaiting');
+        };
+        const pendingRequests = allReqSt.filter((r: any) => isPending(r.Status));
+
+        const applicationStatus = { Approved: approved, Pending: pending, Rejected: rejected, Completed: completed };
+
+        return {
+          status: 'success',
+          totalStudents: allStudentsSt.length,
+          approved,
+          pending,
+          rejected,
+          completed,
+          certificatesIssued,
+          certificatesPending,
+          totalBatches: allBatches.length,
+          presentToday,
+          absentToday,
+          odToday,
+          pendingRequestsTotal: pendingRequests.length,
+          applicationStatusChart: applicationStatus,
+          weeklyAttendance: { labels: [], datasets: [] }
+        };
+      }
+
+      case 'getPendingAttendanceDetails': {
+        const allRequests = await this.getSheetDataAsObjects('StudentRequests');
+        const isPending = (status: string) => {
+          if (!status) return false;
+          const str = status.toLowerCase();
+          return str.includes('pending') && !str.includes('awaiting');
+        };
+
+        const manualEntries: any[] = [];
+        const corrections = allRequests.filter((r: any) => isPending(r.Status) && ['Correction', 'TodayMark', 'WFH', 'WFH Request', 'Emergency Leave', 'Sick Leave', 'Leave'].includes(r.RequestType));
+        const diaryRequests = allRequests.filter((r: any) => isPending(r.Status) && r.RequestType === 'DiaryCorrection');
+        const graceRequests = allRequests.filter((r: any) => isPending(r.Status) && r.RequestType === 'GracePeriod');
+        const accessRequests = allRequests.filter((r: any) => isPending(r.Status) && r.RequestType === 'AccessRequest');
+        const docReplacements = allRequests.filter((r: any) => isPending(r.Status) && r.RequestType === 'DocReplacement');
+        const newRequests = allRequests.filter((r: any) => isPending(r.Status) && r.RequestType === 'AttendanceRequest');
+
+        const totalPending = manualEntries.length + corrections.length + diaryRequests.length + graceRequests.length + accessRequests.length + docReplacements.length + newRequests.length;
+
+        return {
+          status: 'success',
+          manualEntries,
+          corrections,
+          diaryRequests,
+          graceRequests,
+          accessRequests,
+          docReplacements,
+          recentHistory: [],
+          newRequests,
+          totalPending
+        };
+      }
+
+      // --- Admin Dashboard missing functions ---
+      case 'getAdminComprehensiveData': {
+        const stats = await this.executeLocalFunction('getDashboardStats', []);
+        
+        const profile = { 
+          name: "Admin", email: "admin@gsv.ac.in", role: "Super Admin", lastLogin: new Date().toISOString() 
+        }; 
+        
+        const allNotifications = await this.getSheetDataAsObjects('AdminNotifications');
+        const notifications = allNotifications.sort((a: any, b: any) => new Date(b.Timestamp).getTime() - new Date(a.Timestamp).getTime()).slice(0, 100);
+
+        const settingsRes = await this.executeLocalFunction('getAppSettings', []);
+        const settings = settingsRes && settingsRes.status === 'success' ? settingsRes.settings : {};
+
+        const switchStatusRes = await this.executeLocalFunction('getAllSwitchStatuses', []);
+        const switchStatus = switchStatusRes && switchStatusRes.status === 'success' ? switchStatusRes.data : {};
+
+        const templatesRes = await this.executeLocalFunction('getEmailTemplates', []);
+        const templates = templatesRes && templatesRes.status === 'success' ? templatesRes.templates : [];
+
+        const batchesRes = await this.executeLocalFunction('getBatches', []);
+        const batches = batchesRes && batchesRes.status === 'success' ? batchesRes.batches : [];
+
+        const recentActivityRes = await this.executeLocalFunction('getRecentActivity', []);
+        const recentActivity = recentActivityRes && recentActivityRes.status === 'success' ? recentActivityRes.activity : [];
+
+        const applications = await this.getSheetDataAsObjects('Internship Registrations');
+
+        const allStudentsRes = await this.executeLocalFunction('getAllStudents', []);
+        const students = allStudentsRes && allStudentsRes.status === 'success' ? allStudentsRes.students : [];
+
+        return {
+          status: 'success',
+          stats,
+          profile,
+          notifications,
+          settings,
+          switchStatus,
+          templates,
+          batches,
+          recentActivity,
+          applications,
+          students
+        };
+      }
+
+      case 'getAdminProfile': {
+        return { 
+          name: "Admin", email: "admin@gsv.ac.in", role: "Super Admin", lastLogin: new Date().toISOString() 
+        };
+      }
+
+      case 'getApplications': {
+        return await this.getSheetDataAsObjects('Internship Registrations');
+      }
+
+      case 'getAdminNotifications': {
+        const allNotifications = await this.getSheetDataAsObjects('AdminNotifications');
+        return allNotifications.sort((a: any, b: any) => new Date(b.Timestamp).getTime() - new Date(a.Timestamp).getTime());
+      }
+
+      case 'getAllTasks': {
+        return await this.getSheetDataAsObjects('Tasks');
+      }
+
+      case 'getAllProjects': {
+        return await this.getSheetDataAsObjects('Projects');
+      }
+
+      case 'getAdvancedDiaryData': {
+        const allDiary = await this.getSheetDataAsObjects('StudentDiary');
+        return allDiary;
+      }
+
+      case 'getAllAttendanceRequests': {
+        return await this.getSheetDataAsObjects('StudentRequests');
+      }
+
+      case 'getAllNoticesCirculars': {
+        const notices = await this.getSheetDataAsObjects('NoticesCirculars');
+        return { status: 'success', notices };
+      }
+
+      case 'getRfidInventory': {
+        return await this.getSheetDataAsObjects('RFID_Inventory');
+      }
+      
+      case 'getStudentFullData':
+      case 'getStudentDetails_': {
+        const [regId] = funcArgs;
+        return await this.executeLocalFunction('getStudentComprehensiveProfile', [regId]);
+      }
+
+      case 'getBatchDetails': {
+        const [batchName] = funcArgs;
+        const allBatches = await this.getSheetDataAsObjects('Batches');
+        const batch = allBatches.find((b: any) => b.BatchName === batchName);
+        if (!batch) return { status: 'error', message: 'Batch not found' };
+        
+        const registrations = await this.getSheetDataAsObjects('Internship Registrations');
+        const students = registrations.filter((s: any) => s.Batch === batchName).map((s: any) => ({
+            name: `${s.FirstName || ''} ${s.LastName || ''}`.trim(),
+            registrationId: s.RegistrationID,
+            email: s.GmailID,
+            phone: s.MobileNumber,
+            status: s.ApplicationStatus || s.Status || 'Active'
+        }));
+        return { status: 'success', batch, students };
+      }
+
+      // --- Student Dashboard missing functions ---
+      case 'getStudentTasksInternal':
+      case 'getStudentTasks': {
+        const [regId] = funcArgs;
+        const tasks = await this.getSheetDataAsObjects('Tasks');
+        return tasks.filter((t: any) => String(t.StudentRegistrationID).toUpperCase() === String(regId).toUpperCase());
+      }
+
+      case 'getStudentProjects': {
+        const [regId] = funcArgs;
+        const projects = await this.getSheetDataAsObjects('Projects');
+        return projects.filter((p: any) => String(p.StudentRegistrationID).toUpperCase() === String(regId).toUpperCase());
+      }
+
+      case 'getStudentAttendance': {
+        const [regId] = funcArgs;
+        const attendance = await this.getSheetDataAsObjects('Attendance');
+        return attendance.filter((a: any) => String(a.StudentRegistrationID).toUpperCase() === String(regId).toUpperCase());
+      }
+
+      case 'getStudentDashboardDiaryData': {
+        const [regId] = funcArgs;
+        const diary = await this.getSheetDataAsObjects('StudentDiary');
+        return diary.filter((d: any) => String(d.StudentRegistrationID).toUpperCase() === String(regId).toUpperCase());
+      }
+
+      case 'getStudentNotifications': {
+        const [regId] = funcArgs;
+        const notifs = await this.getSheetDataAsObjects('Notifications');
+        return notifs.filter((n: any) => String(n.StudentRegistrationID).toUpperCase() === String(regId).toUpperCase() || n.StudentRegistrationID === 'ALL');
+      }
+
+      case 'getStudentOtpDetails': {
+        const [regId] = funcArgs;
+        const otps = await this.getSheetDataAsObjects('AttendanceOTP');
+        const studentOtps = otps.filter((o: any) => String(o.StudentRegistrationID).toUpperCase() === String(regId).toUpperCase());
+        const active = studentOtps.filter((o: any) => o.Status === 'Active');
+        if (active.length > 0) {
+            return { status: 'success', otp: active[0].OTP, expiryTime: active[0].ExpiryTime };
+        }
+        return { status: 'success', otp: null, message: 'No active OTP' };
+      }
+
+      case 'getStudentNoticesCirculars': {
+        const notices = await this.getSheetDataAsObjects('NoticesCirculars');
+        const published = notices.filter((n: any) => n.Status === 'Published' && (n.TargetAudience === 'All' || n.TargetAudience === 'Students'));
+        return { status: 'success', notices: published };
       }
 
       default: {

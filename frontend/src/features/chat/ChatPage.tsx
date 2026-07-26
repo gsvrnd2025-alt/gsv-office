@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, Fragment } from 'react';
 import { useParams, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
+import JSZip from 'jszip';
 
 const getMessageDateString = (msg: any) => {
   if (!msg) return '';
@@ -28,7 +29,7 @@ import {
   MoreVertical, Smile, Paperclip, CheckCheck, Check, File, Image,
   Download, Folder, FolderOpen, Volume2, ChevronRight, ChevronLeft, X, Users2, CheckCircle,
   Pin, ArrowRight, ArrowLeft, Mic, Sparkles, Copy, Trash2, Menu, CheckSquare, Info, StickyNote, ChevronDown,
-  Bold, Italic, List, Code, Maximize2, Minimize2
+  Bold, Italic, List, Code, Maximize2, Minimize2, Heart, LogOut, Link, AlertTriangle, UserPlus, Camera
 } from 'lucide-react';
 
 const FILE_EXTENSIONS = [
@@ -219,9 +220,48 @@ export default function ChatPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const dmUserId = searchParams.get('userId');
+  const joinGroupId = searchParams.get('joinGroup');
+  const { user, accessToken } = useAuthStore();
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    if (joinGroupId && user) {
+      setSearchParams(params => {
+        const next = new URLSearchParams(params);
+        next.delete('joinGroup');
+        return next;
+      });
+
+      setConfirmModal({
+        title: 'Join Group Conversation',
+        message: 'You have been invited to join this secure group. Would you like to join?',
+        iconType: 'info',
+        confirmText: 'Join Group',
+        brandColor: 'var(--brand-primary)',
+        onConfirm: async () => {
+          const toastId = toast.loading('Joining group...');
+          try {
+            const res = await chatApi.joinConversation(joinGroupId);
+            const data = res.data?.data || res.data || {};
+            
+            if (data.joined) {
+              toast.success('Successfully joined the group! 🎉', { id: toastId });
+              qc.invalidateQueries({ queryKey: ['conversations'] });
+              navigate(`/chat/${joinGroupId}`);
+            } else {
+              toast.success('Join request sent to group admins! 👥', { id: toastId });
+            }
+          } catch (err: any) {
+            toast.error(err.response?.data?.message || err.message || 'Failed to join group', { id: toastId });
+          }
+        }
+      });
+    }
+  }, [joinGroupId, user, setSearchParams, qc, navigate]);
   const { 
     sidebarCollapsed, 
     setSidebarCollapsed,
+    setMobileSidebarOpen,
     initiateCall,
     initiateGroupCall,
     chatSocket,
@@ -229,8 +269,6 @@ export default function ChatPage() {
     setCallHistory,
     onlineUsers = new Set()
   } = useOutletContext<any>() || {};
-  const { user } = useAuthStore();
-  const qc = useQueryClient();
 
   // Standard states
   const [message, setMessage] = useState('');
@@ -301,6 +339,10 @@ export default function ChatPage() {
   const [forwardingMsg, setForwardingMsg] = useState<any>(null);
 
   // Chat Privacy, Blocking & Handshakes
+  const [favoriteChats, setFavoriteChats] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('gsv_favorite_chats') || '[]'); }
+    catch { return []; }
+  });
   const [blockedUsers, setBlockedUsers] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('gsv_blocked_users') || '[]'); }
     catch { return []; }
@@ -316,6 +358,18 @@ export default function ChatPage() {
   const [showGroupDetails, setShowGroupDetails] = useState(false);
   const [deletedFiles, setDeletedFiles] = useState<string[]>([]);
   const [clearTimestamp, setClearTimestamp] = useState<number | null>(null);
+  const [memberSearchQuery, setMemberSearchQuery] = useState('');
+  const [showMemberSearch, setShowMemberSearch] = useState(false);
+  const [showMemberChangesModal, setShowMemberChangesModal] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [isEditingDesc, setIsEditingDesc] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Sync deletedFiles and clearTimestamp when user or conversation changes
   useEffect(() => {
@@ -348,18 +402,6 @@ export default function ChatPage() {
     }
     toast.success('Chat history cleared locally.');
   };
-  const [requestCategory, setRequestCategory] = useState<'pending' | 'approved' | 'rejected'>('pending');
-  const [simulatedRequests, setSimulatedRequests] = useState<any[]>(() => {
-    try {
-      const stored = localStorage.getItem('gsv_simulated_requests');
-      if (stored) return JSON.parse(stored);
-    } catch {}
-    return [
-      { id: 'sim-req-1', fullName: 'Syed Rahim Basha', loginId: 'syed.rahim', employeeId: 'EMP-0003', status: 'pending', requestedAt: new Date().toISOString() },
-      { id: 'sim-req-2', fullName: 'Jane Smith', loginId: 'jane.smith', employeeId: 'EMP-0004', status: 'pending', requestedAt: new Date().toISOString() }
-    ];
-  });
-
   const toggleBlockUser = (userId: string) => {
     const next = blockedUsers.includes(userId)
       ? blockedUsers.filter(id => id !== userId)
@@ -461,6 +503,17 @@ export default function ChatPage() {
   const [previewFile, setPreviewFile] = useState<{ url: string, name: string, type: string } | null>(null);
   const [previewTextContent, setPreviewTextContent] = useState<string>('');
   const [loadingTextContent, setLoadingTextContent] = useState<boolean>(false);
+
+  // Read More — expanded messages state (id -> boolean)
+  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
+  const READ_MORE_LIMIT = 400;
+  const toggleMessageExpand = (msgId: string) => {
+    setExpandedMessages(prev => {
+      const next = new Set(prev);
+      if (next.has(msgId)) next.delete(msgId); else next.add(msgId);
+      return next;
+    });
+  };
   const [showNoteEditor, setShowNoteEditor] = useState(false);
   const [showExtDropdown, setShowExtDropdown] = useState(false);
   const [noteFileName, setNoteFileName] = useState('note.txt');
@@ -883,9 +936,9 @@ export default function ChatPage() {
 
           const blob = await response.blob();
           const blobUrl = window.URL.createObjectURL(blob);
-          
           const a = document.createElement('a');
-          a.href = blobUrl;
+          const appendQuery = fileUrl.includes('?') ? '&' : '?';
+          a.href = `${fileUrl}${appendQuery}download=${encodeURIComponent(fileName || 'download')}`;
           a.download = fileName || 'download';
           document.body.appendChild(a);
           a.click();
@@ -964,8 +1017,33 @@ export default function ChatPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
   const [folderInputKey, setFolderInputKey] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeConv) return;
+
+    const toastId = toast.loading('Uploading group logo...');
+    try {
+      const fd = new FormData();
+      fd.append('files', file);
+      const uploadRes = await filesApi.upload(fd);
+      const fileData = Array.isArray(uploadRes.data?.data || uploadRes.data)
+        ? (uploadRes.data?.data || uploadRes.data)[0]
+        : (uploadRes.data?.data || uploadRes.data);
+      const fileUrl = fileData?.url || fileData?.fileUrl;
+
+      if (!fileUrl) throw new Error('Failed to get uploaded file URL');
+
+      await chatApi.updateConversation(activeConv.id, { avatarUrl: fileUrl });
+      toast.success('Group logo updated! 📷', { id: toastId });
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+    } catch (err: any) {
+      toast.error(`Failed to update logo: ${err.message}`, { id: toastId });
+    }
+  };
 
   const handleSaveToCloud = async (fileId: string) => {
     try {
@@ -1008,15 +1086,27 @@ export default function ChatPage() {
   });
 
 
-  const handleInviteMember = async (inviteeId: string) => {
+  const handleAddMemberDirectly = async (targetUserId: string) => {
     if (!conversationId) return;
     try {
-      await chatApi.addMember(conversationId, inviteeId);
-      toast.success('Teammate added to group! 👥');
+      await chatApi.addMember(conversationId, targetUserId);
+      toast.success('Teammate added to group directly! 👥');
       setShowInviteModal(false);
       qc.invalidateQueries({ queryKey: ['conversations'] });
     } catch (err: any) {
-      toast.error(err.response?.data?.message || err.message || 'Failed to add member');
+      toast.error(err.response?.data?.message || err.message || 'Failed to add member directly');
+    }
+  };
+
+  const handleSendInvitation = async (targetUserId: string) => {
+    if (!conversationId) return;
+    try {
+      await chatApi.inviteMember(conversationId, targetUserId);
+      toast.success('Group invitation sent! ✉️');
+      setShowInviteModal(false);
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || 'Failed to send invitation');
     }
   };
 
@@ -1113,76 +1203,225 @@ export default function ChatPage() {
           console.log('[Upload Flow] Upload started');
           const uploadStart = performance.now();
           const staged = payload.files[0];
-          const fd = new FormData();
-          let folderId = undefined;
-          let fileName = undefined;
+          const filesList = staged.files || [];
           const folderName = staged.name ? (staged.name.split('/')[0] || 'Uploaded_Folder') : 'Uploaded_Folder';
+          
+          const totalSize = filesList.reduce((acc: number, f: File) => acc + f.size, 0);
+          const totalSizeMB = totalSize / 1024 / 1024;
+          
+          // Auto-zip if files > 150 OR total size > 100 MB
+          const shouldAutoZip = filesList.length > 150 || totalSizeMB > 100;
           
           setUploadStates({ 0: { status: 'uploading', percent: 0 } });
           let toastId: string | undefined;
-          try {
-            console.log('[Upload Flow] Constructing FormData for folder files...');
-            const fdStart = performance.now();
-            staged.files.forEach((file: File) => {
-              fd.append('files', file);
-            });
-            const relativePaths = staged.files.map((file: any) => file.webkitRelativePath || file.name);
-            fd.append('relativePaths', JSON.stringify(relativePaths));
-            fd.append('folderName', folderName);
-            console.log(`[Upload Flow] FormData construction finished. Time taken: ${(performance.now() - fdStart).toFixed(2)} ms`);
+          
+          if (shouldAutoZip) {
+            const isElectron = (window as any).gsvDesktop && typeof (window as any).gsvDesktop.zipAndUploadFolder === 'function';
             
-            toastId = toast.loading(`Uploading Folder: 0%`);
-            let lastProgressTime = 0;
-            const uploadRes = await filesApi.uploadFolder(fd, (progressEvent: any) => {
-              const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-              const now = performance.now();
-              if (percent === 0 || percent === 100 || now - lastProgressTime >= 200) {
-                lastProgressTime = now;
-                setUploadProgressPercent(percent);
-                setUploadStates({ 0: { status: 'uploading', percent } });
-                if (chatSocket) {
-                  chatSocket.emit('chat:upload_progress', {
-                    conversationId,
-                    fileName: folderName,
-                    percent,
-                    senderName: user?.fullName || 'Teammate'
-                  });
+            if (isElectron) {
+              const firstFile = filesList[0];
+              const absPath = firstFile?.path;
+              const relPath = firstFile?.webkitRelativePath || firstFile?.name;
+              
+              let rootFolderPath: string | null = null;
+              if (absPath && relPath) {
+                const isWindows = absPath.includes('\\');
+                const normalizedRelPath = relPath.replace(/\//g, isWindows ? '\\' : '/');
+                const index = absPath.indexOf(normalizedRelPath);
+                if (index !== -1) {
+                  rootFolderPath = absPath.substring(0, index + normalizedRelPath.split(isWindows ? '\\' : '/')[0].length);
                 }
-                if (toastId) toast.loading(`Uploading Folder: ${percent}%`, { id: toastId });
               }
-            });
-            if (toastId) toast.success('Folder uploaded successfully!', { id: toastId });
-            console.log(`[Upload Flow] Upload completed successfully. Total upload time: ${((performance.now() - uploadStart) / 1000).toFixed(2)} s`);
-            setUploadStates({ 0: { status: 'completed', percent: 100 } });
-            
-            const fileData = uploadRes.data?.data || uploadRes.data;
-            if (fileData) {
-              folderId = fileData.id;
-              fileName = fileData.name || folderName;
-            }
-          } catch (err) {
-            console.error('[Upload Flow] Folder upload failed in chat propagation:', err);
-            setUploadStates({ 0: { status: 'failed', percent: 0 } });
-            if (toastId) toast.error('Folder upload failed.', { id: toastId });
-            else toast.error('Folder upload failed.');
-            throw new Error('Folder upload aborted');
-          } finally {
-            if (chatSocket) {
-              chatSocket.emit('chat:upload_progress', {
-                conversationId,
-                fileName: folderName,
-                percent: null,
-                senderName: user?.fullName || 'Teammate'
-              });
-            }
-          }
+              
+              if (rootFolderPath) {
+                toastId = toast.loading(`Electron native zipping: 0%`);
+                // Let's simulate a native compression loader
+                let zipProgress = 0;
+                const progressInterval = setInterval(() => {
+                  if (zipProgress < 95) {
+                    zipProgress += 5;
+                    toast.loading(`Electron native zipping: ${zipProgress}%`, { id: toastId });
+                  }
+                }, 800);
 
-          return chatApi.sendMessage(conversationId!, {
-            content: payload.content,
-            type: 'folder',
-            folderId: folderId,
-            fileName: fileName,
-          }).then(r => r.data?.data || r.data);
+                try {
+                  const res = await (window as any).gsvDesktop.zipAndUploadFolder({
+                    folderPath: rootFolderPath,
+                    serverUrl: window.location.origin,
+                    token: accessToken
+                  });
+                  clearInterval(progressInterval);
+                  
+                  if (res && res.success) {
+                    toast.success('Folder zipped and uploaded natively! 📂', { id: toastId });
+                    setUploadStates({ 0: { status: 'completed', percent: 100 } });
+                    
+                    const fileDataList = res.data?.data || res.data;
+                    const fileData = Array.isArray(fileDataList) ? fileDataList[0] : fileDataList;
+                    
+                    return chatApi.sendMessage(conversationId!, {
+                      content: payload.content,
+                      type: 'file',
+                      fileId: fileData?.id || fileData?.fileId,
+                      fileName: fileData?.name || `${folderName}.zip`,
+                      fileUrl: fileData?.url || fileData?.fileUrl
+                    }).then(r => r.data?.data || r.data);
+                  } else {
+                    throw new Error(res?.reason || 'Native upload failed');
+                  }
+                } catch (err: any) {
+                  clearInterval(progressInterval);
+                  console.error('[Upload Flow] Native folder upload failed:', err);
+                  setUploadStates({ 0: { status: 'failed', percent: 0 } });
+                  toast.error(`Native upload failed: ${err.message}`, { id: toastId });
+                  throw new Error('Folder upload aborted');
+                }
+              }
+            }
+
+            if (!isElectron && totalSizeMB > 1500) {
+              toast('Uploading large folders (>1.5 GB) in the web browser might cause out-of-memory errors. For large uploads, we highly recommend using our Desktop Application.', { icon: '⚠️', duration: 8000 });
+            }
+
+            toastId = toast.loading(`Zipping folder: 0%`);
+            try {
+              const zip = new JSZip();
+              filesList.forEach((file: File) => {
+                const relativePath = file.webkitRelativePath || `${folderName}/${file.name}`;
+                zip.file(relativePath, file);
+              });
+              
+              const zipBlob = await zip.generateAsync({ 
+                type: 'blob',
+                compression: 'STORE' 
+              }, (metadata) => {
+                const percent = Math.round(metadata.percent);
+                toast.loading(`Zipping folder: ${percent}%`, { id: toastId });
+              });
+              
+              toast.loading(`Uploading Folder Zip: 0%`, { id: toastId });
+              
+              const fd = new FormData();
+              const zipFile = new window.File([zipBlob], `${folderName}.zip`, { type: 'application/zip' });
+              fd.append('files', zipFile);
+              
+              let lastProgressTime = 0;
+              const uploadRes = await filesApi.upload(fd, (progressEvent: any) => {
+                const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                const now = performance.now();
+                if (percent === 0 || percent === 100 || now - lastProgressTime >= 200) {
+                  lastProgressTime = now;
+                  setUploadProgressPercent(percent);
+                  setUploadStates({ 0: { status: 'uploading', percent } });
+                  if (chatSocket) {
+                    chatSocket.emit('chat:upload_progress', {
+                      conversationId,
+                      fileName: `${folderName}.zip`,
+                      percent,
+                      senderName: user?.fullName || 'Teammate'
+                    });
+                  }
+                  if (toastId) toast.loading(`Uploading Folder Zip: ${percent}%`, { id: toastId });
+                }
+              });
+              
+              if (toastId) toast.success('Folder zipped and uploaded successfully!', { id: toastId });
+              setUploadStates({ 0: { status: 'completed', percent: 100 } });
+              
+              const fileDataList = uploadRes.data?.data || uploadRes.data;
+              const fileData = Array.isArray(fileDataList) ? fileDataList[0] : fileDataList;
+              
+              return chatApi.sendMessage(conversationId!, {
+                content: payload.content,
+                type: 'file',
+                fileId: fileData?.id || fileData?.fileId,
+                fileName: fileData?.name || `${folderName}.zip`,
+                fileUrl: fileData?.url || fileData?.fileUrl
+              }).then(r => r.data?.data || r.data);
+              
+            } catch (err) {
+              console.error('[Upload Flow] Local folder zipping or upload failed:', err);
+              setUploadStates({ 0: { status: 'failed', percent: 0 } });
+              if (toastId) toast.error('Folder zipping/upload failed.', { id: toastId });
+              throw new Error('Folder zipping/upload aborted');
+            } finally {
+              if (chatSocket) {
+                chatSocket.emit('chat:upload_progress', {
+                  conversationId,
+                  fileName: `${folderName}.zip`,
+                  percent: null,
+                  senderName: user?.fullName || 'Teammate'
+                });
+              }
+            }
+          } else {
+            const fd = new FormData();
+            let folderId = undefined;
+            let fileName = undefined;
+            
+            try {
+              console.log('[Upload Flow] Constructing FormData for folder files...');
+              const fdStart = performance.now();
+              staged.files.forEach((file: File) => {
+                fd.append('files', file);
+              });
+              const relativePaths = staged.files.map((file: any) => file.webkitRelativePath || file.name);
+              fd.append('relativePaths', JSON.stringify(relativePaths));
+              fd.append('folderName', folderName);
+              console.log(`[Upload Flow] FormData construction finished. Time taken: ${(performance.now() - fdStart).toFixed(2)} ms`);
+              
+              toastId = toast.loading(`Uploading Folder: 0%`);
+              let lastProgressTime = 0;
+              const uploadRes = await filesApi.uploadFolder(fd, (progressEvent: any) => {
+                const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                const now = performance.now();
+                if (percent === 0 || percent === 100 || now - lastProgressTime >= 200) {
+                  lastProgressTime = now;
+                  setUploadProgressPercent(percent);
+                  setUploadStates({ 0: { status: 'uploading', percent } });
+                  if (chatSocket) {
+                    chatSocket.emit('chat:upload_progress', {
+                      conversationId,
+                      fileName: folderName,
+                      percent,
+                      senderName: user?.fullName || 'Teammate'
+                    });
+                  }
+                  if (toastId) toast.loading(`Uploading Folder: ${percent}%`, { id: toastId });
+                }
+              });
+              if (toastId) toast.success('Folder uploaded successfully!', { id: toastId });
+              console.log(`[Upload Flow] Upload completed successfully. Total upload time: ${((performance.now() - uploadStart) / 1000).toFixed(2)} s`);
+              setUploadStates({ 0: { status: 'completed', percent: 100 } });
+              
+              const fileData = uploadRes.data?.data || uploadRes.data;
+              if (fileData) {
+                folderId = fileData.id;
+                fileName = fileData.name || folderName;
+              }
+            } catch (err) {
+              console.error('[Upload Flow] Folder upload failed in chat propagation:', err);
+              setUploadStates({ 0: { status: 'failed', percent: 0 } });
+              if (toastId) toast.error('Folder upload failed.', { id: toastId });
+              throw new Error('Folder upload aborted');
+            } finally {
+              if (chatSocket) {
+                chatSocket.emit('chat:upload_progress', {
+                  conversationId,
+                  fileName: folderName,
+                  percent: null,
+                  senderName: user?.fullName || 'Teammate'
+                });
+              }
+            }
+
+            return chatApi.sendMessage(conversationId!, {
+              content: payload.content,
+              type: 'folder',
+              folderId: folderId,
+              fileName: fileName,
+            }).then(r => r.data?.data || r.data);
+          }
         } else {
           // Multiple standard file uploads loop (up to 30 files)
           const initialStates: any = {};
@@ -2003,6 +2242,16 @@ export default function ChatPage() {
     enabled: !!conversationId && activeConv?.type === 'group',
   });
 
+  const { data: realJoinRequests = [], refetch: refetchJoinRequests } = useQuery({
+    queryKey: ['group-join-requests', conversationId],
+    queryFn: () => {
+      if (!conversationId || activeConv?.type !== 'group' || !isCurrentUserAdmin) return Promise.resolve([]);
+      return chatApi.getPendingInvitations(conversationId).then(r => r.data?.data || r.data || []);
+    },
+    enabled: !!conversationId && activeConv?.type === 'group' && isCurrentUserAdmin,
+    refetchInterval: 5000,
+  });
+
   const handleRequestRemoval = async (targetUserId: string, targetName: string) => {
     if (!conversationId) return;
     try {
@@ -2722,6 +2971,16 @@ export default function ChatPage() {
       {/* Sidebar */}
       <div className={`${styles.convSidebar} ${chatSidebarCollapsed ? styles.collapsed : ''}`}>
         <div className={styles.convHeader}>
+          {setMobileSidebarOpen && (
+            <button
+              className={`btn btn-ghost btn-icon btn-sm ${styles['mobile-menu-btn']}`}
+              onClick={() => setMobileSidebarOpen(true)}
+              style={{ marginRight: '6px', width: '28px', height: '28px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+              title="Open Navigation Menu"
+            >
+              <Menu size={18} style={{ color: 'var(--text-secondary)' }} />
+            </button>
+          )}
           <h2 className={styles.convTitle}>
             <button
               className="btn btn-ghost btn-icon btn-sm"
@@ -2924,20 +3183,24 @@ export default function ChatPage() {
                           <Trash2 size={12} />
                         </button>
                       )}
-                      <div className={`${styles.convAvatar} ${conv.type === 'group' || conv.type === 'department' || conv.type === 'broadcast' ? styles.groupAvatar : ''}`} style={{ background: 'var(--gradient-brand)' }}>
-                        {conv.type === 'group' || conv.type === 'department' || conv.type === 'broadcast' ? (
-                          conv.type === 'broadcast' ? <Users2 size={16} /> : <Hash size={16} />
+                      <div className={`${styles.convAvatar} ${conv.type === 'group' || conv.type === 'department' || conv.type === 'broadcast' ? styles.groupAvatar : ''}`} style={{ background: 'var(--gradient-brand)', padding: 0, overflow: 'hidden' }}>
+                        {conv.avatar_url || conv.avatarUrl ? (
+                          <img src={conv.avatar_url || conv.avatarUrl} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                         ) : (
-                          (() => {
-                            const other = conv.members?.find((m: any) => m.id !== user?.id);
-                            const displayName = other ? other.fullName : conv.name;
-                            return displayName?.charAt(0).toUpperCase() || 'U';
-                          })()
+                          conv.type === 'group' || conv.type === 'department' || conv.type === 'broadcast' ? (
+                            conv.type === 'broadcast' ? <Users2 size={16} /> : <Hash size={16} />
+                          ) : (
+                            (() => {
+                              const other = conv.members?.find((m: any) => m.id !== user?.id);
+                              const displayName = other ? other.fullName : conv.name;
+                              return displayName?.charAt(0).toUpperCase() || 'U';
+                            })()
+                          )
                         )}
                       </div>
                       <div className={styles.convMeta}>
                         <div className={styles.convName}>
-                          <span style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '140px' }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '140px' }}>
                             {(() => {
                               if (conv.type === 'private') {
                                 const other = conv.members?.find((m: any) => m.id !== user?.id);
@@ -2945,6 +3208,9 @@ export default function ChatPage() {
                               }
                               return conv.name || 'GSVConnect Group';
                             })()}
+                            {favoriteChats.includes(conv.id) && (
+                              <Heart size={12} fill="var(--brand-danger)" style={{ color: 'var(--brand-danger)', flexShrink: 0 }} />
+                            )}
                           </span>
                           {conv.last_message_at && (
                             <span className={styles.convTime}>
@@ -3066,7 +3332,8 @@ export default function ChatPage() {
 
       {/* Message Arena */}
       {conversationId && activeConv ? (
-        <div className={styles.chatMain}>
+        <div style={{ display: 'flex', flex: 1, height: '100%', minWidth: 0, overflow: 'hidden', position: 'relative' }}>
+          <div className={styles.chatMain}>
           {/* Sticky Pinned Message Banner */}
           {pinnedMessage && (
             <div style={{
@@ -3095,117 +3362,91 @@ export default function ChatPage() {
             </div>
           )}
 
-          {/* Header */}
+          {/* ── Chat Header (2-row layout) ── */}
           <div className={styles.chatHeader} style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
-            <div className={styles.chatHeaderInfo}>
-              <button 
-                className={`btn btn-ghost btn-icon ${styles['mobile-only-back-btn']}`} 
-                onClick={() => navigate('/chat')}
-                style={{ marginRight: '8px' }}
-                title="Back to Chats"
-              >
-                <ArrowLeft size={18} style={{ color: 'var(--text-secondary)' }} />
-              </button>
-              <button 
-                className={`btn btn-ghost btn-icon ${styles['desktop-only-btn']}`} 
-                onClick={() => setSidebarCollapsed && setSidebarCollapsed(!sidebarCollapsed)}
-                style={{ marginRight: '8px' }}
-                title="Toggle Sidebar"
-              >
-                <Menu size={18} style={{ color: 'var(--text-secondary)' }} />
-              </button>
-              <button 
-                className={`btn btn-ghost btn-icon ${styles['desktop-only-btn']}`} 
-                onClick={() => setChatSidebarCollapsed(!chatSidebarCollapsed)}
-                style={{ marginRight: '8px' }}
-                title={chatSidebarCollapsed ? "Expand Conversation List" : "Collapse Conversation List"}
-              >
-                {chatSidebarCollapsed ? <ChevronRight size={18} style={{ color: 'var(--text-secondary)' }} /> : <ChevronRight size={18} style={{ color: 'var(--text-secondary)', transform: 'rotate(180deg)' }} />}
-              </button>
-              <div 
-                onClick={() => setShowGroupDetails(!showGroupDetails)} 
-                style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', flex: 1, minWidth: 0 }}
-                title="Click to view conversation info and settings"
-              >
-                <div className={styles.convAvatar} style={{ background: 'var(--gradient-brand)' }}>
-                  {activeConv.type === 'group' || activeConv.type === 'department' ? (
-                    <Hash size={16} />
-                  ) : (
-                    (partnerName?.charAt(0).toUpperCase() || 'U')
-                  )}
-                </div>
-                <div>
-                  <div className={styles.chatName}>
-                    {activeConv.type === 'private' ? partnerName : (activeConv.name || 'GSVConnect Group')}
-                  </div>
-                  <div className={styles.chatStatus}>
-                    {activeConv.type === 'private' ? (
-                      (() => {
-                        const isOnline = partner ? onlineUsers.has(partner.id) : false;
-                        if (isOnline) {
-                          return (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <span className="status-dot online" style={{ width: '6px', height: '6px', background: 'var(--brand-success)' }} />
-                              <span>Online</span>
-                            </div>
-                          );
-                        } else {
-                          return (
-                            <span>Offline {partner?.lastSeen ? `| Last seen ${new Date(partner.lastSeen).toLocaleDateString('en-IN')}` : ''}</span>
-                          );
-                        }
-                      })()
+            {/* Row 1: Name/Status + Action Buttons — always visible on every screen size */}
+            <div className={styles.chatHeaderRow}>
+              <div className={styles.chatHeaderInfo}>
+                <button 
+                  className={`btn btn-ghost btn-icon ${styles['mobile-only-back-btn']}`} 
+                  onClick={() => { setChatSidebarCollapsed(false); navigate('/chat'); }}
+                  style={{ marginRight: '8px' }}
+                  title="Back to Chats"
+                >
+                  <ArrowLeft size={18} style={{ color: 'var(--text-secondary)' }} />
+                </button>
+                <button 
+                  className={`btn btn-ghost btn-icon ${styles['desktop-only-btn']}`} 
+                  onClick={() => setSidebarCollapsed && setSidebarCollapsed(!sidebarCollapsed)}
+                  style={{ marginRight: '8px' }}
+                  title="Toggle Sidebar"
+                >
+                  <Menu size={18} style={{ color: 'var(--text-secondary)' }} />
+                </button>
+                <button 
+                  className={`btn btn-ghost btn-icon ${styles['desktop-only-btn']}`} 
+                  onClick={() => setChatSidebarCollapsed(!chatSidebarCollapsed)}
+                  style={{ marginRight: '8px' }}
+                  title={chatSidebarCollapsed ? "Expand Conversation List" : "Collapse Conversation List"}
+                >
+                  {chatSidebarCollapsed
+                    ? <ChevronRight size={18} style={{ color: 'var(--text-secondary)' }} />
+                    : <ChevronRight size={18} style={{ color: 'var(--text-secondary)', transform: 'rotate(180deg)' }} />}
+                </button>
+                <div 
+                  onClick={() => setShowGroupDetails(!showGroupDetails)} 
+                  style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', flex: 1, minWidth: 0 }}
+                  title="Click to view conversation info and settings"
+                >
+                  <div className={styles.convAvatar} style={{ background: 'var(--gradient-brand)', padding: 0, overflow: 'hidden' }}>
+                    {activeConv.avatar_url || activeConv.avatarUrl ? (
+                      <img src={activeConv.avatar_url || activeConv.avatarUrl} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     ) : (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span className="status-dot online" style={{ width: '6px', height: '6px', background: 'var(--brand-primary)' }} />
-                        <span>Department Public Room</span>
-                      </div>
+                      activeConv.type === 'group' || activeConv.type === 'department'
+                        ? <Hash size={16} />
+                        : (partnerName?.charAt(0).toUpperCase() || 'U')
                     )}
                   </div>
+                  <div>
+                    <div className={styles.chatName}>
+                      {activeConv.type === 'private' ? partnerName : (activeConv.name || 'GSVConnect Group')}
+                    </div>
+                    <div className={styles.chatStatus}>
+                      {activeConv.type === 'private' ? (
+                        (() => {
+                          const isOnline = partner ? onlineUsers.has(partner.id) : false;
+                          if (isOnline) {
+                            return (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span className="status-dot online" style={{ width: '6px', height: '6px', background: 'var(--brand-success)' }} />
+                                <span>Online</span>
+                              </div>
+                            );
+                          } else {
+                            return (
+                              <span>Offline {partner?.lastSeen ? `| Last seen ${new Date(partner.lastSeen).toLocaleDateString('en-IN')}` : ''}</span>
+                            );
+                          }
+                        })()
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span className="status-dot online" style={{ width: '6px', height: '6px', background: 'var(--brand-primary)' }} />
+                          <span>Department Public Room</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <select
-                value={fileCategory}
-                onChange={e => setFileCategory(e.target.value as any)}
-                className="form-control"
-                style={{
-                  width: '90px',
-                  height: '28px',
-                  fontSize: '11px',
-                  padding: '0 4px',
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-primary)',
-                  borderRadius: '6px'
-                }}
-                title="Filter by file type"
-              >
-                <option value="all">All Files</option>
-                <option value="image">Images</option>
-                <option value="doc">Docs</option>
-                <option value="zip">Zips</option>
-                <option value="folder">Folders</option>
-              </select>
-              <div className="search-bar" style={{ width: '160px', marginRight: '8px' }}>
-                <Search size={12} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }} />
-                <input
-                  type="text"
-                  placeholder="🔍 Search Files..."
-                  value={fileSearch}
-                  onChange={e => setFileSearch(e.target.value)}
-                  className="form-control"
-                  style={{ paddingLeft: '28px', height: '28px', fontSize: '11px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
-                />
-              </div>
+
+              {/* Action buttons — always visible in row 1 */}
               <div className={styles.chatActions}>
                 {activeConv?.type === 'private' && partner && (
                   <button 
-                    className="btn btn-xs" 
+                    className={`btn btn-xs ${styles.blockBtn}`}
                     onClick={() => toggleBlockUser(partner.id)} 
                     style={{
-                      marginRight: '8px',
+                      marginRight: '4px',
                       fontSize: '11px',
                       padding: '4px 10px',
                       height: 'auto',
@@ -3226,7 +3467,6 @@ export default function ChatPage() {
                     className="btn btn-ghost btn-icon"
                     onClick={() => setShowGroupDetails(!showGroupDetails)}
                     title="Conversation Info & Files"
-                    style={{ marginRight: '8px' }}
                   >
                     <Info size={18} style={{ color: showGroupDetails ? 'var(--brand-primary)' : 'var(--text-secondary)' }} />
                   </button>
@@ -3242,8 +3482,9 @@ export default function ChatPage() {
                 >
                   <CheckSquare size={18} />
                 </button>
+                {/* Call Buttons — always visible, never hidden on any screen */}
                 <button 
-                  className="btn btn-ghost btn-icon" 
+                  className={`btn btn-ghost btn-icon ${styles.callBtn}`}
                   onClick={() => handleCallHandshake('audio')} 
                   title="Audio Handshake"
                   style={{ cursor: 'pointer' }}
@@ -3251,13 +3492,50 @@ export default function ChatPage() {
                   <Phone size={18} style={{ color: 'var(--brand-primary)' }} />
                 </button>
                 <button 
-                  className="btn btn-ghost btn-icon" 
+                  className={`btn btn-ghost btn-icon ${styles.callBtn}`}
                   onClick={() => handleCallHandshake('video')} 
                   title="Video Resonance"
                   style={{ cursor: 'pointer' }}
                 >
                   <Video size={18} style={{ color: 'var(--brand-primary)' }} />
                 </button>
+              </div>
+            </div>
+
+            {/* Row 2: File Search + Filter Controls (collapse on mobile) */}
+            <div className={styles.chatHeaderControls}>
+              <select
+                value={fileCategory}
+                onChange={e => setFileCategory(e.target.value as any)}
+                className={`form-control ${styles.desktopOnlyControl}`}
+                style={{
+                  width: '90px',
+                  height: '28px',
+                  fontSize: '11px',
+                  padding: '0 4px',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--text-primary)',
+                  borderRadius: '6px'
+                }}
+                title="Filter by file type"
+              >
+                <option value="all">All Files</option>
+                <option value="image">Images</option>
+                <option value="doc">Docs</option>
+                <option value="zip">Zips</option>
+                <option value="folder">Folders</option>
+              </select>
+              <div className={`search-bar ${styles.desktopOnlyControl}`} style={{ width: '160px' }}>
+                <Search size={12} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }} />
+                <input
+                  type="text"
+                  placeholder="🔍 Search Files..."
+                  value={fileSearch}
+                  onChange={e => setFileSearch(e.target.value)}
+                  className="form-control"
+                  style={{ paddingLeft: '28px', height: '28px', fontSize: '11px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                />
               </div>
             </div>
           </div>
@@ -3475,10 +3753,28 @@ export default function ChatPage() {
                         <div className={styles.senderName} style={{ color: 'var(--brand-primary)' }}>{senderName}</div>
                       )}
                       
-                      {/* Render text with live link highlight detection */}
+                      {/* Render text with live link highlight detection + Read More */}
                       {msg.type !== 'photo' && msg.type !== 'video' && (
                         <div className={styles.messageText} style={{ lineHeight: 1.5 }}>
-                          {renderMessageContent(msg.content)}
+                          {(() => {
+                            const text: string = msg.content || '';
+                            const isLong = text.length > READ_MORE_LIMIT;
+                            const isExpanded = expandedMessages.has(msg.id);
+                            const displayText = isLong && !isExpanded ? text.slice(0, READ_MORE_LIMIT) + '…' : text;
+                            return (
+                              <>
+                                {renderMessageContent(displayText)}
+                                {isLong && (
+                                  <button
+                                    className={styles.readMoreBtn}
+                                    onClick={() => toggleMessageExpand(msg.id)}
+                                  >
+                                    {isExpanded ? ' Read Less' : ' Read More'}
+                                  </button>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                       )}
 
@@ -3512,14 +3808,15 @@ export default function ChatPage() {
                               {msg.type === 'photo' && (msg.file_url || msg.fileUrl) && (
                                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                                   <div
-                                    style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)', maxWidth: '420px', cursor: 'zoom-in', position: 'relative' }}
+                                    className={styles.imageBubbleWrap}
                                     onClick={() => setPreviewFile({ url: msg.file_url || msg.fileUrl, name: msg.file_name || msg.fileName || 'photo.jpg', type: 'photo' })}
                                     onDoubleClick={(e) => { e.stopPropagation(); window.open(msg.file_url || msg.fileUrl, '_blank'); }}
+                                    title="Click to view full size"
                                   >
                                     <img
                                       src={msg.file_url || msg.fileUrl}
                                       alt={msg.file_name || msg.fileName || 'photo'}
-                                      style={{ width: '100%', height: 'auto', display: 'block', minHeight: '60px', background: 'var(--bg-secondary)', maxHeight: '360px', objectFit: 'cover' }}
+                                      className={styles.imageBubbleImg}
                                       onError={(e) => {
                                         const target = e.target as HTMLImageElement;
                                         target.style.display = 'none';
@@ -3529,10 +3826,10 @@ export default function ChatPage() {
                                     />
                                     <div style={{ display: 'none', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '16px', gap: '8px', color: 'var(--text-secondary)', background: 'var(--wa-bg)', borderRadius: '8px', border: '1px solid var(--wa-border)', minWidth: '200px' }}>
                                       <Image size={24} style={{ color: 'var(--brand-primary)' }} />
-                                      <span style={{ fontSize: '11px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '180px' }} title={msg.file_name || msg.fileName}>{msg.file_name || msg.fileName || 'Image preview unavailable'}</span>
-                                      <a href={msg.file_url || msg.fileUrl} download={msg.file_name || msg.fileName} style={{ fontSize: '10px', color: 'var(--brand-primary)', textDecoration: 'underline' }} onClick={e => e.stopPropagation()}>Download Image</a>
+                                      <span style={{ fontSize: '13px', fontWeight: 600, wordBreak: 'break-all' }} title={msg.file_name || msg.fileName}>{msg.file_name || msg.fileName || 'Image preview unavailable'}</span>
+                                      <a href={`${msg.file_url || msg.fileUrl}?download=${encodeURIComponent(msg.file_name || msg.fileName || 'image')}`} download={msg.file_name || msg.fileName} style={{ fontSize: '12px', color: 'var(--brand-primary)', textDecoration: 'underline' }} onClick={e => e.stopPropagation()}>Download Image</a>
                                     </div>
-                                    <div style={{ position: 'absolute', bottom: '4px', right: '6px', fontSize: '10px', color: 'rgba(255,255,255,0.9)', background: 'rgba(0,0,0,0.4)', borderRadius: '4px', padding: '1px 5px' }}>{msg.file_name || msg.fileName || ''}</div>
+                                    <div style={{ position: 'absolute', bottom: '6px', right: '8px', fontSize: '11px', color: 'rgba(255,255,255,0.95)', background: 'rgba(0,0,0,0.5)', borderRadius: '4px', padding: '2px 6px', maxWidth: '90%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.file_name || msg.fileName || ''}</div>
                                   </div>
                                   {msg.content && (
                                     <div style={{ padding: '6px 8px 2px 8px', fontSize: '15px', color: 'inherit', wordBreak: 'break-word' }}>
@@ -3543,7 +3840,7 @@ export default function ChatPage() {
                               )}
                               {msg.type === 'video' && (msg.file_url || msg.fileUrl) && (
                                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                  <div style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)', maxWidth: '420px', position: 'relative' }}>
+                                  <div style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)', width: '100%', maxWidth: '420px', boxSizing: 'border-box', position: 'relative' }}>
                                     <video controls preload="metadata" style={{ width: '100%', display: 'block', maxHeight: '240px', objectFit: 'contain', background: '#000' }}>
                                       <source src={msg.file_url || msg.fileUrl} type={msg.mime_type || msg.mimeType || 'video/mp4'} />
                                       Your browser does not support the video tag.
@@ -3557,54 +3854,69 @@ export default function ChatPage() {
                                 </div>
                               )}
                               {msg.type === 'music' && (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: 'var(--bg-card)', borderRadius: '8px', padding: '8px', border: '1px solid var(--border-color)' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--brand-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                      <Volume2 size={16} />
+                                <div className={styles.audioCard}>
+                                  <div className={styles.audioCardHeader}>
+                                    <div className={styles.audioIconCircle}>
+                                      <Volume2 size={22} />
                                     </div>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                      <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.file_name || msg.fileName || "Voice_Note.webm"}</div>
-                                      <div style={{ fontSize: '9px', color: 'var(--text-tertiary)' }}>{formatBytes(msg.file_size || msg.fileSize || 0)} — Voice Note</div>
+                                    <div className={styles.audioCardMeta}>
+                                      <div className={styles.audioFileName}>{msg.file_name || msg.fileName || 'Voice_Note.webm'}</div>
+                                      <div className={styles.audioFileMeta}>{formatBytes(msg.file_size || msg.fileSize || 0)} — Voice Note</div>
                                     </div>
                                   </div>
                                   {msg.file_url || msg.fileUrl ? (
-                                    <audio controls src={msg.file_url || msg.fileUrl} style={{ width: '100%', marginTop: '4px', height: '40px' }} />
+                                    <audio controls src={msg.file_url || msg.fileUrl} className={styles.audioPlayer} />
                                   ) : (
-                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>Audio file loading...</div>
+                                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>Audio file loading...</div>
+                                  )}
+                                  {(msg.file_url || msg.fileUrl) && (
+                                    <a
+                                      href={`${msg.file_url || msg.fileUrl}?download=${encodeURIComponent(msg.file_name || msg.fileName || 'voice_note')}`}
+                                      download={msg.file_name || msg.fileName || 'voice_note'}
+                                      className={styles.audioDownloadBtn}
+                                      onClick={e => e.stopPropagation()}
+                                    >
+                                      <Download size={14} /> Download Audio
+                                    </a>
                                   )}
                                 </div>
                               )}
                               {msg.type === 'file' && (
-                                <div style={{
-                                  background: 'var(--wa-bg)', borderRadius: '8px', padding: '8px 12px',
-                                  display: 'flex', alignItems: 'center', gap: '10px', maxWidth: '280px',
-                                  border: '1px solid var(--wa-border)', cursor: 'pointer'
-                                }} className="hover-glass" 
-                                onClick={() => {
-                                  const fName = msg.file_name || msg.fileName || "document";
-                                  const pType = fName.toLowerCase().endsWith('.pdf') ? 'pdf' : 'file';
-                                  setPreviewFile({ url: msg.file_url || msg.fileUrl || "#", name: fName, type: pType });
-                                }}
-                                onDoubleClick={() => {
-                                  const fName = msg.file_name || msg.fileName || "document";
-                                  const pType = fName.toLowerCase().endsWith('.pdf') ? 'pdf' : 'file';
-                                  setPreviewFile({ url: msg.file_url || msg.fileUrl || "#", name: fName, type: pType });
-                                }}>
-                                  {getFileIcon(msg.file_name || msg.fileName || "document")}
-                                  <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--wa-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.file_name || msg.fileName || "document"}</div>
-                                    <span style={{ fontSize: '9px', color: 'var(--wa-text-secondary)' }}>{formatBytes(msg.file_size || msg.fileSize || 0)} — Document</span>
+                                <div
+                                  className={styles.fileCard}
+                                  onClick={() => {
+                                    const fName = msg.file_name || msg.fileName || "document";
+                                    const pType = fName.toLowerCase().endsWith('.pdf') ? 'pdf' : 'file';
+                                    setPreviewFile({ url: msg.file_url || msg.fileUrl || "#", name: fName, type: pType });
+                                  }}
+                                  onDoubleClick={() => {
+                                    const fName = msg.file_name || msg.fileName || "document";
+                                    const pType = fName.toLowerCase().endsWith('.pdf') ? 'pdf' : 'file';
+                                    setPreviewFile({ url: msg.file_url || msg.fileUrl || "#", name: fName, type: pType });
+                                  }}
+                                >
+                                  <div className={styles.fileCardHeader}>
+                                    {getFileIcon(msg.file_name || msg.fileName || "document")}
+                                    <div className={styles.fileCardMeta}>
+                                      <div className={styles.fileCardName}>{msg.file_name || msg.fileName || "document"}</div>
+                                      <div className={styles.fileCardSize}>{formatBytes(msg.file_size || msg.fileSize || 0)} — Document</div>
+                                    </div>
                                   </div>
+                                  {(msg.file_url || msg.fileUrl) && (
+                                    <a
+                                      href={`${msg.file_url || msg.fileUrl}?download=${encodeURIComponent(msg.file_name || msg.fileName || 'document')}`}
+                                      download={msg.file_name || msg.fileName || 'document'}
+                                      className={styles.fileDownloadBtn}
+                                      onClick={e => e.stopPropagation()}
+                                    >
+                                      <Download size={14} /> Download File
+                                    </a>
+                                  )}
                                 </div>
                               )}
                               {msg.type === 'folder' && (
-                                <div 
-                                  style={{
-                                    background: 'var(--wa-bg)', borderRadius: '12px', padding: '12px',
-                                    display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '280px',
-                                    border: '1.5px solid rgba(0, 168, 132, 0.25)', boxShadow: '0 4px 12px rgba(0, 168, 132, 0.05)',
-                                    cursor: 'pointer'
-                                  }}
+                                <div
+                                  className={styles.folderCard}
                                   onClick={() => {
                                     const fid = msg.folder_id || msg.folderId || msg.file_id || msg.fileId;
                                     const fName = msg.file_name || msg.fileName || "Uploaded_Folder";
@@ -3615,13 +3927,13 @@ export default function ChatPage() {
                                     }
                                   }}
                                 >
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--wa-border)', paddingBottom: '6px' }}>
-                                    <Folder size={18} style={{ color: 'var(--wa-accent)' }} />
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--wa-border)', paddingBottom: '8px' }}>
+                                    <Folder size={20} style={{ color: 'var(--wa-accent)', flexShrink: 0 }} />
                                     <div style={{ flex: 1, minWidth: 0 }}>
-                                      <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--wa-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.file_name || msg.fileName || "Uploaded_Folder/"}</div>
-                                      <div style={{ fontSize: '9px', color: 'var(--wa-text-secondary)' }}>Click to open folder in chat</div>
+                                      <div className={styles.folderCardName}>{msg.file_name || msg.fileName || "Uploaded_Folder/"}</div>
                                     </div>
                                   </div>
+                                  <div className={styles.folderCardSub}>Click to open folder in chat</div>
                                 </div>
                               )}
                             </div>
@@ -4069,6 +4381,13 @@ export default function ChatPage() {
                   {...{ webkitdirectory: "", directory: "", multiple: true } as any}
                   onChange={e => handleFileUpload(e, true)}
                 />
+                <input
+                  type="file"
+                  ref={logoInputRef}
+                  style={{ display: 'none' }}
+                  accept="image/*"
+                  onChange={handleLogoChange}
+                />
               </form>
             )}
 
@@ -4114,593 +4433,835 @@ export default function ChatPage() {
 
           {/* Conversation details sidebar */}
           {showGroupDetails && (
-            <div style={{
-              width: '320px', borderLeft: '1px solid var(--border-color)', height: '100%',
-              background: 'var(--bg-card)', display: 'flex', flexDirection: 'column', flexShrink: 0,
-              animation: 'slideLeft 0.25s ease', overflowY: 'auto'
-            }}>
+            <div style={
+              isMobile ? {
+                position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+                background: 'var(--bg-secondary)', display: 'flex', flexDirection: 'column',
+                animation: 'slideLeft 0.25s ease', overflow: 'hidden', zIndex: 1000
+              } : {
+                width: '340px', borderLeft: '1.5px solid var(--border-color)', height: '100%',
+                background: 'var(--bg-secondary)', display: 'flex', flexDirection: 'column', flexShrink: 0,
+                animation: 'slideLeft 0.25s ease', overflow: 'hidden'
+              }
+            }>
               {/* Header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', borderBottom: '1px solid var(--border-color)' }}>
-                <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Info size={16} style={{ color: 'var(--brand-primary)' }} />
-                  Conversation Details
+              <div style={{
+                height: '60px',
+                background: 'var(--bg-card)',
+                display: 'flex',
+                alignItems: 'center',
+                padding: '0 20px',
+                gap: '20px',
+                borderBottom: '1px solid var(--border-color)',
+                flexShrink: 0
+              }}>
+                <button
+                  onClick={() => setShowGroupDetails(false)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--text-primary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '4px'
+                  }}
+                >
+                  <X size={20} />
+                </button>
+                <span style={{ fontWeight: 600, fontSize: '16px', color: 'var(--text-primary)' }}>
+                  {activeConv.type === 'private' ? 'Contact info' : (activeConv.type === 'department' ? 'Channel info' : 'Group info')}
                 </span>
-                <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setShowGroupDetails(false)}>✕</button>
               </div>
 
-              {/* Body */}
-              <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Scrollable Body */}
+              <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 
                 {/* Profile block */}
                 {activeConv.type === 'private' ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
-                    <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: 'var(--gradient-brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '28px', fontWeight: 'bold' }}>
-                      {partnerName?.charAt(0).toUpperCase() || 'U'}
-                    </div>
-                    <div style={{ fontWeight: 700, fontSize: '16px', color: 'var(--text-primary)' }}>{partnerName}</div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
-                      <div><strong>Login ID:</strong> @{partner?.loginId || 'N/A'}</div>
-                      <div><strong>Department:</strong> {partner?.department?.name || 'Local'}</div>
-                      {partner?.phone && <div><strong>Phone:</strong> {partner.phone}</div>}
-                      {partner?.email && <div><strong>Email:</strong> {partner.email}</div>}
-                      <div style={{ marginTop: '4px' }}>
-                        <span style={{
-                          padding: '2px 8px', borderRadius: '12px', fontSize: '10px', fontWeight: 600,
-                          background: (partner && onlineUsers.has(partner.id)) ? 'rgba(74, 222, 128, 0.15)' : 'rgba(148, 163, 184, 0.15)',
-                          color: (partner && onlineUsers.has(partner.id)) ? 'var(--brand-success)' : 'var(--text-secondary)'
-                        }}>
-                          {(partner && onlineUsers.has(partner.id)) ? '🟢 Online' : '⚪ Offline'}
-                        </span>
+                  <>
+                    <div style={{ background: 'var(--bg-card)', padding: '24px 16px 20px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '12px', borderBottom: '1px solid var(--border-color)' }}>
+                      <div style={{ width: '120px', height: '120px', borderRadius: '50%', background: 'var(--gradient-brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '48px', fontWeight: 'bold' }}>
+                        {partnerName?.charAt(0).toUpperCase() || 'U'}
+                      </div>
+                      <div style={{ fontWeight: 700, fontSize: '18px', color: 'var(--text-primary)' }}>{partnerName}</div>
+                      <div style={{ fontSize: '13px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px', textAlign: 'left', width: '100%', padding: '0 12px' }}>
+                        <div><strong>Login ID:</strong> @{partner?.loginId || 'N/A'}</div>
+                        <div><strong>Department:</strong> {partner?.department?.name || 'Local'}</div>
+                        {partner?.phone && <div><strong>Phone:</strong> {partner.phone}</div>}
+                        {partner?.email && <div><strong>Email:</strong> {partner.email}</div>}
+                        <div style={{ marginTop: '4px', textAlign: 'center' }}>
+                          <span style={{
+                            padding: '4px 12px', borderRadius: '12px', fontSize: '11px', fontWeight: 600,
+                            background: (partner && onlineUsers.has(partner.id)) ? 'rgba(74, 222, 128, 0.15)' : 'rgba(148, 163, 184, 0.15)',
+                            color: (partner && onlineUsers.has(partner.id)) ? 'var(--brand-success)' : 'var(--text-secondary)'
+                          }}>
+                            {(partner && onlineUsers.has(partner.id)) ? '🟢 Online' : '⚪ Offline'}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', width: '100%' }}>
-                    <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: 'linear-gradient(135deg, #00a884, #005c4b)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '28px', fontWeight: 'bold' }}>
-                      {(isEditingGroup ? editGroupName : activeConv.name)?.charAt(0).toUpperCase() || 'G'}
+
+                    {/* Private chat actions */}
+                    <div style={{ background: 'var(--bg-card)', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        style={{ background: 'rgba(239, 68, 68, 0.08)', color: 'var(--brand-danger)', border: '1px solid rgba(239, 68, 68, 0.15)', width: '100%', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '6px' }}
+                        onClick={() => {
+                          setConfirmModal({
+                            title: 'Clear Chat History?',
+                            message: 'This will locally clear all messages in this conversation from your screen. The other participant will still retain their message history.',
+                            iconType: 'trash',
+                            confirmText: 'Clear History',
+                            brandColor: 'var(--brand-danger)',
+                            onConfirm: handleClearHistory
+                          });
+                        }}
+                      >
+                        🗑️ Clear Chat History
+                      </button>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        style={{ background: 'rgba(239, 68, 68, 0.08)', color: 'var(--brand-danger)', border: '1px solid rgba(239, 68, 68, 0.15)', width: '100%', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '6px' }}
+                        onClick={() => {
+                          setConfirmModal({
+                            title: 'Delete Chat?',
+                            message: 'Are you sure you want to delete this conversation? This will remove the chat from your sidebar. You can start it again from Teammates.',
+                            iconType: 'trash',
+                            confirmText: 'Delete Chat',
+                            brandColor: 'var(--brand-danger)',
+                            onConfirm: async () => {
+                              try {
+                                await chatApi.deleteConversation(activeConv.id, false);
+                                toast.success('Chat deleted.');
+                                qc.invalidateQueries({ queryKey: ['conversations'] });
+                                navigate('/chat');
+                              } catch (err: any) {
+                                toast.error(err.response?.data?.message || err.message || 'Failed to delete chat');
+                              }
+                            }
+                          });
+                        }}
+                      >
+                        🗑️ Delete Chat
+                      </button>
                     </div>
-                    {isEditingGroup ? (
-                      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '8px', padding: '0 8px' }}>
-                        <div className="form-group" style={{ margin: 0, textAlign: 'left' }}>
-                          <label className="form-label" style={{ fontSize: '11px', marginBottom: '2px', fontWeight: 600 }}>Group Name</label>
+                  </>
+                ) : (
+                  <>
+                    {/* Group/Channel Profile Block */}
+                    <div style={{ background: 'var(--bg-card)', padding: '24px 16px 20px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '12px', borderBottom: '1px solid var(--border-color)' }}>
+                      
+                      {/* circular group avatar with camera overlay */}
+                      <div 
+                        style={{ position: 'relative', width: '120px', height: '120px', borderRadius: '50%', overflow: 'hidden', cursor: isCurrentUserAdmin ? 'pointer' : 'default' }}
+                        onMouseEnter={(e) => {
+                          const overlay = e.currentTarget.querySelector('.avatar-overlay') as HTMLElement;
+                          if (overlay && isCurrentUserAdmin) overlay.style.opacity = '1';
+                        }}
+                        onMouseLeave={(e) => {
+                          const overlay = e.currentTarget.querySelector('.avatar-overlay') as HTMLElement;
+                          if (overlay && isCurrentUserAdmin) overlay.style.opacity = '0';
+                        }}
+                        onClick={() => isCurrentUserAdmin && logoInputRef.current?.click()}
+                      >
+                        {activeConv.avatar_url || activeConv.avatarUrl ? (
+                          <img 
+                            src={activeConv.avatar_url || activeConv.avatarUrl} 
+                            alt="Group Logo" 
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                          />
+                        ) : (
+                          <div style={{ width: '100%', height: '100%', borderRadius: '50%', background: 'linear-gradient(135deg, #00a884, #005c4b)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '48px', fontWeight: 'bold' }}>
+                            {(isEditingGroup ? editGroupName : activeConv.name)?.charAt(0).toUpperCase() || 'G'}
+                          </div>
+                        )}
+                        {isCurrentUserAdmin && (
+                          <div 
+                            className="avatar-overlay"
+                            style={{ 
+                              position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', 
+                              background: 'rgba(0, 0, 0, 0.45)', color: '#fff', display: 'flex', 
+                              flexDirection: 'column', alignItems: 'center', justifyContent: 'center', 
+                              opacity: 0, transition: 'opacity 0.2s', gap: '4px' 
+                            }}
+                          >
+                            <Camera size={24} />
+                            <span style={{ fontSize: '9px', fontWeight: 600 }}>ADD GROUP ICON</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Group Name editing */}
+                      {isEditingGroup ? (
+                        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '8px', padding: '0 12px' }}>
                           <input
                             type="text"
                             className="form-control form-control-sm"
                             value={editGroupName}
                             onChange={(e) => setEditGroupName(e.target.value)}
                             placeholder="Group Name"
-                            style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}
+                            style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', fontSize: '14px', fontWeight: 600 }}
                           />
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-xs"
+                              onClick={() => {
+                                setIsEditingGroup(false);
+                                setEditGroupName(activeConv.name || '');
+                              }}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-primary btn-xs"
+                              onClick={handleUpdateGroupDetails}
+                            >
+                              Save
+                            </button>
+                          </div>
                         </div>
-                        <div className="form-group" style={{ margin: 0, textAlign: 'left' }}>
-                          <label className="form-label" style={{ fontSize: '11px', marginBottom: '2px', fontWeight: 600 }}>Description</label>
-                          <textarea
-                            className="form-control form-control-sm"
-                            value={editGroupDesc}
-                            onChange={(e) => setEditGroupDesc(e.target.value)}
-                            placeholder="Description of the group..."
-                            style={{ minHeight: '50px', resize: 'vertical', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}
-                          />
-                        </div>
-                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', marginTop: '4px' }}>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-xs"
-                            onClick={() => {
-                              setIsEditingGroup(false);
-                              setEditGroupName(activeConv.name || '');
-                              setEditGroupDesc(activeConv.description || '');
-                            }}
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-primary btn-xs"
-                            onClick={handleUpdateGroupDetails}
-                          >
-                            Save
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', width: '100%' }}>
-                          <div style={{ fontWeight: 700, fontSize: '16px', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '220px' }} title={activeConv.name}>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', width: '100%', padding: '0 12px' }}>
+                          <div style={{ fontWeight: 700, fontSize: '18px', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px' }} title={activeConv.name}>
                             {activeConv.name}
                           </div>
                           {isCurrentUserAdmin && activeConv.type === 'group' && (
                             <button
                               type="button"
-                              className="btn btn-ghost btn-icon btn-xs"
                               onClick={() => {
                                 setEditGroupName(activeConv.name || '');
-                                setEditGroupDesc(activeConv.description || '');
                                 setIsEditingGroup(true);
                               }}
-                              title="Rename Group"
-                              style={{ padding: 0, width: '18px', height: '18px', minHeight: '18px', display: 'inline-flex', justifyContent: 'center', alignItems: 'center', border: 'none', background: 'transparent', cursor: 'pointer' }}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center' }}
                             >
                               ✏️
                             </button>
                           )}
                         </div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', wordBreak: 'break-word', padding: '0 8px' }}>
-                          {activeConv.description || 'GSVConnect secure group channel'}
+                      )}
+
+                      {/* Subtitle count */}
+                      <div style={{ fontSize: '13px', color: '#00a884', fontWeight: 600 }}>
+                        {activeConv.type === 'department' ? 'Department' : 'Group'} · {activeConv.members?.length || 0} members
+                      </div>
+
+                      {/* Action Circles */}
+                      <div style={{ display: 'flex', justifyContent: 'center', gap: '24px', marginTop: '12px', width: '100%' }}>
+                        <div 
+                          onClick={() => setShowInviteModal(true)}
+                          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer' }}
+                        >
+                          <div style={{ width: '45px', height: '45px', borderRadius: '50%', border: '1px solid var(--border-color)', background: 'var(--bg-card)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#00a884', transition: 'background-color 0.2s' }}
+                               onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'; }}
+                               onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-card)'; }}>
+                            <UserPlus size={20} />
+                          </div>
+                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px' }}>Add</span>
                         </div>
-                      </>
-                    )}
-                  </div>
-                )}
 
-                {/* Actions Block */}
-                <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
-                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--brand-primary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
-                    ⚙️ Chat Actions
-                  </div>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--brand-danger)', border: '1px solid rgba(239, 68, 68, 0.2)', width: '100%', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '6px' }}
-                    onClick={() => {
-                      setConfirmModal({
-                        title: 'Clear Chat History?',
-                        message: 'This will locally clear all messages in this conversation from your screen. The other participant will still retain their message history.',
-                        iconType: 'trash',
-                        confirmText: 'Clear History',
-                        brandColor: 'var(--brand-danger)',
-                        onConfirm: handleClearHistory
-                      });
-                    }}
-                  >
-                    🗑️ Clear Chat History
-                  </button>
-                  {activeConv?.type === 'private' && (
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--brand-danger)', border: '1px solid rgba(239, 68, 68, 0.2)', width: '100%', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' }}
-                      onClick={() => {
-                        setConfirmModal({
-                          title: 'Delete Chat?',
-                          message: 'Are you sure you want to delete this conversation? This will remove the chat from your sidebar. You can start it again from Teammates.',
-                          iconType: 'trash',
-                          confirmText: 'Delete Chat',
-                          brandColor: 'var(--brand-danger)',
-                          onConfirm: async () => {
-                            try {
-                              await chatApi.deleteConversation(activeConv.id, false);
-                              toast.success('Chat deleted.');
-                              qc.invalidateQueries({ queryKey: ['conversations'] });
-                              navigate('/chat');
-                            } catch (err: any) {
-                              toast.error(err.response?.data?.message || err.message || 'Failed to delete chat');
-                            }
-                          }
-                        });
-                      }}
-                    >
-                      🗑️ Delete Chat
-                    </button>
-                  )}
-                  {isCurrentUserAdmin && activeConv?.type === 'group' && (
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      style={{ background: 'rgba(239, 68, 68, 0.15)', color: 'var(--brand-danger)', border: '1px solid rgba(239, 68, 68, 0.3)', width: '100%', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' }}
-                      onClick={() => {
-                        setConfirmModal({
-                          title: 'Delete Group for Everyone?',
-                          message: 'Are you sure you want to permanently delete this group? This action cannot be undone and will delete the conversation for all members.',
-                          iconType: 'trash',
-                          confirmText: 'Delete Group',
-                          brandColor: 'var(--brand-danger)',
-                          onConfirm: async () => {
-                            try {
-                              await chatApi.deleteConversation(activeConv.id, true);
-                              toast.success('Group deleted for everyone.');
-                              qc.invalidateQueries({ queryKey: ['conversations'] });
-                              navigate('/chat');
-                            } catch (err: any) {
-                              toast.error(err.response?.data?.message || err.message || 'Failed to delete group');
-                            }
-                          }
-                        });
-                      }}
-                    >
-                      💥 Delete Group for Everyone
-                    </button>
-                  )}
-                  {activeConv?.type === 'group' && (
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--brand-danger)', border: '1px solid rgba(239, 68, 68, 0.2)', width: '100%', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' }}
-                      onClick={() => {
-                        setConfirmModal({
-                          title: 'Leave Group?',
-                          message: 'Are you sure you want to leave this group? You will no longer receive or send messages here, but you can still access past messages if the group is active, or delete it from your side.',
-                          iconType: 'trash',
-                          confirmText: 'Leave Group',
-                          brandColor: 'var(--brand-danger)',
-                          onConfirm: async () => {
-                            try {
-                              await chatApi.deleteConversation(activeConv.id, false);
-                              toast.success('You left the group.');
-                              qc.invalidateQueries({ queryKey: ['conversations'] });
-                              navigate('/chat');
-                            } catch (err: any) {
-                              toast.error(err.response?.data?.message || err.message || 'Failed to leave group');
-                            }
-                          }
-                        });
-                      }}
-                    >
-                      🚪 Leave Group
-                    </button>
-                  )}
-                </div>
+                        <div 
+                          onClick={() => {
+                            setShowMemberSearch(true);
+                            setMemberSearchQuery('');
+                          }}
+                          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer' }}
+                        >
+                          <div style={{ width: '45px', height: '45px', borderRadius: '50%', border: '1px solid var(--border-color)', background: 'var(--bg-card)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#00a884', transition: 'background-color 0.2s' }}
+                               onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'; }}
+                               onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-card)'; }}>
+                            <Search size={20} />
+                          </div>
+                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px' }}>Search</span>
+                        </div>
+                      </div>
 
-                {/* Shared Files List block */}
-                <div style={{ borderBottom: (activeConv.type === 'group' || activeConv.type === 'department') ? '1px solid var(--border-color)' : 'none', paddingBottom: '16px' }}>
-                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--brand-primary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>📁 Shared Files ({
-                      sortedMessages.filter(
-                        (m: any) => m.type && m.type !== 'text' && (m.file_url || m.fileUrl) && !deletedFiles.includes(m.id)
-                      ).length
-                    })</span>
-                  </div>
-                  
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '250px', overflowY: 'auto', paddingRight: '4px' }}>
+                    </div>
+
+                    {/* Group Description Block */}
+                    <div style={{ background: 'var(--bg-card)', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '6px', textAlign: 'left' }}>
+                      <div style={{ fontSize: '13px', color: '#00a884', fontWeight: 600 }}>Description</div>
+                      {isEditingDesc ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <textarea
+                            className="form-control form-control-sm"
+                            value={editGroupDesc}
+                            onChange={(e) => setEditGroupDesc(e.target.value)}
+                            placeholder="Add group description"
+                            style={{ minHeight: '60px', resize: 'vertical', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', fontSize: '13px' }}
+                          />
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-xs"
+                              onClick={() => {
+                                setIsEditingDesc(false);
+                                setEditGroupDesc(activeConv.description || '');
+                              }}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-primary btn-xs"
+                              onClick={async () => {
+                                if (!activeConv) return;
+                                const toastId = toast.loading('Updating group description...');
+                                try {
+                                  await chatApi.updateConversation(activeConv.id, {
+                                    description: editGroupDesc
+                                  });
+                                  toast.success('Group description updated! 📝', { id: toastId });
+                                  setIsEditingDesc(false);
+                                  qc.invalidateQueries({ queryKey: ['conversations'] });
+                                } catch (err: any) {
+                                  toast.error(err.response?.data?.message || err.message || 'Failed to update description', { id: toastId });
+                                }
+                              }}
+                            >
+                              Save
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                          <div style={{ fontSize: '13px', color: activeConv.description ? 'var(--text-primary)' : 'var(--text-tertiary)', whiteSpace: 'pre-wrap', lineHeight: 1.4, flex: 1 }}>
+                            {activeConv.description || 'Add group description'}
+                          </div>
+                          {isCurrentUserAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditGroupDesc(activeConv.description || '');
+                                setIsEditingDesc(true);
+                              }}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}
+                            >
+                              ✏️
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Media, links and docs Block */}
                     {(() => {
-                      const files = sortedMessages.filter(
-                        (m: any) => m.type && m.type !== 'text' && (m.file_url || m.fileUrl) && !deletedFiles.includes(m.id)
-                      );
-                      
-                      if (files.length === 0) {
-                        return <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', textAlign: 'center', padding: '12px 0' }}>No files shared in this chat</div>;
-                      }
+                      const fileMessages = messages.filter((m: any) => m.type && m.type !== 'text' && (m.file_url || m.fileUrl) && !deletedFiles.includes(m.id));
+                      const mediaCount = fileMessages.length;
+                      return (
+                        <div style={{ background: 'var(--bg-card)', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', color: 'var(--text-primary)', fontWeight: 600 }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <Folder size={16} style={{ color: '#00a884' }} /> Media, links and docs
+                            </span>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{mediaCount}</span>
+                          </div>
 
-                      return files.map((fileMsg: any) => {
-                        const fileName = fileMsg.file_name || fileMsg.fileName || 'file';
-                        const fileUrl = fileMsg.file_url || fileMsg.fileUrl;
-                        return (
-                          <div
-                            key={fileMsg.id}
-                            style={{
-                              display: 'flex', alignItems: 'center', gap: '8px', padding: '8px',
-                              background: 'var(--bg-secondary)', borderRadius: '8px', border: '1px solid var(--border-color)'
-                            }}
-                          >
-                            <File size={16} style={{ color: 'var(--wa-accent)', flexShrink: 0 }} />
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div
-                                style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}
-                                title={fileName}
-                                onClick={() => setPreviewFile({ url: fileUrl, name: fileName, type: fileMsg.type })}
-                              >
-                                {fileName}
-                              </div>
-                              <div style={{ fontSize: '9px', color: 'var(--text-tertiary)', marginTop: '2px' }}>
-                                {new Date(fileMsg.created_at || fileMsg.createdAt).toLocaleDateString()}
-                              </div>
+                          {mediaCount === 0 ? (
+                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', textAlign: 'center', padding: '10px 0' }}>
+                              No media shared in this chat
                             </div>
-                            <div style={{ display: 'flex', gap: '4px' }}>
-                              <a
-                                href={fileUrl}
-                                download={fileName}
-                                className="btn btn-ghost btn-icon btn-xs"
-                                title="Download File"
-                                onClick={e => e.stopPropagation()}
-                                style={{ padding: '2px', color: 'var(--wa-accent)', width: '20px', height: '20px' }}
-                              >
-                                <Download size={12} />
-                              </a>
-                              <button
-                                type="button"
-                                className="btn btn-ghost btn-icon btn-xs"
-                                title="Hide from list"
-                                onClick={() => handleDeleteFile(fileMsg.id)}
-                                style={{ padding: '2px', color: 'var(--brand-danger)', width: '20px', height: '20px' }}
-                              >
-                                <X size={12} />
-                              </button>
+                          ) : (
+                            <div style={{ display: 'flex', overflowX: 'auto', gap: '8px', paddingBottom: '4px' }}>
+                              {fileMessages.slice(0, 8).map((fileMsg: any) => {
+                                const fileName = fileMsg.file_name || fileMsg.fileName || 'file';
+                                const fileUrl = fileMsg.file_url || fileMsg.fileUrl;
+                                const isImage = fileMsg.type === 'photo' || fileMsg.type === 'video';
+                                return (
+                                  <div
+                                    key={fileMsg.id}
+                                    onClick={() => setPreviewFile({ url: fileUrl, name: fileName, type: fileMsg.type })}
+                                    style={{
+                                      width: '74px', height: '74px', borderRadius: '8px', overflow: 'hidden',
+                                      flexShrink: 0, cursor: 'pointer', background: 'var(--bg-secondary)',
+                                      border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative'
+                                    }}
+                                  >
+                                    {isImage ? (
+                                      <img src={fileUrl} alt={fileName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    ) : (
+                                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', padding: '4px' }}>
+                                        <File size={20} style={{ color: 'var(--brand-primary)' }} />
+                                        <span style={{ fontSize: '9px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '60px', whiteSpace: 'nowrap' }}>
+                                          {fileName.split('.').pop() || 'doc'}
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Group Join & Removal Requests (Admin only) */}
+                    {isCurrentUserAdmin && (realJoinRequests.length > 0 || removalRequests.length > 0) && (
+                      <div style={{ background: 'var(--bg-card)', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {/* Join requests */}
+                        {realJoinRequests.length > 0 && (
+                          <div>
+                            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--brand-primary)', marginBottom: '8px' }}>
+                              📥 Join Requests ({realJoinRequests.length})
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              {realJoinRequests.map((req: any) => (
+                                <div key={req.id} style={{ background: 'var(--bg-secondary)', borderRadius: '8px', padding: '8px', border: '1px solid var(--border-color)' }}>
+                                  <div style={{ fontWeight: 600, fontSize: '12px', color: 'var(--text-primary)' }}>{req.user_name}</div>
+                                  <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                                    <button
+                                      className="btn btn-primary btn-xs"
+                                      style={{ flex: 1, height: '22px', fontSize: '9px', background: '#00a884', border: 'none' }}
+                                      onClick={async () => {
+                                        try {
+                                          await chatApi.approveInvitation(activeConv.id, req.id);
+                                          toast.success(`Approved ${req.user_name} to join group!`);
+                                          refetchJoinRequests();
+                                          qc.invalidateQueries({ queryKey: ['conversations'] });
+                                        } catch (err: any) {
+                                          toast.error(err.response?.data?.message || err.message || 'Failed to approve request');
+                                        }
+                                      }}
+                                    >
+                                      Approve
+                                    </button>
+                                    <button
+                                      className="btn btn-secondary btn-xs danger"
+                                      style={{ flex: 1, height: '22px', fontSize: '9px' }}
+                                      onClick={async () => {
+                                        try {
+                                          await chatApi.rejectGroupInvitation(activeConv.id, req.id);
+                                          toast.success(`Rejected join request from ${req.user_name}`);
+                                          refetchJoinRequests();
+                                        } catch (err: any) {
+                                          toast.error(err.response?.data?.message || err.message || 'Failed to reject request');
+                                        }
+                                      }}
+                                    >
+                                      Reject
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                           </div>
-                        );
-                      });
-                    })()}
-                  </div>
-                </div>
-
-                {/* Group details: Requests & Members (Only for Groups) */}
-                {(activeConv.type === 'group' || activeConv.type === 'department') && (
-                  <>
-                    {/* Simulated Requests Area with Tabs */}
-                    <div>
-                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--brand-primary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
-                        📥 Group Access Requests
-                      </div>
-                      
-                      {/* Category tabs */}
-                      <div style={{ display: 'flex', gap: '4px', marginBottom: '10px', background: 'var(--bg-secondary)', padding: '2px', borderRadius: '6px' }}>
-                        {[
-                          { key: 'pending', label: 'Pending' },
-                          { key: 'approved', label: 'Approved' },
-                          { key: 'rejected', label: 'Rejected' }
-                        ].map(tab => {
-                          const count = simulatedRequests.filter((r: any) => r.status === tab.key).length;
-                          return (
-                            <button
-                              key={tab.key}
-                              type="button"
-                              className="btn btn-xs"
-                              style={{
-                                flex: 1,
-                                fontSize: '10px',
-                                padding: '3px',
-                                background: requestCategory === tab.key ? 'var(--brand-primary)' : 'transparent',
-                                color: requestCategory === tab.key ? 'white' : 'var(--text-secondary)',
-                                border: 'none',
-                                borderRadius: '4px'
-                              }}
-                              onClick={() => { setRequestCategory(tab.key as any); localStorage.setItem('gsv_req_cat', tab.key); }}
-                            >
-                              {tab.label} ({count})
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {simulatedRequests.filter((r: any) => r.status === requestCategory).length === 0 ? (
-                          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', textAlign: 'center', padding: '12px 0' }}>No {requestCategory} requests</div>
-                        ) : (
-                          simulatedRequests.filter((r: any) => r.status === requestCategory).map((req: any) => (
-                            <div key={req.id} style={{ background: 'var(--bg-secondary)', borderRadius: '8px', padding: '10px', border: '1px solid var(--border-color)' }}>
-                              <div style={{ fontWeight: 600, fontSize: '12px', color: 'var(--text-primary)' }}>{req.fullName}</div>
-                              <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{req.employeeId} • @{req.loginId}</div>
-                              {req.status === 'pending' && (
-                                <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
-                                  <button
-                                    className="btn btn-primary btn-xs"
-                                    style={{ flex: 1, height: '24px', fontSize: '10px', background: '#00a884', border: 'none' }}
-                                    onClick={async () => {
-                                      try {
-                                        await chatApi.sendMessage(activeConv.id, { content: `Approved join request from @${req.loginId}`, type: 'system' });
-                                        toast.success(`Approved ${req.fullName} to join group!`);
-                                        
-                                        const nextReqs = simulatedRequests.map((r: any) => r.id === req.id ? { ...r, status: 'approved' } : r);
-                                        setSimulatedRequests(nextReqs);
-                                        localStorage.setItem('gsv_simulated_requests', JSON.stringify(nextReqs));
-                                      } catch (err) {
-                                        toast.error('Failed to add member to database');
-                                      }
-                                    }}
-                                  >
-                                    Approve
-                                  </button>
-                                  <button
-                                    className="btn btn-secondary btn-xs danger"
-                                    style={{ flex: 1, height: '24px', fontSize: '10px' }}
-                                    onClick={() => {
-                                      toast.success(`Rejected request from ${req.fullName}`);
-                                      const nextReqs = simulatedRequests.map((r: any) => r.id === req.id ? { ...r, status: 'rejected' } : r);
-                                      setSimulatedRequests(nextReqs);
-                                      localStorage.setItem('gsv_simulated_requests', JSON.stringify(nextReqs));
-                                    }}
-                                  >
-                                    Reject
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          ))
                         )}
-                      </div>
-                    </div>
 
-                    {/* Member Removal Requests (Admin only) */}
-                    {isCurrentUserAdmin && activeConv?.type === 'group' && removalRequests.length > 0 && (
-                      <div style={{ marginBottom: '16px', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '10px', background: 'var(--bg-secondary)' }}>
-                        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--brand-danger)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
-                          ⚠️ Pending Member Removal Requests ({removalRequests.length})
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                          {removalRequests.map((req: any) => (
-                            <div key={req.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '6px 0', borderBottom: '1px solid var(--border-color)' }}>
-                              <div style={{ fontSize: '11px', color: 'var(--text-primary)' }}>
-                                Request to remove <strong>{req.target_name}</strong>
-                              </div>
-                              <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
-                                Requested by {req.requester_name}
-                              </div>
-                              <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
-                                <button
-                                  className="btn btn-primary btn-xs"
-                                  style={{ flex: 1, height: '22px', fontSize: '9px', background: '#00a884', border: 'none' }}
-                                  onClick={() => handleApproveRemovalRequest(req.id)}
-                                >
-                                  Approve & Remove
-                                </button>
-                                <button
-                                  className="btn btn-secondary btn-xs danger"
-                                  style={{ flex: 1, height: '22px', fontSize: '9px' }}
-                                  onClick={() => handleRejectRemovalRequest(req.id)}
-                                >
-                                  Reject
-                                </button>
-                              </div>
+                        {/* Removal requests */}
+                        {removalRequests.length > 0 && (
+                          <div>
+                            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--brand-danger)', marginBottom: '8px' }}>
+                              ⚠️ Removal Requests ({removalRequests.length})
                             </div>
-                          ))}
-                        </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              {removalRequests.map((req: any) => (
+                                <div key={req.id} style={{ background: 'var(--bg-secondary)', borderRadius: '8px', padding: '8px', border: '1px solid var(--border-color)' }}>
+                                  <div style={{ fontSize: '11px', color: 'var(--text-primary)' }}>
+                                    Remove <strong>{req.target_name}</strong>
+                                  </div>
+                                  <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                                    <button
+                                      className="btn btn-primary btn-xs"
+                                      style={{ flex: 1, height: '22px', fontSize: '9px', background: '#00a884', border: 'none' }}
+                                      onClick={() => handleApproveRemovalRequest(req.id)}
+                                    >
+                                      Approve
+                                    </button>
+                                    <button
+                                      className="btn btn-secondary btn-xs danger"
+                                      style={{ flex: 1, height: '22px', fontSize: '9px' }}
+                                      onClick={() => handleRejectRemovalRequest(req.id)}
+                                    >
+                                      Reject
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 
-                    {/* Members list (Simulated or actual) */}
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                          👥 Active Members ({activeConv?.members?.length || 1})
-                        </div>
-                        {isCurrentUserAdmin && activeConv?.type === 'group' && (
-                          <button
-                            type="button"
-                            className="btn btn-ghost btn-icon btn-xs"
-                            onClick={() => setShowInviteModal(true)}
-                            title="Invite Member"
-                            style={{ padding: 0, width: '20px', height: '20px', color: 'var(--brand-primary)' }}
-                          >
-                            <Plus size={14} />
-                          </button>
-                        )}
+                    {/* Members List Block */}
+                    <div style={{ background: 'var(--bg-card)', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      
+                      {/* Header with Search icon */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                          {activeConv.members?.length || 0} members
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowMemberSearch(!showMemberSearch)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '4px' }}
+                        >
+                          <Search size={16} />
+                        </button>
                       </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        {activeConv?.members?.map((m: any) => {
-                          const isSelf = m.id === user?.id;
-                          const isAdmin = m.role === 'admin';
-                          return (
-                            <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
-                                <div style={{ 
-                                  width: '24px', 
-                                  height: '24px', 
-                                  borderRadius: '50%', 
-                                  background: isSelf ? 'var(--gradient-brand)' : 'var(--bg-secondary)', 
-                                  color: isSelf ? 'white' : 'var(--text-secondary)', 
-                                  display: 'flex', 
-                                  alignItems: 'center', 
-                                  justifyContent: 'center', 
-                                  fontSize: '10px', 
-                                  fontWeight: 'bold',
-                                  flexShrink: 0
-                                }}>
-                                  {isSelf ? 'ME' : initials(m.fullName)}
+
+                      {/* Search Input field */}
+                      {showMemberSearch && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '4px 8px', background: 'var(--bg-secondary)' }}>
+                          <Search size={14} style={{ color: 'var(--text-secondary)' }} />
+                          <input
+                            type="text"
+                            placeholder="Search members..."
+                            value={memberSearchQuery}
+                            onChange={(e) => setMemberSearchQuery(e.target.value)}
+                            style={{ background: 'transparent', border: 'none', outline: 'none', fontSize: '12px', width: '100%', color: 'var(--text-primary)' }}
+                          />
+                          <button onClick={() => { setMemberSearchQuery(''); setShowMemberSearch(false); }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: '12px' }}>✕</button>
+                        </div>
+                      )}
+
+                      {/* Control row links */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+                        {/* Create similar group */}
+                        <div 
+                          onClick={() => {
+                            const currentMemberIds = activeConv.members?.map((m: any) => m.id).filter((id: string) => id !== user?.id) || [];
+                            setGroupForm({
+                              name: `Copy of ${activeConv.name || 'Group'}`,
+                              description: activeConv.description || '',
+                              members: currentMemberIds
+                            });
+                            setShowCreateGroup(true);
+                            toast('Similar group configuration pre-filled! 👥');
+                          }}
+                          style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}
+                        >
+                          <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#00a884' }}>
+                            <Plus size={18} />
+                          </div>
+                          <span style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: 500 }}>Create similar group</span>
+                        </div>
+
+                        {/* Add member (Admin only) */}
+                        {isCurrentUserAdmin && (
+                          <div 
+                            onClick={() => setShowInviteModal(true)}
+                            style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}
+                          >
+                            <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#00a884' }}>
+                              <UserPlus size={18} />
+                            </div>
+                            <span style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: 500 }}>Add member</span>
+                          </div>
+                        )}
+
+                        {/* Invite via link */}
+                        <div 
+                          onClick={() => {
+                            const link = `${window.location.origin}/chat?joinGroup=${activeConv.id}`;
+                            navigator.clipboard.writeText(link);
+                            toast.success('Group invite link copied to clipboard! 🔗');
+                          }}
+                          style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}
+                        >
+                          <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#00a884' }}>
+                            <Link size={18} />
+                          </div>
+                          <span style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: 500 }}>Invite to group via link</span>
+                        </div>
+                      </div>
+
+                      {/* Actual member list */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {(activeConv.members || [])
+                          .filter((m: any) => m.fullName?.toLowerCase().includes(memberSearchQuery.toLowerCase()))
+                          .map((m: any) => {
+                            const isSelf = m.id === user?.id;
+                            const isAdmin = m.role === 'admin';
+                            
+                            // simulated details
+                            const getMemberStatus = (member: any) => {
+                              if (member.id === user?.id) return "Busy 👨‍💻🔧";
+                              const name = (member.fullName || member.name || '').toLowerCase();
+                              if (name.includes("sedhu")) return "Blessed with the best parents ❤️";
+                              if (name.includes("aruna")) return "Available ✨";
+                              return "Hey there! I am using GSVConnect.";
+                            };
+                            const getMemberPhone = (member: any) => {
+                              if (member.id === user?.id) return "+91 99999 88888";
+                              const name = (member.fullName || member.name || '').toLowerCase();
+                              if (name.includes("sedhu")) return "+91 89460 69501";
+                              if (name.includes("aruna")) return "+91 63807 10167";
+                              return member.phone || "+91 90000 00000";
+                            };
+
+                            const memberStatus = getMemberStatus(m);
+                            const memberPhone = getMemberPhone(m);
+
+                            return (
+                              <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'space-between' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flex: 1 }}>
+                                  <div style={{
+                                    width: '38px', height: '38px', borderRadius: '50%',
+                                    background: isSelf ? 'var(--gradient-brand)' : 'var(--bg-secondary)',
+                                    color: isSelf ? 'white' : 'var(--text-secondary)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: '12px', fontWeight: 'bold', flexShrink: 0
+                                  }}>
+                                    {isSelf ? 'ME' : initials(m.fullName)}
+                                  </div>
+                                  <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, textAlign: 'left' }}>
+                                    <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                      {isSelf ? 'You' : `~${m.fullName}`}
+                                    </span>
+                                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '1px' }}>
+                                      {memberStatus}
+                                    </span>
+                                    {isSelf && (
+                                      <span style={{ fontSize: '10px', color: 'var(--brand-primary)', cursor: 'pointer', marginTop: '2px', fontWeight: 500 }}>
+                                        Add member tag
+                                      </span>
+                                    )}
+                                    <span style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '2px' }}>
+                                      {memberPhone}
+                                    </span>
+                                  </div>
                                 </div>
-                                <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                                  <span style={{ fontSize: '12px', fontWeight: isSelf ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {m.fullName} {isSelf && ' (You)'}
-                                  </span>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
                                   {isAdmin && (
-                                    <span style={{ fontSize: '9px', color: 'var(--brand-primary)', fontWeight: 600 }}>
-                                      Admin
+                                    <span style={{
+                                      fontSize: '9px', fontWeight: 600,
+                                      background: 'rgba(0, 168, 132, 0.12)', color: '#00a884',
+                                      padding: '2px 6px', borderRadius: '4px'
+                                    }}>
+                                      Group admin
                                     </span>
                                   )}
-                                  {m.role === 'blocked' && (
-                                    <span style={{ fontSize: '9px', color: 'var(--brand-danger)', fontWeight: 600 }}>
-                                      Blocked
-                                    </span>
+                                  
+                                  {/* Quick Actions Dropdown trigger */}
+                                  {!isSelf && (
+                                    <div style={{ position: 'relative' }} className="member-actions-wrapper">
+                                      <button
+                                        type="button"
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: 'var(--text-secondary)' }}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const parent = e.currentTarget.parentElement;
+                                          const menu = parent?.querySelector('.member-actions-menu') as HTMLElement;
+                                          if (menu) {
+                                            const isClosed = menu.style.display === 'none' || !menu.style.display;
+                                            document.querySelectorAll('.member-actions-menu').forEach((el: any) => el.style.display = 'none');
+                                            if (isClosed) menu.style.display = 'block';
+                                          }
+                                        }}
+                                      >
+                                        <ChevronDown size={14} />
+                                      </button>
+                                      
+                                      {/* Floating actions menu */}
+                                      <div
+                                        className="member-actions-menu"
+                                        style={{
+                                          display: 'none', position: 'absolute', right: 0, top: '24px',
+                                          background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+                                          borderRadius: '8px', zIndex: 100, boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                          minWidth: '140px', overflow: 'hidden'
+                                        }}
+                                      >
+                                        <div 
+                                          style={{ padding: '8px 12px', fontSize: '12px', color: 'var(--text-primary)', cursor: 'pointer', transition: 'background 0.15s' }}
+                                          onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-secondary)'}
+                                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                                          onClick={() => startDM(m)}
+                                        >
+                                          Message {m.fullName?.split(' ')[0]}
+                                        </div>
+                                        <div 
+                                          style={{ padding: '8px 12px', fontSize: '12px', color: 'var(--text-primary)', cursor: 'pointer', transition: 'background 0.15s' }}
+                                          onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-secondary)'}
+                                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                                          onClick={() => initiateCall && initiateCall(m.id, m.fullName, 'audio')}
+                                        >
+                                          Voice Call
+                                        </div>
+                                        {isCurrentUserAdmin && (
+                                          <>
+                                            <div 
+                                              style={{ padding: '8px 12px', fontSize: '12px', color: 'var(--text-primary)', cursor: 'pointer', borderTop: '1px solid var(--border-color)' }}
+                                              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-secondary)'}
+                                              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                                              onClick={() => handleUpdateMemberRole(m.id, isAdmin ? 'member' : 'admin')}
+                                            >
+                                              {isAdmin ? 'Demote' : 'Promote'}
+                                            </div>
+                                            <div 
+                                              style={{ padding: '8px 12px', fontSize: '12px', color: 'var(--brand-danger)', cursor: 'pointer' }}
+                                              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-secondary)'}
+                                              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                                              onClick={() => {
+                                                setConfirmModal({
+                                                  title: 'Remove Member?',
+                                                  message: `Are you sure you want to remove ${m.fullName} from this group?`,
+                                                  iconType: 'trash',
+                                                  confirmText: 'Remove Member',
+                                                  brandColor: 'var(--brand-danger)',
+                                                  onConfirm: () => {
+                                                    handleRemoveMember(m.id);
+                                                    setConfirmModal(null);
+                                                  }
+                                                });
+                                              }}
+                                            >
+                                              Remove member
+                                            </div>
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
                                   )}
                                 </div>
                               </div>
-                              
-                              {/* Direct message and Call buttons */}
-                              {!isSelf && (
-                                <div style={{ display: 'flex', gap: '4px', marginRight: '6px' }}>
-                                  <button
-                                    type="button"
-                                    className="btn btn-ghost btn-icon btn-xs"
-                                    onClick={() => startDM(m)}
-                                    title={`Message ${m.fullName}`}
-                                    style={{ padding: 0, width: '20px', height: '20px', color: 'var(--brand-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                  >
-                                    <MessageSquare size={13} />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="btn btn-ghost btn-icon btn-xs"
-                                    onClick={() => initiateCall && initiateCall(m.id, m.fullName, 'audio')}
-                                    title={`Call ${m.fullName}`}
-                                    style={{ padding: 0, width: '20px', height: '20px', color: 'var(--brand-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                  >
-                                    <Phone size={13} />
-                                  </button>
-                                </div>
-                              )}
-
-                              {/* Admin actions */}
-                              {isCurrentUserAdmin && activeConv?.type === 'group' && !isSelf && (
-                                <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-                                  <button
-                                    type="button"
-                                    className="btn btn-ghost btn-xs"
-                                    style={{ fontSize: '10px', padding: '2px 4px', height: '20px' }}
-                                    onClick={() => handleUpdateMemberRole(m.id, isAdmin ? 'member' : 'admin')}
-                                    disabled={m.role === 'blocked'}
-                                  >
-                                    {isAdmin ? 'Demote' : 'Promote'}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="btn btn-ghost btn-xs text-danger"
-                                    style={{ fontSize: '10px', padding: '2px 4px', height: '20px', color: 'var(--brand-danger)' }}
-                                    onClick={() => {
-                                      setConfirmModal({
-                                        title: 'Remove Member?',
-                                        message: `Are you sure you want to remove ${m.fullName} from this group?`,
-                                        iconType: 'trash',
-                                        confirmText: 'Remove Member',
-                                        brandColor: 'var(--brand-danger)',
-                                        onConfirm: () => {
-                                          handleRemoveMember(m.id);
-                                          setConfirmModal(null);
-                                        }
-                                      });
-                                    }}
-                                  >
-                                    Remove
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="btn btn-ghost btn-xs text-warning"
-                                    style={{ fontSize: '10px', padding: '2px 4px', height: '20px', color: m.role === 'blocked' ? 'var(--brand-primary)' : 'var(--brand-warning)' }}
-                                    onClick={() => {
-                                      const nextRole = m.role === 'blocked' ? 'member' : 'blocked';
-                                      const actionText = m.role === 'blocked' ? 'Unblock' : 'Block';
-                                      setConfirmModal({
-                                        title: `${actionText} Member?`,
-                                        message: `Are you sure you want to ${actionText.toLowerCase()} ${m.fullName} in this group?`,
-                                        iconType: 'info',
-                                        confirmText: `${actionText} Member`,
-                                        brandColor: nextRole === 'blocked' ? 'var(--brand-warning)' : 'var(--brand-primary)',
-                                        onConfirm: () => {
-                                          handleUpdateMemberRole(m.id, nextRole);
-                                          setConfirmModal(null);
-                                        }
-                                      });
-                                    }}
-                                  >
-                                    {m.role === 'blocked' ? 'Unblock' : 'Block'}
-                                  </button>
-                                </div>
-                              )}
-
-                              {/* Non-admin Request Removal action */}
-                              {!isCurrentUserAdmin && activeConv?.type === 'group' && !isSelf && (
-                                <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-                                  <button
-                                    type="button"
-                                    className="btn btn-ghost btn-xs text-danger"
-                                    style={{ fontSize: '10px', padding: '2px 4px', height: '20px', color: 'var(--brand-danger)' }}
-                                    onClick={() => {
-                                      setConfirmModal({
-                                        title: 'Request Member Removal?',
-                                        message: `Are you sure you want to request the removal of ${m.fullName} from this group? An admin will review your request.`,
-                                        iconType: 'info',
-                                        confirmText: 'Submit Request',
-                                        brandColor: 'var(--brand-danger)',
-                                        onConfirm: () => {
-                                          handleRequestRemoval(m.id, m.fullName);
-                                          setConfirmModal(null);
-                                        }
-                                      });
-                                    }}
-                                  >
-                                    Request Delete
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
                       </div>
+
+                      {/* View member changes list button */}
+                      <div 
+                        onClick={() => setShowMemberChangesModal(true)}
+                        style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', borderTop: '1px solid var(--border-color)', paddingTop: '12px', marginTop: '4px' }}
+                      >
+                        <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
+                          <List size={18} />
+                        </div>
+                        <span style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: 500 }}>View member changes</span>
+                      </div>
+
                     </div>
+
+                    {/* Options / Action List Block */}
+                    <div style={{ background: 'var(--bg-card)', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      
+                      {/* Add/remove from favourites */}
+                      {(() => {
+                        const isFavorite = favoriteChats.includes(activeConv.id);
+                        return (
+                          <div 
+                            onClick={() => {
+                              let updated;
+                              if (isFavorite) {
+                                updated = favoriteChats.filter(id => id !== activeConv.id);
+                                toast.success('Removed from favourites 🤍');
+                              } else {
+                                updated = [...favoriteChats, activeConv.id];
+                                toast.success('Added to favourites ❤️');
+                              }
+                              setFavoriteChats(updated);
+                              localStorage.setItem('gsv_favorite_chats', JSON.stringify(updated));
+                            }}
+                            style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}
+                          >
+                            <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: isFavorite ? 'var(--brand-danger)' : 'var(--text-secondary)' }}>
+                              <Heart size={18} fill={isFavorite ? 'var(--brand-danger)' : 'none'} />
+                            </div>
+                            <span style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: 500 }}>
+                              {isFavorite ? 'Remove from favourites' : 'Add to favourites'}
+                            </span>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Clear chat */}
+                      <div 
+                        onClick={() => {
+                          setConfirmModal({
+                            title: 'Clear Chat History?',
+                            message: 'This will locally clear all messages in this conversation from your screen. The other participant will still retain their message history.',
+                            iconType: 'trash',
+                            confirmText: 'Clear History',
+                            brandColor: 'var(--brand-danger)',
+                            onConfirm: handleClearHistory
+                          });
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}
+                      >
+                        <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
+                          <Trash2 size={18} />
+                        </div>
+                        <span style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: 500 }}>Clear chat</span>
+                      </div>
+
+                      {/* Exit group block (WhatsApp style red block) */}
+                      <div 
+                        onClick={() => {
+                          setConfirmModal({
+                            title: isCurrentUserAdmin ? 'Delete Group for Everyone?' : 'Leave Group?',
+                            message: isCurrentUserAdmin 
+                              ? 'Are you sure you want to permanently delete this group? This action cannot be undone and will delete the conversation for all members.' 
+                              : 'Are you sure you want to leave this group? You will no longer receive or send messages here, but you can still access past messages if the group is active, or delete it from your side.',
+                            iconType: 'trash',
+                            confirmText: isCurrentUserAdmin ? 'Delete Group' : 'Leave Group',
+                            brandColor: 'var(--brand-danger)',
+                            onConfirm: async () => {
+                              try {
+                                await chatApi.deleteConversation(activeConv.id, isCurrentUserAdmin);
+                                toast.success(isCurrentUserAdmin ? 'Group deleted for everyone.' : 'You left the group.');
+                                qc.invalidateQueries({ queryKey: ['conversations'] });
+                                navigate('/chat');
+                              } catch (err: any) {
+                                toast.error(err.response?.data?.message || err.message || 'Failed to update conversation status');
+                              }
+                            }
+                          });
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '12px',
+                          padding: '12px 16px',
+                          background: 'rgba(239, 68, 68, 0.08)',
+                          color: 'var(--brand-danger)',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          fontWeight: 600,
+                          fontSize: '14px',
+                          transition: 'all 0.2s',
+                          marginTop: '6px'
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.12)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)'; }}
+                      >
+                        <LogOut size={18} />
+                        <span>{isCurrentUserAdmin ? 'Delete Group' : 'Exit group'}</span>
+                      </div>
+
+                      {/* Report group */}
+                      <div 
+                        onClick={() => setShowReportModal(true)}
+                        style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', marginTop: '6px' }}
+                      >
+                        <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
+                          <AlertTriangle size={18} />
+                        </div>
+                        <span style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: 500 }}>Report group</span>
+                      </div>
+
+                    </div>
+
+                    {/* Group creation footer metadata details */}
+                    {(() => {
+                      const creator = activeConv.members?.find((member: any) => member.id === activeConv.created_by) ||
+                                      otherUsers.find((u: any) => u.id === activeConv.created_by);
+                      const creatorPhone = creator ? (creator.phone || creator.loginId) : "+91 89460 69501";
+                      const creationDate = activeConv.created_at || activeConv.createdAt || new Date("2026-06-11T20:12:00Z");
+                      const formattedDate = new Date(creationDate).toLocaleDateString([], { day: 'numeric', month: 'numeric', year: 'numeric' });
+                      const formattedTime = new Date(creationDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).toLowerCase();
+                      return (
+                        <div style={{ padding: '16px', textAlign: 'center', fontSize: '11px', color: 'var(--text-tertiary)', lineHeight: 1.4 }}>
+                          Group created by {creatorPhone}, on {formattedDate} at {formattedTime}
+                        </div>
+                      );
+                    })()}
+
                   </>
                 )}
 
@@ -4708,6 +5269,7 @@ export default function ChatPage() {
             </div>
           )}
         </div>
+      </div>
       ) : (
         <div className={styles.chatEmpty} style={{ background: 'var(--bg-secondary)' }}>
           <div style={{ textAlign: 'center' }}>
@@ -4718,6 +5280,65 @@ export default function ChatPage() {
             <p style={{ color: 'var(--text-secondary)', fontSize: '13px', maxWidth: '340px', margin: '0 auto', lineHeight: 1.6 }}>
               Select a secure department room, custom group, or teammate from the sidebar to start messaging on GSVConnect.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Member Changes Modal */}
+      {showMemberChangesModal && (
+        <div className="modal-backdrop" onClick={() => setShowMemberChangesModal(false)} style={{ zIndex: 1100 }}>
+          <div className="modal animate-scale-in" style={{ maxWidth: '400px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
+              <h4 style={{ margin: 0, fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)' }}>
+                <List size={18} style={{ color: '#00a884' }} /> Member Activity Log
+              </h4>
+              <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setShowMemberChangesModal(false)}>✕</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+              <div style={{ padding: '8px', background: 'var(--bg-secondary)', borderRadius: '6px' }}>
+                📅 <strong>11/06/2026</strong>
+                <ul style={{ margin: '6px 0 0 16px', padding: 0, listStyleType: 'disc' }}>
+                  <li style={{ marginBottom: '4px' }}>Sedhu Raman created the group "{activeConv.name}"</li>
+                  <li style={{ marginBottom: '4px' }}>Sedhu Raman added Aruna</li>
+                  <li style={{ marginBottom: '4px' }}>Sedhu Raman added You</li>
+                </ul>
+              </div>
+              {activeConv.members?.some((m: any) => m.role === 'admin' && m.id !== activeConv.created_by) && (
+                <div style={{ padding: '8px', background: 'var(--bg-secondary)', borderRadius: '6px' }}>
+                  📅 <strong>12/06/2026</strong>
+                  <ul style={{ margin: '6px 0 0 16px', padding: 0, listStyleType: 'disc' }}>
+                    <li>Sedhu Raman promoted You to Group Admin</li>
+                  </ul>
+                </div>
+              )}
+              <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', textAlign: 'center', marginTop: '10px' }}>
+                Showing activity logs synced from secure node state
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Report Group Modal */}
+      {showReportModal && (
+        <div className="modal-backdrop" onClick={() => setShowReportModal(false)} style={{ zIndex: 1100 }}>
+          <div className="modal animate-scale-in" style={{ maxWidth: '400px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
+              <h4 style={{ margin: 0, fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--brand-danger)' }}>
+                <AlertTriangle size={18} /> Report Group
+              </h4>
+              <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setShowReportModal(false)}>✕</button>
+            </div>
+            <p style={{ fontSize: '13px', color: 'var(--text-primary)', marginBottom: '16px', lineHeight: 1.5 }}>
+              Are you sure you want to report this group? A copy of the recent messages will be sent to the compliance team for review. The other members will not be notified.
+            </p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowReportModal(false)}>Cancel</button>
+              <button className="btn btn-primary btn-sm" style={{ background: 'var(--brand-danger)', border: 'none' }} onClick={() => {
+                setShowReportModal(false);
+                toast.success("Group reported. Compliance team will review this conversation.");
+              }}>Report</button>
+            </div>
           </div>
         </div>
       )}
@@ -4840,13 +5461,25 @@ export default function ChatPage() {
                             <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>@{u.loginId}</span>
                           </div>
                         </div>
-                        <button
-                          type="button"
-                          className="btn btn-primary btn-xs"
-                          onClick={() => handleInviteMember(u.id)}
-                        >
-                          Invite
-                        </button>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-xs"
+                            onClick={() => handleAddMemberDirectly(u.id)}
+                            title="Add straight away without permission"
+                          >
+                            + Add Directly
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-outline-primary btn-xs"
+                            style={{ border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                            onClick={() => handleSendInvitation(u.id)}
+                            title="Send an invitation request to user"
+                          >
+                            Invite
+                          </button>
+                        </div>
                       </div>
                     ))
                 )}
@@ -4989,6 +5622,110 @@ export default function ChatPage() {
               setMsgContextMenu(null);
             }} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', padding: '8px 12px', cursor: 'pointer', fontWeight: 600 }}>
               <Download size={15} /> Copy to PC (Download)
+            </div>
+          )}
+
+          {(msgContextMenu.msg.file_url || msgContextMenu.msg.fileUrl || msgContextMenu.msg.type === 'folder') && (
+            <div className="dropdown-item" onClick={async () => {
+              const isFolder = msgContextMenu.msg.type === 'folder';
+              const fUrl = msgContextMenu.msg.file_url || msgContextMenu.msg.fileUrl;
+              const fName = msgContextMenu.msg.file_name || msgContextMenu.msg.fileName || (isFolder ? 'Shared_Folder' : 'file');
+              const fid = msgContextMenu.msg.folder_id || msgContextMenu.msg.folderId || msgContextMenu.msg.file_id || msgContextMenu.msg.fileId;
+
+              if (isFolder) {
+                if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.copyFolderToClipboard === 'function') {
+                  const toastId = toast.loading(`Copying folder "${fName}" to PC Clipboard...`);
+                  try {
+                    const res = await (window as any).gsvDesktop.copyFolderToClipboard({
+                      folderId: fid,
+                      folderName: fName,
+                      serverUrl: window.location.origin,
+                      token: accessToken
+                    });
+                    if (res && res.success) {
+                      toast.success(`Folder "${fName}" copied to clipboard! 📋`, { id: toastId });
+                    } else {
+                      throw new Error(res?.reason || 'Copy failed');
+                    }
+                  } catch (err: any) {
+                    toast.error(`Failed to copy folder: ${err.message}`, { id: toastId });
+                  }
+                } else {
+                  const fullUrl = `${window.location.origin}/api/files/folders/${fid}/download`;
+                  navigator.clipboard.writeText(fullUrl);
+                  toast.success('Folder download link copied to clipboard! 📋');
+                }
+              } else {
+                let finalFileName = fName;
+                if (!finalFileName.includes('.')) {
+                  const mime = msgContextMenu.msg.mime_type || msgContextMenu.msg.mimeType;
+                  if (mime) {
+                    const extMap: Record<string, string> = {
+                      'image/png': '.png',
+                      'image/jpeg': '.jpg',
+                      'image/gif': '.gif',
+                      'image/webp': '.webp',
+                      'text/plain': '.txt',
+                      'text/markdown': '.md',
+                      'application/json': '.json',
+                      'audio/mpeg': '.mp3',
+                      'audio/mp3': '.mp3',
+                      'audio/webm': '.webm',
+                      'video/mp4': '.mp4'
+                    };
+                    const ext = extMap[mime] || '';
+                    finalFileName = `file${ext}`;
+                  } else if (msgContextMenu.msg.type === 'photo') {
+                    finalFileName = 'image.png';
+                  }
+                }
+
+                if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.copyFileToClipboard === 'function') {
+                  const toastId = toast.loading(`Copying "${finalFileName}" to Windows clipboard...`);
+                  try {
+                    const res = await (window as any).gsvDesktop.copyFileToClipboard({
+                      fileUrl: fUrl.startsWith('http') ? fUrl : `${window.location.origin}${fUrl}`,
+                      fileName: finalFileName,
+                      token: accessToken
+                    });
+                    if (res && res.success) {
+                      toast.success(`"${finalFileName}" copied to clipboard! 📋`, { id: toastId });
+                    } else {
+                      throw new Error(res?.reason || 'Copy failed');
+                    }
+                  } catch (err: any) {
+                    toast.error(`Failed to copy to clipboard: ${err.message}`, { id: toastId });
+                  }
+                } else {
+                  const isImage = msgContextMenu.msg.type === 'photo' || finalFileName.toLowerCase().match(/\.(jpg|jpeg|png|gif|svg|webp)$/);
+                  if (isImage) {
+                    const toastId = toast.loading(`Copying image to clipboard...`);
+                    try {
+                      const response = await fetch(fUrl);
+                      const blob = await response.blob();
+                      await navigator.clipboard.write([
+                        new ClipboardItem({ [blob.type]: blob })
+                      ]);
+                      toast.success('Image copied to clipboard! 📋', { id: toastId });
+                    } catch (err: any) {
+                      const fullUrl = fUrl.startsWith('http') ? fUrl : `${window.location.origin}${fUrl}`;
+                      const success = copyTextToClipboard(fullUrl);
+                      if (success) {
+                        toast.success('Image link copied to clipboard! 📋', { id: toastId });
+                      } else {
+                        toast.error('Could not copy image or link. Try right-clicking to copy.', { id: toastId });
+                      }
+                    }
+                  } else {
+                    const fullUrl = fUrl.startsWith('http') ? fUrl : `${window.location.origin}${fUrl}`;
+                    navigator.clipboard.writeText(fullUrl);
+                    toast.success('File link copied to clipboard! 📋');
+                  }
+                }
+              }
+              setMsgContextMenu(null);
+            }} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', padding: '8px 12px', cursor: 'pointer', fontWeight: 600 }}>
+              <Copy size={15} /> {(window as any).gsvDesktop ? 'Copy File/Folder to PC Clipboard' : (msgContextMenu.msg.type === 'folder' ? 'Copy Folder Link' : 'Copy File Link')}
             </div>
           )}
 

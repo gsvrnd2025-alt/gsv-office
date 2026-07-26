@@ -1,0 +1,26 @@
+GSV OFFICE END USER LICENSE AGREEMENT (EULA)
+
+Please read this End User License Agreement ("Agreement") carefully before installing or using the GSV Office Desktop Client ("Software"). By installing or using the Software, you agree to be bound by the terms of this Agreement.
+
+1. LICENSE GRANT
+GSV grants you a non-exclusive, non-transferable, limited license to install and use the Software on devices owned or controlled by your organization in accordance with the terms of this Agreement.
+
+2. RESTRICTIONS
+You shall not:
+- Modify, adapt, translate, reverse engineer, decompile, or disassemble the Software.
+- Rent, lease, loan, resell, or distribute the Software to any third party outside your organization.
+- Remove or alter any proprietary notices, labels, or trademarks on the Software.
+
+3. OWNERSHIP
+The Software, including all intellectual property rights, is and shall remain the sole and exclusive property of GSV.
+
+4. TERMINATION
+This Agreement is effective until terminated. Your rights under this Agreement will terminate automatically if you fail to comply with any of its terms. Upon termination, you must cease all use of the Software and uninstall all copies.
+
+5. DISCLAIMER OF WARRANTY
+THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+
+6. LIMITATION OF LIABILITY
+IN NO EVENT SHALL GSV BE LIABLE FOR ANY SPECIAL, INCIDENTAL, INDIRECT, OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE USE OF OR INABILITY TO USE THE SOFTWARE.
+
+Copyright (c) 2026 GSV. All rights reserved.

@@ -3292,6 +3292,68 @@
             min-height: 100px;
             transition: all 0.4s ease;
         }
+
+        @media screen and (max-width: 768px) {
+            /* Force table to not behave like a table anymore */
+            table.table, 
+            table.table thead, 
+            table.table tbody, 
+            table.table th, 
+            table.table td, 
+            table.table tr { 
+                display: block !important; 
+                width: 100% !important;
+            }
+            
+            /* Hide table headers */
+            table.table thead tr { 
+                position: absolute;
+                top: -9999px;
+                left: -9999px;
+            }
+            
+            table.table tr { 
+                border: 1px solid rgba(0, 0, 0, 0.08) !important;
+                margin-bottom: 16px !important;
+                border-radius: 12px !important;
+                background: #ffffff !important;
+                padding: 16px !important;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05) !important;
+            }
+            
+            table.table td { 
+                border: none !important;
+                border-bottom: 1px dashed rgba(0, 0, 0, 0.08) !important; 
+                position: relative !important;
+                padding: 10px 4px !important;
+                padding-left: 45% !important; 
+                text-align: right !important;
+                font-size: 0.85rem !important;
+                white-space: normal !important;
+                min-height: 40px !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: flex-end !important;
+            }
+            
+            table.table td:last-child {
+                border-bottom: 0 !important;
+            }
+            
+            table.table td::before { 
+                position: absolute !important;
+                top: 50% !important;
+                left: 8px !important;
+                transform: translateY(-50%) !important;
+                width: 40% !important; 
+                padding-right: 10px !important; 
+                white-space: nowrap !important;
+                text-align: left !important;
+                font-weight: 700 !important;
+                color: #64748b !important;
+                font-size: 0.8rem !important;
+            }
+        }
     </style>
     <script>
         const SHEET_NAMES = {
@@ -3323,39 +3385,9 @@
             document.body.appendChild(errorDiv);
         };
     </script>
-    <style>
-        .floating-back-btn {
-            position: fixed;
-            bottom: 25px;
-            left: 25px;
-            background: linear-gradient(135deg, #4361ee, #3f37c9);
-            color: #ffffff !important;
-            padding: 12px 20px;
-            border-radius: 50px;
-            font-family: 'Poppins', sans-serif;
-            font-size: 0.9rem;
-            font-weight: 500;
-            text-decoration: none !important;
-            box-shadow: 0 8px 20px rgba(67, 97, 238, 0.3);
-            z-index: 999999;
-            display: flex;
-            align-items: center;
-            transition: all 0.3s ease;
-        }
-
-        .floating-back-btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 12px 24px rgba(67, 97, 238, 0.4);
-            background: linear-gradient(135deg, #3f37c9, #4361ee);
-        }
-    </style>
 </head>
 
 <body>
-    <!-- Floating Back to GSV Office Button -->
-    <a href="/dashboard" class="floating-back-btn" id="gsvBackToOfficeBtn">
-        <i class="bi bi-arrow-left me-2"></i> Back to GSV Office
-    </a>
     <!-- Sidebar Overlay for Mobile -->
     <div class="sidebar-overlay" id="sidebarOverlay"
         style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1080;">
@@ -6781,8 +6813,12 @@
             showStudentSection('uploadDocuments');
         }
 
+        // --- NAVIGATION & UI ---
         let gsvNavStack = [];
         let currentActiveStudentSectionId = '<?= initialSection || "dashboard" ?>';
+        if (currentActiveStudentSectionId.indexOf('<?=') !== -1 || !currentActiveStudentSectionId) {
+            currentActiveStudentSectionId = 'dashboard';
+        }
 
         function gsvNavigateBack() {
             if (gsvNavStack.length > 1) {
@@ -7034,7 +7070,10 @@
 
         // On Load: Jump to Initial Section (Persistence Support)
         window.addEventListener('load', function () {
-            const initialSection = '<?= initialSection ?>';
+            let initialSection = '<?= initialSection ?>';
+            if (initialSection.indexOf('<?=') !== -1 || !initialSection) {
+                initialSection = 'dashboard';
+            }
             if (initialSection && initialSection !== 'dashboard') {
                 const navId = 'nav' + initialSection.charAt(0).toUpperCase() + initialSection.slice(1);
                 const navLink = document.getElementById(navId);
@@ -11068,9 +11107,44 @@
         }
 
         function studentLogout() {
-            sessionStorage.removeItem('gsv_student_regId');
-            sessionStorage.removeItem('gsv_student_mobile');
-            window.location.href = '/internship/index.html';
+            const logoutBtns = document.querySelectorAll('.logout-btn');
+            logoutBtns.forEach(btn => {
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Logging out...';
+                btn.classList.add('disabled');
+            });
+
+            // First log the logout on backend, then get the redirect URL
+            google.script.run
+                .withSuccessHandler(() => {
+                    // After logging out, get the published URL to redirect to the login page
+                    google.script.run
+                        .withSuccessHandler(url => {
+                            const redirectUrl = url || window.location.href.split('?')[0];
+                            if (window.top) {
+                                window.top.location.href = redirectUrl;
+                            } else {
+                                window.location.href = redirectUrl;
+                            }
+                        })
+                        .withFailureHandler(error => {
+                            // Fallback: redirect to base URL without query params
+                            const baseUrl = window.location.href.split('?')[0];
+                            if (window.top) {
+                                window.top.location.href = baseUrl;
+                            } else {
+                                window.location.href = baseUrl;
+                            }
+                        })
+                        .getPublishedUrl();
+                })
+                .withFailureHandler(error => {
+                    logoutBtns.forEach(btn => {
+                        btn.innerHTML = '<i class="bi bi-box-arrow-right me-2"></i> Logout';
+                        btn.classList.remove('disabled');
+                    });
+                    showErrorModal(`Logout failed: ${error.message}`);
+                })
+                .studentLogout();
         }
     </script>
     <script>
@@ -12697,43 +12771,6 @@
             initMobileSidebar();
         }
     </script>
-    <!-- Floating Back to GSV Office Button -->
-    <a href="/dashboard" class="gsv-back-btn">
-        <i class="bi bi-arrow-left"></i>
-        <span>Back to GSV Office</span>
-    </a>
-    <style>
-        .gsv-back-btn {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            z-index: 99999;
-            background: linear-gradient(135deg, #4f46e5, #06b6d4);
-            color: #ffffff !important;
-            padding: 10px 18px;
-            border-radius: 50px;
-            font-family: 'Inter', system-ui, -apple-system, sans-serif;
-            font-size: 14px;
-            font-weight: 600;
-            text-decoration: none !important;
-            box-shadow: 0 4px 15px rgba(79, 70, 229, 0.4);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            transition: all 0.3s ease;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(10px);
-        }
-        .gsv-back-btn:hover {
-            transform: translateY(-2px) scale(1.05);
-            box-shadow: 0 6px 20px rgba(79, 70, 229, 0.6);
-            background: linear-gradient(135deg, #4338ca, #0891b2);
-        }
-        .gsv-back-btn i {
-            font-size: 16px;
-            font-weight: bold;
-        }
-    </style>
 </body>
 
 </html>

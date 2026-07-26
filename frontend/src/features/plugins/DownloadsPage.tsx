@@ -55,6 +55,9 @@ export default function DownloadsPage() {
             <a href="/downloads/GSVOffice-Portable.exe" download className="btn btn-secondary" style={{ justifyContent: 'center', fontWeight: 600 }} onClick={() => toast.success('Downloading GSV Office Portable... 📥')}>
               <Download size={16} /> GSVOffice-Portable.exe (Standalone)
             </a>
+            <a href="/downloads/GSVOffice-Windows.zip" download className="btn btn-secondary" style={{ justifyContent: 'center', fontWeight: 600, border: '1px dashed #6366f1' }} onClick={() => toast.success('Downloading GSV Office Flutter Windows Portable... 📥')}>
+              <Download size={16} /> GSVOffice-Windows.zip (Flutter Portable)
+            </a>
           </div>
         </div>
 

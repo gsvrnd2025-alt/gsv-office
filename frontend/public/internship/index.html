@@ -1731,8 +1731,10 @@
                 console.warn("google.script.history is not available (running in embedded iframe). History navigation disabled.");
             }
 
-            const initialPage = '<?= initialPage ?>';
-            const initialSection = '<?= initialSection ?>';
+            let initialPage = '<?= initialPage ?>';
+            if (initialPage.indexOf('<?=') !== -1) initialPage = '';
+            let initialSection = '<?= initialSection ?>';
+            if (initialSection.indexOf('<?=') !== -1) initialSection = '';
             const startTab = initialSection || initialPage || 'verify';
 
             if (startTab && startTab !== 'verify') {
@@ -2829,7 +2831,9 @@
                 .withSuccessHandler(function (response) {
                     if (response.status === "success") {
                         showGeneralMessageElement(messageDiv, '✅ Login successful! Redirecting...', false);
-                        window.location.href = "/internship/admin.html";
+                        google.script.run.withSuccessHandler(function (url) {
+                            window.location.href = url + "?page=admin_dashboard";
+                        }).getPublishedUrl();
                     } else {
                         showGeneralMessageElement(messageDiv, `❌ ${response.message}`, true);
                         submitBtn.disabled = false;
@@ -2959,7 +2963,9 @@
                         // Save to session storage for robustness
                         sessionStorage.setItem('gsv_student_regId', regId);
 
-                        window.location.href = `/internship/student.html?regno=${regId}`;
+                        google.script.run.withSuccessHandler(function (url) {
+                            window.location.href = `${url}?page=student_dashboard&regno=${regId}`;
+                        }).getPublishedUrl();
                     } else {
                         showGeneralMessageElement(messageDiv, `❌ ${response.message}`, true);
                         submitBtn.disabled = false;

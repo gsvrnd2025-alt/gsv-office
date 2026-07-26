@@ -203,28 +203,50 @@ export function AppLayout() {
 
       const myUserId = useAuthStore.getState().user?.id;
       if (data.senderId !== myUserId) {
-        // If app is hidden or not focused, show native notification
-        if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.showNotification === 'function') {
-           if (document.hidden || !location.pathname.startsWith('/chat')) {
-             const senderName = findUserName(data.senderId);
-             (window as any).gsvDesktop.showNotification({
-               text: data.content,
-               senderName: senderName,
-               conversationId: data.conversationId
-             });
-           }
+        const isChatRoute = location.pathname.startsWith('/chat');
+        const isCurrentConv = location.pathname === `/chat/${data.conversationId}`;
+        if (document.hidden || !isChatRoute || !isCurrentConv) {
+          if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.showNotification === 'function') {
+            (window as any).gsvDesktop.showNotification({
+              text: data.content || (data.file_name ? `Attachment: ${data.file_name}` : 'Sent a message'),
+              senderName: data.sender_name || 'Teammate',
+              conversationId: data.conversationId
+            });
+          } else if ('Notification' in window && Notification.permission === 'granted') {
+            try {
+              const notif = new Notification(data.sender_name || 'New Message', {
+                body: data.content || (data.file_name ? `Attachment: ${data.file_name}` : 'Sent a message'),
+                icon: '/assets/logo.png',
+                tag: data.conversationId
+              });
+              notif.onclick = () => {
+                window.focus();
+                navigate(`/chat/${data.conversationId}`);
+              };
+            } catch (e) {}
+          }
         }
       }
     });
 
-    if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.onNotificationReply === 'function') {
-       (window as any).gsvDesktop.onNotificationReply((replyData: any) => {
+    if ((window as any).gsvDesktop) {
+      if (typeof (window as any).gsvDesktop.onNotificationReply === 'function') {
+        (window as any).gsvDesktop.onNotificationReply((replyData: any) => {
           socket.emit('message:send', {
             conversationId: replyData.conversationId,
             content: replyData.replyText,
             type: 'text'
           });
-       });
+        });
+      }
+      if (typeof (window as any).gsvDesktop.onNotificationClick === 'function') {
+        (window as any).gsvDesktop.onNotificationClick((clickData: any) => {
+          if (clickData && clickData.conversationId) {
+            window.focus();
+            navigate(`/chat/${clickData.conversationId}`);
+          }
+        });
+      }
     }
 
     return () => {
@@ -244,27 +266,29 @@ export function AppLayout() {
     });
     setWebrtcSocket(socket);
 
-    socket.on('remote:request', (data) => {
-      if (window.location.pathname === '/remote-desktop') return;
-      (window as any).gsvIncomingRemoteRequest = data; // Set fallback on window object
-      setIncomingRemoteRequest(data);
-      SoundManager.playRing(2.0);
-      
-      if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.showIncomingCallPopup === 'function') {
-        (window as any).gsvDesktop.showIncomingCallPopup({
-          roomId: data.roomId || 'remote',
-          callerName: data.callerName,
-          type: 'remote-desktop'
-        });
-      }
-    });
+    if ((window as any).gsvDesktop) {
+      socket.on('remote:request', (data) => {
+        if (window.location.pathname === '/remote-desktop') return;
+        (window as any).gsvIncomingRemoteRequest = data; // Set fallback on window object
+        setIncomingRemoteRequest(data);
+        SoundManager.playRing(2.0);
+        
+        if (typeof (window as any).gsvDesktop.showIncomingCallPopup === 'function') {
+          (window as any).gsvDesktop.showIncomingCallPopup({
+            roomId: data.roomId || 'remote',
+            callerName: data.callerName,
+            type: 'remote-desktop'
+          });
+        }
+      });
 
-    socket.on('remote:terminate', () => {
-      setIncomingRemoteRequest(null);
-      if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.closeIncomingCallPopup === 'function') {
-        (window as any).gsvDesktop.closeIncomingCallPopup();
-      }
-    });
+      socket.on('remote:terminate', () => {
+        setIncomingRemoteRequest(null);
+        if (typeof (window as any).gsvDesktop.closeIncomingCallPopup === 'function') {
+          (window as any).gsvDesktop.closeIncomingCallPopup();
+        }
+      });
+    }
 
     socket.on('call:incoming', (data) => {
       // data: { roomId, callerId, type, groupId }
@@ -358,6 +382,7 @@ export function AppLayout() {
       if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
       
       toast.success('Connected! Voice resonance synced.');
+      SoundManager.playCallConnected();
       setCallingState('connected');
       
       await setupPeerConnection(activeRoomIdRef.current, true, data.socketId);
@@ -420,6 +445,10 @@ export function AppLayout() {
       }
       
       if (peerConnectionsRef.current.size === 0) {
+        // If we were in calling state (never connected), treat as rejection
+        if (callingState === 'calling') {
+          SoundManager.playCallRejected();
+        }
         toast.error('The call was terminated.');
         hangUpCall();
       }
@@ -427,6 +456,7 @@ export function AppLayout() {
 
     socket.on('call:busy', () => {
       toast.error('The teammate is currently busy in another call.');
+      SoundManager.playCallRejected();
       hangUpCall();
     });
 
@@ -692,6 +722,11 @@ export function AppLayout() {
     }
   };
 
+  const notifyCallRejectedToCaller = () => {
+    // Play rejection sound on the CALLER side when callee rejects
+    SoundManager.playCallRejected();
+  };
+
   const hangUpCall = () => {
     if (ringIntervalRef.current) clearInterval(ringIntervalRef.current);
     if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
@@ -771,6 +806,7 @@ export function AppLayout() {
   };
 
   const isChatPage = location.pathname.startsWith('/chat');
+  const isWorkspacePage = location.pathname.startsWith('/workspace');
   const pathParts = location.pathname.split('/');
   const activeConversationId = (isChatPage && pathParts[2]) ? pathParts[2] : null;
 
@@ -1114,19 +1150,21 @@ export function AppLayout() {
         className={`${styles.mainContent} ${sidebarCollapsed ? styles.collapsed : ''}`}
         style={isRemoteDesktopExpanded ? { marginLeft: 0, height: '100vh', maxHeight: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' } : undefined}
       >
-        {!isChatPage && !isRemoteDesktopExpanded && (
+        {!isChatPage && !isWorkspacePage && !isRemoteDesktopExpanded && (
           <Topbar
             onMenuClick={() => setMobileSidebarOpen(true)}
             sidebarCollapsed={sidebarCollapsed}
           />
         )}
         <main 
-          className={isChatPage ? styles.chatPageContent : styles.pageContent}
+          className={(isChatPage || isWorkspacePage) ? styles.chatPageContent : styles.pageContent}
           style={isRemoteDesktopExpanded ? { padding: 0, height: '100vh', maxHeight: '100vh', overflow: 'hidden' } : undefined}
         >
           <Outlet context={{
             sidebarCollapsed,
             setSidebarCollapsed,
+            mobileSidebarOpen,
+            setMobileSidebarOpen,
             isRemoteDesktopExpanded,
             setIsRemoteDesktopExpanded,
             webrtcSocket,

@@ -864,6 +864,67 @@ export default function FilesPage() {
               <div className="dropdown-item" onClick={() => { handleOpenPreview(contextMenu.item); setContextMenu(null); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><ChevronRight size={13} /> Preview</div>
               <div className="dropdown-item" onClick={() => { window.open(contextMenu.item.storageUrl, '_blank'); setContextMenu(null); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}>🔗 Open in New Tab</div>
               <a href={contextMenu.item.storageUrl} download={contextMenu.item.originalName} className="dropdown-item" onClick={() => setContextMenu(null)} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer', color: 'inherit', textDecoration: 'none' }}><Download size={13} /> Copy to PC (Download)</a>
+              {(window as any).gsvDesktop ? (
+                <div className="dropdown-item" onClick={async () => {
+                  const toastId = toast.loading('Copying file to PC... 📄');
+                  try {
+                    const token = useAuthStore.getState().accessToken;
+                    const fUrl = contextMenu.item.storageUrl;
+                    const fName = contextMenu.item.originalName || 'file';
+                    const res = await (window as any).gsvDesktop.copyFileToClipboard({
+                      fileUrl: fUrl.startsWith('http') ? fUrl : `${window.location.origin}${fUrl}`,
+                      fileName: fName,
+                      token: token
+                    });
+                    if (res?.success) {
+                      toast.success(`File copied to PC successfully! 📋`, { id: toastId });
+                    } else {
+                      toast.error(`Copy failed: ${res?.reason || 'Unknown error'}`, { id: toastId });
+                    }
+                  } catch (err: any) {
+                    toast.error(`Copy error: ${err.message}`, { id: toastId });
+                  }
+                  setContextMenu(null);
+                }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}>
+                  <Copy size={13} /> Copy File to PC (Direct)
+                </div>
+              ) : (
+                <div className="dropdown-item" onClick={async () => {
+                  const fUrl = contextMenu.item.storageUrl;
+                  const fName = contextMenu.item.originalName || 'file';
+                  const isImage = fName.toLowerCase().match(/\.(jpg|jpeg|png|gif|svg|webp)$/);
+                  const fullUrl = fUrl.startsWith('http') ? fUrl : `${window.location.origin}${fUrl}`;
+
+                  if (isImage) {
+                    const toastId = toast.loading('Copying image to clipboard... 📷');
+                    try {
+                      const response = await fetch(fullUrl);
+                      const blob = await response.blob();
+                      await navigator.clipboard.write([
+                        new ClipboardItem({ [blob.type]: blob })
+                      ]);
+                      toast.success('Image copied to clipboard! 📋', { id: toastId });
+                    } catch (err) {
+                      const success = copyTextToClipboard(fullUrl);
+                      if (success) {
+                        toast.success('Direct copy failed. Image link copied! 🔗', { id: toastId });
+                      } else {
+                        toast.error('Could not copy image. Try downloading it instead.', { id: toastId });
+                      }
+                    }
+                  } else {
+                    const success = copyTextToClipboard(fullUrl);
+                    if (success) {
+                      toast.success('File link copied to clipboard! 📋');
+                    } else {
+                      toast.error('Could not copy file link.');
+                    }
+                  }
+                  setContextMenu(null);
+                }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}>
+                  <Copy size={13} /> Copy File Link/Image
+                </div>
+              )}
             </>
           )}
 

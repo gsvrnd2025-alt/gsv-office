@@ -57,7 +57,7 @@ export class ChatController {
   @RequirePermissions(['chat', 'send'])
   addMember(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body('userId') userId: string,
+    @Body('userId', ParseUUIDPipe) userId: string,
     @CurrentUser('id') requestingUserId: string
   ) {
     return this.svc.addMember(id, userId, requestingUserId);
@@ -168,5 +168,47 @@ export class ChatController {
     @Query('clearForEveryone') clearForEveryone: string
   ) {
     return this.svc.deleteConversation(id, userId, clearForEveryone === 'true');
+  }
+
+  @Post('conversations/:id/join')
+  @RequirePermissions(['chat', 'send'])
+  joinConversation(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('id') userId: string) {
+    return this.svc.joinConversation(id, userId);
+  }
+
+  @Get('conversations/:id/invitations-pending')
+  @RequirePermissions(['chat', 'read'])
+  getPendingInvitations(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('id') adminId: string) {
+    return this.svc.getGroupInvitations(id, adminId);
+  }
+
+  @Post('conversations/:id/invitations/:invitationId/approve')
+  @RequirePermissions(['chat', 'send'])
+  approveInvitation(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('invitationId', ParseUUIDPipe) invitationId: string,
+    @CurrentUser('id') adminId: string
+  ) {
+    return this.svc.approveGroupInvitation(id, invitationId, adminId);
+  }
+
+  @Post('conversations/:id/invitations/:invitationId/reject')
+  @RequirePermissions(['chat', 'send'])
+  rejectGroupInvitation(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('invitationId', ParseUUIDPipe) invitationId: string,
+    @CurrentUser('id') adminId: string
+  ) {
+    return this.svc.rejectGroupInvitation(id, invitationId, adminId);
+  }
+
+  @Post('conversations/:id/mute')
+  @RequirePermissions(['chat', 'read'])
+  toggleMute(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('id') userId: string,
+    @Body('isMuted') isMuted: boolean
+  ) {
+    return this.svc.toggleMute(id, userId, isMuted);
   }
 }

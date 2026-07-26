@@ -1,0 +1,98 @@
+﻿diff --git a/gsv-office-appscript/StudentDashboard.html b/gsv internship student portal integration file/StudentDashboard.html
+index 8645a4a..65b3c5b 100644
+--- a/gsv-office-appscript/StudentDashboard.html
++++ b/gsv internship student portal integration file/StudentDashboard.html	
+@@ -3237,68 +3237,6 @@
+             min-height: 100px;
+             transition: all 0.4s ease;
+         }
+-
+-        @media screen and (max-width: 768px) {
+-            /* Force table to not behave like a table anymore */
+-            table.table, 
+-            table.table thead, 
+-            table.table tbody, 
+-            table.table th, 
+-            table.table td, 
+-            table.table tr { 
+-                display: block !important; 
+-                width: 100% !important;
+-            }
+-            
+-            /* Hide table headers */
+-            table.table thead tr { 
+-                position: absolute;
+-                top: -9999px;
+-                left: -9999px;
+-            }
+-            
+-            table.table tr { 
+-                border: 1px solid rgba(0, 0, 0, 0.08) !important;
+-                margin-bottom: 16px !important;
+-                border-radius: 12px !important;
+-                background: #ffffff !important;
+-                padding: 16px !important;
+-                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05) !important;
+-            }
+-            
+-            table.table td { 
+-                border: none !important;
+-                border-bottom: 1px dashed rgba(0, 0, 0, 0.08) !important; 
+-                position: relative !important;
+-                padding: 10px 4px !important;
+-                padding-left: 45% !important; 
+-                text-align: right !important;
+-                font-size: 0.85rem !important;
+-                white-space: normal !important;
+-                min-height: 40px !important;
+-                display: flex !important;
+-                align-items: center !important;
+-                justify-content: flex-end !important;
+-            }
+-            
+-            table.table td:last-child {
+-                border-bottom: 0 !important;
+-            }
+-            
+-            table.table td::before { 
+-                position: absolute !important;
+-                top: 50% !important;
+-                left: 8px !important;
+-                transform: translateY(-50%) !important;
+-                width: 40% !important; 
+-                padding-right: 10px !important; 
+-                white-space: nowrap !important;
+-                text-align: left !important;
+-                font-weight: 700 !important;
+-                color: #64748b !important;
+-                font-size: 0.8rem !important;
+-            }
+-        }
+     </style>
+     <script>
+         const SHEET_NAMES = {
+@@ -6758,12 +6696,8 @@
+             showStudentSection('uploadDocuments');
+         }
+ 
+-        // --- NAVIGATION & UI ---
+         let gsvNavStack = [];
+         let currentActiveStudentSectionId = '<?= initialSection || "dashboard" ?>';
+-        if (currentActiveStudentSectionId.indexOf('<' + '?=') !== -1 || !currentActiveStudentSectionId) {
+-            currentActiveStudentSectionId = 'dashboard';
+-        }
+ 
+         function gsvNavigateBack() {
+             if (gsvNavStack.length > 1) {
+@@ -7015,10 +6949,7 @@
+ 
+         // On Load: Jump to Initial Section (Persistence Support)
+         window.addEventListener('load', function () {
+-            let initialSection = '<?= initialSection ?>';
+-            if (initialSection.indexOf('<' + '?=') !== -1 || !initialSection) {
+-                initialSection = 'dashboard';
+-            }
++            const initialSection = '<?= initialSection ?>';
+             if (initialSection && initialSection !== 'dashboard') {
+                 const navId = 'nav' + initialSection.charAt(0).toUpperCase() + initialSection.slice(1);
+                 const navLink = document.getElementById(navId);

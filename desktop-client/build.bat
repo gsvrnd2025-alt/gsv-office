@@ -40,6 +40,6 @@ echo   - GSV Office Setup.exe      (installer)
 echo   - GSVOffice-Portable.exe    (portable - no install needed)
 echo.
 echo Share either file with all PCs in the office.
-echo They all connect to: http://192.168.0.177:8080
+echo They all connect to: http://192.168.0.177
 echo.
 pause

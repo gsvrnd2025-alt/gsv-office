@@ -6214,9 +6214,6 @@
                             <p class="text-muted small">Use these tools to keep the system organized and clear space.
                                 These tasks also run automatically every week.</p>
                             <div class="d-flex gap-3 flex-wrap mt-3">
-                                <button class="btn btn-primary btn-sm" onclick="triggerGoogleSheetsSync()">
-                                    <i class="fas fa-sync-alt me-1"></i> Sync with Google Sheets
-                                </button>
                                 <button class="btn btn-outline-primary btn-sm" onclick="handleRunMaintenance()">
                                     <i class="fas fa-sync-alt me-1"></i> Run Full Maintenance
                                 </button>
@@ -17204,23 +17201,6 @@
         }
 
         // --- System Maintenance Handlers ---
-        async function triggerGoogleSheetsSync() {
-            showAdminFeedback('Syncing with Google Sheets. Please wait...', 'info', 0);
-            google.script.run
-                .withSuccessHandler(res => {
-                    if (res && res.status === 'success') {
-                        showAdminFeedback(res.message || 'Google Sheets sync completed successfully!', 'success');
-                        if (typeof initDashboard === 'function') initDashboard();
-                    } else {
-                        showAdminFeedback(res.message || 'Sync failed.', 'danger');
-                    }
-                })
-                .withFailureHandler(err => {
-                    showAdminFeedback('Sync failed: ' + (err.message || err), 'danger');
-                })
-                .syncGoogleSheets();
-        }
-
         async function handleRunMaintenance() {
             if (!(await showConfirmModal('This will prune old logs (>60 days) and resync all student batch assignments. Continue?'))) return;
             showAdminFeedback('Running full maintenance...', 'info', 0);

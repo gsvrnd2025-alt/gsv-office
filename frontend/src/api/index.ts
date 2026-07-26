@@ -5,7 +5,7 @@ const BASE_URL = '/api';
 
 const api = axios.create({
   baseURL: BASE_URL,
-  timeout: 30000,
+  timeout: 180000,
   withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
 });
@@ -125,6 +125,11 @@ export const chatApi = {
   getRemovalRequests: (id: string) => api.get(`/chat/conversations/${id}/remove-requests`),
   approveRemovalRequest: (id: string, requestId: string) => api.post(`/chat/conversations/${id}/remove-requests/${requestId}/approve`),
   rejectRemovalRequest: (id: string, requestId: string) => api.post(`/chat/conversations/${id}/remove-requests/${requestId}/reject`),
+  joinConversation: (id: string) => api.post(`/chat/conversations/${id}/join`),
+  getPendingInvitations: (id: string) => api.get(`/chat/conversations/${id}/invitations-pending`),
+  approveInvitation: (id: string, invitationId: string) => api.post(`/chat/conversations/${id}/invitations/${invitationId}/approve`),
+  rejectGroupInvitation: (id: string, invitationId: string) => api.post(`/chat/conversations/${id}/invitations/${invitationId}/reject`),
+  toggleMute: (id: string, isMuted: boolean) => api.post(`/chat/conversations/${id}/mute`, { isMuted }),
 };
 
 export const filesApi = {
@@ -200,6 +205,8 @@ export const serverApi = {
   updateSetting: (key: string, value: string) => api.put(`/server/settings/${key}`, { value }),
   getPublicSettings: () => api.get('/public/settings'),
   getDatabaseStatus: () => api.get('/server/db-status'),
+  syncGoogleSheets: () => api.post('/internship/run', { functionName: 'syncGoogleSheets', arguments: [] }, { timeout: 180000 }),
+  wipeAndReload: () => api.delete('/internship/wipe-local-data', { timeout: 180000 }),
 };
 
 export const storageApi = {

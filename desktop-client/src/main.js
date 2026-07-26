@@ -35,7 +35,7 @@ function loadConfig() {
     }
   } catch (e) {}
   return {
-    serverUrl: 'http://192.168.0.177:8080',
+    serverUrl: 'http://192.168.0.177',
     autoStart: true,
     openOnStart: false,
     minimizeToTray: true,
@@ -101,15 +101,39 @@ function assetPath(name) {
 }
 
 // ─── Socket Status (from renderer) ────────────────────────────────────────────
+let _offlineNotifShown = false;
 ipcMain.on('socket-status', (event, online) => {
   updateTrayStatus(online);
   
-  // Show notification if it's the very first connect attempt and it failed
-  if (!online && config.serverUrl === 'http://192.168.0.177:8080') {
-    new Notification({ title: 'GSV Office Offline', body: 'Cannot connect to ' + config.serverUrl + '. Please set the correct Server IP.' }).show();
+  // Show the "Cannot connect" notification + settings window only ONCE per launch
+  // and only when the server URL appears to be an unconfigured default (no port override)
+  if (!online && !_offlineNotifShown) {
+    _offlineNotifShown = true;
+    new Notification({
+      title: 'GSV Office – Server Offline',
+      body: 'Cannot connect to ' + config.serverUrl + '. Please check the Server IP in Settings.'
+    }).show();
     openSettingsWindow();
   }
 });
+
+// ─── Server health check function ─────────────────────────────────────────────
+function checkServer(callback) {
+  const http = require('http');
+  const https = require('https');
+  const url = config.serverUrl || 'http://localhost:3000';
+  const healthUrl = url.replace(/\/$/, '') + '/api/health';
+  const lib = healthUrl.startsWith('https') ? https : http;
+  try {
+    const req = lib.get(healthUrl, { timeout: 5000 }, (res) => {
+      callback(res.statusCode >= 200 && res.statusCode < 400);
+    });
+    req.on('error', () => callback(false));
+    req.on('timeout', () => { req.destroy(); callback(false); });
+  } catch (e) {
+    callback(false);
+  }
+}
 
 // ─── Native Notifications & Popups ──────────────────────────────────────────────
 let activePopup = null;
@@ -124,10 +148,10 @@ function createPopup(type, payload) {
   const { width, height } = primaryDisplay.workAreaSize;
   
   activePopup = new BrowserWindow({
-    width: 320,
-    height: 160,
-    x: width - 340,
-    y: 40,
+    width: 350,
+    height: 85,
+    x: width - 370,
+    y: 20,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
@@ -139,7 +163,8 @@ function createPopup(type, payload) {
     }
   });
 
-  activePopup.loadFile(path.join(__dirname, 'popup.html'));
+  // Load call-popup.html which exists (popup.html was the legacy name and does not exist)
+  activePopup.loadFile(path.join(__dirname, 'call-popup.html'));
   
   activePopup.webContents.once('did-finish-load', () => {
     activePopup.webContents.send('popup-data', { type, payload });
@@ -159,7 +184,14 @@ ipcMain.on('incoming-remote-desktop', (event, payload) => {
 });
 
 ipcMain.on('popup-action', (event, { action, type, payload }) => {
-  if (activePopup) activePopup.close();
+  if (activePopup) {
+    activePopup.close();
+    activePopup = null;
+  }
+  if (callPopupWindow) {
+    callPopupWindow.close();
+    callPopupWindow = null;
+  }
   
   // Forward the action to the renderer
   if (mainWindow) {
@@ -182,6 +214,9 @@ ipcMain.on('incoming-message', (event, payload) => {
 
   notification.on('click', () => {
     openMainWindow();
+    if (mainWindow) {
+      mainWindow.webContents.send('notification-click', payload);
+    }
   });
 
   notification.on('reply', (e, replyText) => {
@@ -780,8 +815,8 @@ ipcMain.handle('show-incoming-call-popup', async (event, data) => {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.workAreaSize;
 
-  const popupWidth = 320;
-  const popupHeight = 220;
+  const popupWidth = 350;
+  const popupHeight = 85;
 
   callPopupWindow = new BrowserWindow({
     width: popupWidth,
@@ -883,6 +918,22 @@ function downloadFile(urlStr, destPath, token = null, redirectCount = 0) {
   });
 }
 
+function setClipboardFilesWindows(filePaths) {
+  const { exec } = require('child_process');
+  return new Promise((resolve, reject) => {
+    const pathsArray = filePaths.map(p => `'${p.replace(/'/g, "''")}'`).join(', ');
+    const cmd = `powershell -NoProfile -Command "Set-Clipboard -Path ${pathsArray}"`;
+    exec(cmd, (err, stdout, stderr) => {
+      if (err) {
+        console.error('[setClipboardFilesWindows] PowerShell Set-Clipboard failed:', err, stderr);
+        reject(err);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
 ipcMain.handle('copy-folder-to-clipboard', async (event, { folderId, folderName, serverUrl, token }) => {
   const { exec } = require('child_process');
   
@@ -915,10 +966,14 @@ ipcMain.handle('copy-folder-to-clipboard', async (event, { folderId, folderName,
     
     try { fs.unlinkSync(zipPath); } catch (e) {}
     
-    const { clipboard } = require('electron');
-    clipboard.write({
-      filenames: [destPath]
-    });
+    if (process.platform === 'win32') {
+      await setClipboardFilesWindows([destPath]);
+    } else {
+      const { clipboard } = require('electron');
+      clipboard.write({
+        filenames: [destPath]
+      });
+    }
     
     new Notification({
       title: 'GSV Office',
@@ -926,9 +981,161 @@ ipcMain.handle('copy-folder-to-clipboard', async (event, { folderId, folderName,
       icon: assetPath('icon.ico')
     }).show();
     
-    return { success: true };
+    return { success: true, path: destPath };
   } catch (err) {
     console.error('Failed to copy folder to clipboard:', err);
+    return { success: false, reason: err.message };
+  }
+});
+
+ipcMain.handle('copy-file-to-clipboard', async (event, { fileUrl, fileName, token }) => {
+  try {
+    const tempDir = path.join(app.getPath('temp'), 'GSVOfficeClipboard');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    const destPath = path.join(tempDir, fileName);
+    await downloadFile(fileUrl, destPath, token);
+    
+    if (process.platform === 'win32') {
+      await setClipboardFilesWindows([destPath]);
+    } else {
+      const { clipboard, nativeImage } = require('electron');
+      const ext = path.extname(fileName).toLowerCase();
+      const isImg = ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp'].includes(ext);
+      const isTxt = ['.txt', '.md', '.json', '.js', '.ts', '.css', '.html', '.xml'].includes(ext);
+
+      const writeData = {
+        filenames: [destPath]
+      };
+
+      if (isImg) {
+        writeData.image = nativeImage.createFromPath(destPath);
+      } else if (isTxt) {
+        try {
+          writeData.text = fs.readFileSync(destPath, 'utf8');
+        } catch (e) {}
+      }
+
+      clipboard.write(writeData);
+    }
+    
+    new Notification({
+      title: 'GSV Office',
+      body: `"${fileName}" copied to clipboard! You can paste it anywhere on your PC.`,
+      icon: assetPath('icon.ico')
+    }).show();
+    
+    return { success: true, path: destPath };
+  } catch (err) {
+    console.error('Failed to copy file to clipboard:', err);
+    return { success: false, reason: err.message };
+  }
+});
+
+function uploadFile(urlStr, filePath, fileName, token = null) {
+  return new Promise((resolve, reject) => {
+    try {
+      const url = new URL(urlStr);
+      const lib = url.protocol === 'https:' ? require('https') : require('http');
+      
+      const boundary = '----WebKitFormBoundaryGSVOffice' + Math.random().toString(36).substring(2);
+      
+      const fileStream = fs.createReadStream(filePath);
+      const stats = fs.statSync(filePath);
+      
+      const header = `--${boundary}\r\n` +
+                     `Content-Disposition: form-data; name="files"; filename="${fileName}"\r\n` +
+                     `Content-Type: application/zip\r\n\r\n`;
+      const footer = `\r\n--${boundary}--\r\n`;
+      
+      const contentLength = Buffer.byteLength(header) + stats.size + Buffer.byteLength(footer);
+      
+      const options = {
+        method: 'POST',
+        hostname: url.hostname,
+        port: url.port || (url.protocol === 'https:' ? 443 : 80),
+        path: url.pathname + url.search,
+        headers: {
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          'Content-Length': contentLength
+        },
+        rejectUnauthorized: false
+      };
+      
+      if (token) {
+        options.headers['Authorization'] = `Bearer ${token}`;
+      }
+      
+      const req = lib.request(options, (res) => {
+        let responseData = '';
+        res.on('data', (chunk) => {
+          responseData += chunk;
+        });
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            try {
+              resolve(JSON.parse(responseData));
+            } catch (e) {
+              resolve(responseData);
+            }
+          } else {
+            reject(new Error(`Server returned status code ${res.statusCode}: ${responseData}`));
+          }
+        });
+      });
+      
+      req.on('error', (err) => {
+        reject(err);
+      });
+      
+      req.write(header);
+      
+      fileStream.pipe(req, { end: false });
+      fileStream.on('end', () => {
+        req.write(footer);
+        req.end();
+      });
+      fileStream.on('error', (err) => {
+        req.destroy();
+        reject(err);
+      });
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+ipcMain.handle('zip-and-upload-folder', async (event, { folderPath, serverUrl, token }) => {
+  const { exec } = require('child_process');
+  try {
+    const tempDir = path.join(app.getPath('temp'), 'GSVOfficeZips');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    const folderName = path.basename(folderPath);
+    const tempZipPath = path.join(tempDir, `${folderName}_${Date.now()}.zip`);
+    
+    await new Promise((resolve, reject) => {
+      const escapedFolder = folderPath.replace(/'/g, "''");
+      const escapedZip = tempZipPath.replace(/'/g, "''");
+      const cmd = `powershell -NoProfile -Command "Compress-Archive -Path '${escapedFolder}' -DestinationPath '${escapedZip}' -Force"`;
+      exec(cmd, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+    
+    const uploadUrl = `${serverUrl}/api/files/upload`;
+    const res = await uploadFile(uploadUrl, tempZipPath, `${folderName}.zip`, token);
+    
+    fs.unlink(tempZipPath, () => {});
+    
+    return { success: true, data: res.data || res };
+  } catch (err) {
+    console.error('Failed to zip and upload folder:', err);
     return { success: false, reason: err.message };
   }
 });
@@ -937,6 +1144,10 @@ ipcMain.on('call-action-response', (event, response) => {
   if (callPopupWindow) {
     callPopupWindow.close();
     callPopupWindow = null;
+  }
+  if (activePopup) {
+    activePopup.close();
+    activePopup = null;
   }
   
   let action = 'reject';

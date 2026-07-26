@@ -1634,8 +1634,10 @@
                 console.warn("google.script.history is not available (running in embedded iframe). History navigation disabled.");
             }
 
-            const initialPage = '<?= initialPage ?>';
-            const initialSection = '<?= initialSection ?>';
+            let initialPage = '<?= initialPage ?>';
+            if (initialPage.indexOf('<' + '?=') !== -1) initialPage = '';
+            let initialSection = '<?= initialSection ?>';
+            if (initialSection.indexOf('<' + '?=') !== -1) initialSection = '';
             const startTab = initialSection || initialPage || 'verify';
 
             if (startTab && startTab !== 'verify') {

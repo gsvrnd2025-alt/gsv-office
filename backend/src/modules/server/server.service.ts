@@ -57,6 +57,18 @@ export class ServerService implements OnApplicationBootstrap {
   }
 
   async updateSetting(key: string, value: string, userId: string) {
+    const targetKeys = ['google_sheet_id', 'google_sheet_link', 'google_appscript_deployment_id', 'google_sheets_spreadsheet_url', 'google_sheets_deployment_id'];
+    if (targetKeys.includes(key)) {
+      const [oldSetting] = await this.ds.query(
+        `SELECT value FROM system_settings WHERE key = $1`,
+        [key]
+      );
+      if (oldSetting && oldSetting.value !== value) {
+        console.log(`[ServerService] Spreadsheet configuration "${key}" changed. Wiping local internship_tables to prevent old data retention.`);
+        await this.ds.query(`DELETE FROM internship_tables`);
+      }
+    }
+
     await this.ds.query(
       `INSERT INTO system_settings (key, value, updated_by, updated_at) VALUES ($1, $2, $3, NOW())
        ON CONFLICT (key) DO UPDATE SET value = $2, updated_by = $3, updated_at = NOW()`,

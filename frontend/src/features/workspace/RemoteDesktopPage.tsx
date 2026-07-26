@@ -6,7 +6,7 @@ import {
   Volume2, Sliders, RefreshCw, X, Radio, Eye, FileCode2,
   Download, Copy, ClipboardCopy, ShieldCheck, AlertCircle, 
   AlertTriangle, Folder, HardDrive, Terminal, Users, Phone,
-  Mic, MicOff, Shield, CheckSquare, Clock, ChevronDown, ChevronUp, Link, Trash2, Maximize,
+  Mic, MicOff, Shield, CheckSquare, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Link, Trash2, Maximize,
   MessageSquare, GripVertical, Send, Minimize2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -982,6 +982,9 @@ export default function RemoteDesktopPage() {
   const { theme } = useThemeStore();
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Relaxed page guard to allow standard browsers/Flutter wrappers to connect and view
+  const isDesktop = !!(window as any).gsvDesktop;
   const { 
     sidebarCollapsed, 
     setSidebarCollapsed,
@@ -1006,6 +1009,7 @@ export default function RemoteDesktopPage() {
   const [targetPhone, setTargetPhone] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
   const [dialingStatus, setDialingStatus] = useState<'idle' | 'calling' | 'accepted' | 'rejected' | 'timeout'>('idle');
+  const [dialingTargetName, setDialingTargetName] = useState<string>('');
   const [isConnected, setIsConnected] = useState(globalSession ? true : false);
   const [isHosting, setIsHosting] = useState(globalSession ? globalSession.isHosting : false);
   const [isHostControlled, setIsHostControlled] = useState(globalSession ? globalSession.isHostControlled : false);
@@ -1142,7 +1146,7 @@ export default function RemoteDesktopPage() {
 
   // Load desktop sources automatically on mount if running in Electron
   useEffect(() => {
-    if ((window as any).gsvDesktop) {
+    if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.getSources === 'function') {
       (window as any).gsvDesktop.getSources().then((sources: any[]) => {
         setDesktopSources(sources);
         const screenSource = sources.find((s: any) => s.id.startsWith('screen:'));
@@ -1226,7 +1230,8 @@ export default function RemoteDesktopPage() {
       }
 
       addLog('Fetching desktop sources for screen share picker...');
-      (window as any).gsvDesktop.getSources().then((sources: any[]) => {
+      if (typeof (window as any).gsvDesktop.getSources === 'function') {
+        (window as any).gsvDesktop.getSources().then((sources: any[]) => {
         setDesktopSources(sources);
         // Default to the first screen source if available
         const screenSource = sources.find((s: any) => s.id.startsWith('screen:'));
@@ -1238,6 +1243,7 @@ export default function RemoteDesktopPage() {
       }).catch((err: any) => {
         console.error('Failed to get desktop sources:', err);
       });
+      }
     }
   }, [showIncomingRequest, incomingRequestData]);
 
@@ -1568,30 +1574,42 @@ export default function RemoteDesktopPage() {
     }
   };
 
-  // Double effect to safely map local/remote streams to video elements once mounted
+  // Stable callback ref for video element — fires immediately when element mounts/unmounts
+  const videoCallbackRef = useCallback((node: HTMLVideoElement | null) => {
+    (videoRef as React.MutableRefObject<HTMLVideoElement | null>).current = node;
+    if (node) {
+      if (isConnected && remoteStream) {
+        node.srcObject = remoteStream;
+      } else {
+        node.srcObject = null;
+      }
+    }
+  }, [isConnected, remoteStream]);
+
+  // Also update video srcObject when stream or connection changes
   useEffect(() => {
     if (videoRef.current) {
       if (isConnected && remoteStream) {
         videoRef.current.srcObject = remoteStream;
-      } else if (isHosting && localStream) {
-        // Do NOT attach local stream to local video element to prevent infinite feedback mirroring!
-        videoRef.current.srcObject = null;
       } else {
         videoRef.current.srcObject = null;
       }
     }
-  }, [videoRef.current, isConnected, remoteStream, isHosting, localStream]);
+  }, [isConnected, remoteStream]);
 
-  // Bind audio element to remote stream for clean playing of sound
+  // Bind audio element to remote stream
+  const audioCallbackRef = useCallback((node: HTMLAudioElement | null) => {
+    (audioRef as React.MutableRefObject<HTMLAudioElement | null>).current = node;
+    if (node) {
+      node.srcObject = remoteStream ?? null;
+    }
+  }, [remoteStream]);
+
   useEffect(() => {
     if (audioRef.current) {
-      if (remoteStream) {
-        audioRef.current.srcObject = remoteStream;
-      } else {
-        audioRef.current.srcObject = null;
-      }
+      audioRef.current.srcObject = remoteStream ?? null;
     }
-  }, [audioRef.current, remoteStream]);
+  }, [remoteStream]);
 
   // Stable refs for socket event handlers (avoids socket reconnect on every state change)
   const teammatesRef = useRef<any[]>([]);
@@ -1674,6 +1692,11 @@ export default function RemoteDesktopPage() {
       s.on('remote:terminate', () => {
         if (activeCallbacks) activeCallbacks.handleRemoteTerminate();
       });
+
+      s.on('remote:navigate', (data: any) => {
+        addGlobalLog(`Received remote navigation command: ${data.action.toUpperCase()}`, setTerminalLogs);
+        toast(`Client requested remote browser navigation: ${data.action}`, { icon: 'ℹ️' });
+      });
     }
 
     setSocket(s);
@@ -1706,16 +1729,23 @@ export default function RemoteDesktopPage() {
     return () => clearInterval(interval);
   }, [user]);
 
-  // Load COTURN configuration from backend
+  // Load COTURN configuration from backend and merge with STUN fallbacks
   useEffect(() => {
     webrtcApi.getConfig().then((res: any) => {
       const config = res.data?.data || res.data;
       if (config?.iceServers) {
-        setIceServers(config.iceServers);
-        addLog('COTURN local TURN server parameters loaded successfully.');
+        // Always ensure STUN is present even after COTURN loads
+        const hasStan = config.iceServers.some((s: any) =>
+          typeof s.urls === 'string' ? s.urls.startsWith('stun:') : (Array.isArray(s.urls) && s.urls.some((u: string) => u.startsWith('stun:')))
+        );
+        const merged = hasStan
+          ? config.iceServers
+          : [...config.iceServers, { urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
+        setIceServers(merged);
+        addLog(`COTURN TURN server loaded. ICE config: ${merged.length} server(s).`);
       }
     }).catch((err: any) => {
-      console.warn('Failed to load local COTURN configuration, using public STUN fallback:', err);
+      console.warn('Failed to load COTURN config, using public STUN fallback:', err);
     });
   }, []);
 
@@ -1855,7 +1885,17 @@ export default function RemoteDesktopPage() {
       pc.onconnectionstatechange = () => {
         addGlobalLog(`WebRTC connection state: ${pc.connectionState}`);
         if (pc.connectionState === 'failed') {
-          addGlobalLog('WebRTC connection failed. Peer may be unreachable.');
+          addGlobalLog('WebRTC connection FAILED. Attempting ICE restart...');
+          toast.error('Remote connection failed. Retrying...');
+          // Attempt ICE restart before giving up
+          if (pc.signalingState === 'stable') {
+            pc.restartIce();
+          }
+        } else if (pc.connectionState === 'disconnected') {
+          addGlobalLog('WebRTC connection temporarily disconnected. Waiting for reconnect...');
+          toast('Connection interrupted. Reconnecting...', { icon: '⚠️' });
+        } else if (pc.connectionState === 'closed') {
+          setIsConnected(false);
         }
       };
 
@@ -1934,12 +1974,7 @@ export default function RemoteDesktopPage() {
 
   // Connect via phone number or code
   const initiateConnection = () => {
-    const isDesktopApp = !!(window as any).gsvDesktop;
-    if (!isDesktopApp) {
-      window.location.href = `gsvoffice://remote?action=connect&target=${encodeURIComponent(targetPhone)}`;
-      toast('Opening GSV Desktop App...', { icon: 'ℹ️' });
-      return;
-    }
+    // Any browser (Web, Electron, Flutter) can initiate a connection to view another desktop.
 
     const targetId = targetPhone.replace(/\s+/g, '');
     const target = teammates.find(t => t.id === targetPhone || t.phone?.replace(/\s+/g, '') === targetId || t.loginId === targetId);
@@ -1954,6 +1989,7 @@ export default function RemoteDesktopPage() {
 
     setIsConnecting(true);
     setDialingStatus('calling');
+    setDialingTargetName(target.fullName);
     addLog(`Requesting connection handshake with ${target.fullName}...`);
     
     // FIX: use socketRef.current — socket state may be stale at this point
@@ -1977,7 +2013,7 @@ export default function RemoteDesktopPage() {
         type: 'Outgoing',
         status: 'Timeout'
       });
-    }, 30000);
+    }, 60000);
   };
 
   // Cancel Dialing Handshake
@@ -2003,7 +2039,7 @@ export default function RemoteDesktopPage() {
     const isInsecureContext = typeof window !== 'undefined' && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
     const isDesktopApp = !!(window as any).gsvDesktop || localAgentActive;
 
-    if (!isDesktopApp) {
+    if (!isDesktopApp && isInsecureContext) {
       window.location.href = `gsvoffice://remote?action=accept&callerId=${data.callerId}`;
       toast('Opening GSV Desktop App to share screen...', { icon: 'ℹ️' });
       rejectRequest('redirected_to_app', data);
@@ -2023,19 +2059,21 @@ export default function RemoteDesktopPage() {
       let finalSourceId = selectedSourceId;
       if ((window as any).gsvDesktop && !finalSourceId) {
         try {
-          const sources = await (window as any).gsvDesktop.getSources();
-          const screenSource = sources.find((s: any) => s.id.startsWith('screen:'));
-          if (screenSource) {
-            finalSourceId = screenSource.id;
-          } else if (sources.length > 0) {
-            finalSourceId = sources[0].id;
+          if (typeof (window as any).gsvDesktop.getSources === 'function') {
+            const sources = await (window as any).gsvDesktop.getSources();
+            const screenSource = sources.find((s: any) => s.id.startsWith('screen:'));
+            if (screenSource) {
+              finalSourceId = screenSource.id;
+            } else if (sources.length > 0) {
+              finalSourceId = sources[0].id;
+            }
           }
         } catch (err) {
           console.error('Failed to get desktop sources automatically in acceptRequest:', err);
         }
       }
 
-      if ((window as any).gsvDesktop && finalSourceId) {
+      if ((window as any).gsvDesktop && finalSourceId && typeof (window as any).gsvDesktop.selectSource === 'function') {
         addLog(`Acquiring native desktop capture for source: ${finalSourceId}`);
         // Notify Electron main process about the selected source ID
         await (window as any).gsvDesktop.selectSource(finalSourceId);
@@ -2157,7 +2195,7 @@ export default function RemoteDesktopPage() {
     const isInsecureContext = typeof window !== 'undefined' && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
     const isDesktopApp = !!(window as any).gsvDesktop || localAgentActive;
 
-    if (!isDesktopApp) {
+    if (!isDesktopApp && isInsecureContext) {
       window.location.href = 'gsvoffice://remote?action=host';
       toast('Opening GSV Desktop App to share screen...', { icon: 'ℹ️' });
       return;
@@ -2264,6 +2302,13 @@ export default function RemoteDesktopPage() {
     } catch (e) {
       console.error('Failed to toggle voice call:', e);
       toast.error('Failed to get microphone permissions.');
+    }
+  };
+
+  const handleRemoteNavigate = (action: 'back' | 'forward' | 'refresh') => {
+    if (socketRef.current && activePartnerId) {
+      socketRef.current.emit('remote:navigate', { targetUserId: activePartnerId, action });
+      toast.success(`Sent ${action} navigation command to remote host.`);
     }
   };
 
@@ -2976,9 +3021,9 @@ export default function RemoteDesktopPage() {
             {isHosting && (
               <div className="w-100 h-100 position-relative" style={{ background: '#090d16' }}>
                 <div className="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center" style={{ background: '#090d16', zIndex: 5, padding: '24px' }}>
-                  <div className="card p-4 text-center animate-scale-in" style={{ maxWidth: '460px', border: '3px solid #ef4444', background: '#111827', color: '#f9fafb', borderRadius: '16px' }}>
-                    <AlertCircle size={48} className="text-danger mx-auto mb-3 animate-pulse" />
-                    <h3 style={{ fontWeight: 800, color: '#ef4444', fontSize: '18px', margin: '0 0 10px 0' }}>Remote Sync Active</h3>
+                  <div className="card p-4 text-center animate-scale-in" style={{ maxWidth: '460px', border: '3px solid #10b981', background: '#111827', color: '#f9fafb', borderRadius: '16px' }}>
+                    <Monitor size={48} className="text-success mx-auto mb-3 animate-pulse" />
+                    <h3 style={{ fontWeight: 800, color: '#10b981', fontSize: '18px', margin: '0 0 10px 0' }}>Sharing Active</h3>
                     <p style={{ fontSize: '14px', color: '#d1d5db', lineHeight: 1.5, marginBottom: '16px' }}>
                       Client <strong className="text-primary">{activePartnerName}</strong> is currently accessing and controlling your desktop.
                     </p>
@@ -2994,6 +3039,9 @@ export default function RemoteDesktopPage() {
                     )}
 
                     <div className="d-flex gap-2">
+                      <button className="btn btn-secondary w-100 btn-md" style={{ fontWeight: 700 }} onClick={() => terminateSession(false)}>
+                        Disconnect Session
+                      </button>
                       <button className="btn btn-danger w-100 btn-md" style={{ fontWeight: 800, letterSpacing: '0.5px' }} onClick={() => terminateSession(false)}>
                         🚨 EMERGENCY TERMINATE (DOUBLE ESC)
                       </button>
@@ -3111,6 +3159,36 @@ export default function RemoteDesktopPage() {
                         <Monitor size={14} /> <span>{activePartnerName}</span>
                       </div>
                       <div style={{ borderRight: '1.5px solid rgba(255, 255, 255, 0.1)', height: '16px' }} />
+
+                      {/* Remote Browser Navigation controls */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(0,0,0,0.2)', padding: '3px 8px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                        <button 
+                          className="btn btn-xs btn-ghost btn-icon" 
+                          onClick={() => handleRemoteNavigate('back')}
+                          title="Back"
+                          style={{ color: '#fff', padding: '4px', minWidth: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        >
+                          <ChevronLeft size={14} />
+                        </button>
+                        <button 
+                          className="btn btn-xs btn-ghost btn-icon" 
+                          onClick={() => handleRemoteNavigate('refresh')}
+                          title="Refresh"
+                          style={{ color: '#fff', padding: '4px', minWidth: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        >
+                          <RefreshCw size={12} />
+                        </button>
+                        <button 
+                          className="btn btn-xs btn-ghost btn-icon" 
+                          onClick={() => handleRemoteNavigate('forward')}
+                          title="Forward"
+                          style={{ color: '#fff', padding: '4px', minWidth: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        >
+                          <ChevronRight size={14} />
+                        </button>
+                      </div>
+
+                      <div style={{ borderRight: '1.5px solid rgba(255, 255, 255, 0.1)', height: '16px' }} />
                       
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span style={{ fontSize: '11px', color: '#cbd5e1', fontWeight: 600 }}>Scale:</span>
@@ -3175,6 +3253,34 @@ export default function RemoteDesktopPage() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#60a5fa' }}>
                       <Eye size={16} />
                       <strong style={{ fontSize: '13px', fontWeight: 800 }}>P2P UltraViewer Session</strong>
+                    </div>
+
+                    {/* Remote Browser Navigation controls */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(0,0,0,0.2)', padding: '3px 8px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                      <button 
+                        className="btn btn-xs btn-ghost btn-icon" 
+                        onClick={() => handleRemoteNavigate('back')}
+                        title="Back"
+                        style={{ color: '#fff', padding: '4px', minWidth: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <ChevronLeft size={14} />
+                      </button>
+                      <button 
+                        className="btn btn-xs btn-ghost btn-icon" 
+                        onClick={() => handleRemoteNavigate('refresh')}
+                        title="Refresh"
+                        style={{ color: '#fff', padding: '4px', minWidth: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <RefreshCw size={12} />
+                      </button>
+                      <button 
+                        className="btn btn-xs btn-ghost btn-icon" 
+                        onClick={() => handleRemoteNavigate('forward')}
+                        title="Forward"
+                        style={{ color: '#fff', padding: '4px', minWidth: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <ChevronRight size={14} />
+                      </button>
                     </div>
                     
                     {/* Screen scaling controls */}
@@ -3241,7 +3347,7 @@ export default function RemoteDesktopPage() {
                   borderRadius: '8px'
                 }}>
                   <video 
-                    ref={videoRef} 
+                    ref={videoCallbackRef} 
                     autoPlay 
                     playsInline 
                     className="w-100 h-100" 
@@ -3373,11 +3479,16 @@ export default function RemoteDesktopPage() {
                   <AlertCircle size={44} className="text-danger mx-auto mb-3" />
                   <h5 style={{ fontWeight: 800, color: '#ef4444' }}>Handshake Timeout</h5>
                   <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '20px' }}>
-                    No response was received from the host within 30 seconds.
+                    No response was received from {dialingTargetName || 'the host'} within 30 seconds.
                   </p>
-                  <button className="btn btn-sm btn-secondary w-100" style={{ fontWeight: 700 }} onClick={() => setDialingStatus('idle')}>
-                    Dismiss
-                  </button>
+                  <div className="d-flex gap-2">
+                    <button className="btn btn-sm btn-primary w-100" style={{ fontWeight: 700 }} onClick={initiateConnection}>
+                      Retry
+                    </button>
+                    <button className="btn btn-sm btn-secondary w-100" style={{ fontWeight: 700 }} onClick={() => setDialingStatus('idle')}>
+                      Dismiss
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -3627,7 +3738,7 @@ export default function RemoteDesktopPage() {
             {/* Hidden Audio Player for WebRTC dynamic Voice Calls */}
             {remoteStream && (
               <audio
-                ref={audioRef}
+                ref={audioCallbackRef}
                 autoPlay
                 style={{ display: 'none' }}
               />
@@ -3678,8 +3789,8 @@ export default function RemoteDesktopPage() {
               }}
             >
               <option value="" disabled>Select a User to Connect...</option>
-              {teammates.map((t) => (
-                <option key={t.id} value={t.id}>{t.fullName} ({t.phone || t.loginId})</option>
+              {[...teammates].sort((a, b) => (b.isOnline ? 1 : 0) - (a.isOnline ? 1 : 0)).map((t) => (
+                <option key={t.id} value={t.id}>{t.isOnline ? '🟢' : '⚫'} {t.fullName} ({t.phone || t.loginId})</option>
               ))}
             </select>
             <button 
@@ -3779,7 +3890,9 @@ export default function RemoteDesktopPage() {
               {teammates.length === 0 ? (
                 <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', textAlign: 'center', padding: '20px 0' }}>No peers available</div>
               ) : (
-                teammates.map(t => (
+                [...teammates]
+                  .sort((a, b) => (b.isOnline ? 1 : 0) - (a.isOnline ? 1 : 0))
+                  .map(t => (
                   <div 
                     key={t.id}
                     onClick={() => {
@@ -3792,8 +3905,8 @@ export default function RemoteDesktopPage() {
                     }}
                     className="p-2 border rounded cursor-pointer d-flex align-items-center justify-content-between transition-all hover-peer-row"
                     style={{
-                      background: 'var(--bg-secondary)',
-                      borderColor: 'var(--border-color)',
+                      background: targetPhone === t.id ? 'rgba(59,130,246,0.12)' : 'var(--bg-secondary)',
+                      borderColor: targetPhone === t.id ? 'var(--brand-primary)' : 'var(--border-color)',
                       borderWidth: '1.5px',
                       opacity: t.isOnline ? 1 : 0.55
                     }}
@@ -3802,13 +3915,19 @@ export default function RemoteDesktopPage() {
                       <strong style={{ fontSize: '12px', color: 'var(--text-primary)', display: 'block', fontWeight: 700 }}>{t.fullName}</strong>
                       <span style={{ fontSize: '10px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{formatPhoneId(t.phone || t.loginId)}</span>
                     </div>
-                    <span 
-                      style={{ 
-                        width: '8px', height: '8px', borderRadius: '50%',
-                        background: t.isOnline ? 'var(--brand-success)' : '#94a3b8',
-                        display: 'block'
-                      }} 
-                    />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {t.isOnline && (
+                        <span style={{ fontSize: '9px', fontWeight: 700, color: '#10b981', background: 'rgba(16,185,129,0.12)', padding: '1px 6px', borderRadius: '8px' }}>ONLINE</span>
+                      )}
+                      <span 
+                        style={{ 
+                          width: '8px', height: '8px', borderRadius: '50%',
+                          background: t.isOnline ? 'var(--brand-success)' : '#94a3b8',
+                          display: 'block',
+                          flexShrink: 0
+                        }} 
+                      />
+                    </div>
                   </div>
                 ))
               )}

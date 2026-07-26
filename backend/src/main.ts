@@ -6,6 +6,7 @@ import { IoAdapter } from '@nestjs/platform-socket.io';
 import * as compression from 'compression';
 import * as cookieParser from 'cookie-parser';
 import helmet from 'helmet';
+import * as express from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
 import { NestExpressApplication } from '@nestjs/platform-express';
@@ -35,6 +36,12 @@ async function bootstrap() {
   }
   app.useStaticAssets(uploadPath, {
     prefix: '/uploads/',
+    setHeaders: (res: any, path: string, stat: any) => {
+      if (res.req && res.req.query && res.req.query.download) {
+        const fileName = encodeURIComponent(res.req.query.download);
+        res.set('Content-Disposition', `attachment; filename*=UTF-8''${fileName}`);
+      }
+    }
   });
 
   // ── Security ──────────────────────────────────────────────────
@@ -52,6 +59,8 @@ async function bootstrap() {
   });
 
   // ── Middleware ────────────────────────────────────────────────
+  app.use(express.json({ limit: '500mb' }));
+  app.use(express.urlencoded({ limit: '500mb', extended: true }));
   app.use(compression());
   app.use(cookieParser(configService.get<string>('SESSION_SECRET')));
 

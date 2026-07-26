@@ -235,7 +235,7 @@
 
       <div class="field">
         <label>Server URL (IP Address & Port)</label>
-        <input type="url" id="serverUrl" placeholder="http://192.168.0.177:8080" />
+        <input type="url" id="serverUrl" placeholder="http://192.168.0.177" />
       </div>
 
       <div class="conn-row">
@@ -321,7 +321,7 @@
         const version = await window.settingsAPI.getVersion();
         
         document.getElementById('versionBadge').textContent = 'v' + version;
-        document.getElementById('serverUrl').value = config.serverUrl || 'http://192.168.0.177:8080';
+        document.getElementById('serverUrl').value = config.serverUrl || 'http://192.168.0.177';
         document.getElementById('autoStart').checked = !!config.autoStart;
         document.getElementById('openOnStart').checked = !!config.openOnStart;
         document.getElementById('minimizeToTray').checked = config.minimizeToTray !== false;

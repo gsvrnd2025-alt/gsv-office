@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { 
   FileEdit, Code2, Save, Play, Download, Cloud,
   ChevronRight, Laptop, FileCode, Type, Sun, Moon,
   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight,
   Sparkles, FileText, CheckCircle, Terminal, Plus, Trash2, 
   Search, Table, FileText as NoteIcon, AlignJustify, Heading1,
-  Heading2, Heading3, List, Image as ImageIcon, History, X
+  Heading2, Heading3, List, Image as ImageIcon, History, X, Menu
 } from 'lucide-react';
 import { filesApi, usersApi } from '../../api';
 import toast from 'react-hot-toast';
@@ -37,6 +38,8 @@ const quillModules = {
 };
 
 export default function EOfficePage() {
+  const { setMobileSidebarOpen } = useOutletContext<any>() || {};
+  const [zoomLevel, setZoomLevel] = useState(120); // Default to a larger 120% view
   const [activeTab, setActiveTab] = useState<'word' | 'excel' | 'note'>('word');
   const [activeWordTab, setActiveWordTab] = useState('Home');
   const [docTitle, setDocTitle] = useState('New Document');
@@ -633,68 +636,121 @@ export default function EOfficePage() {
   };
 
   return (
-    <div className="page-enter" style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '16px', position: 'relative' }}>
+    <div className="page-enter" style={{ display: 'flex', flexDirection: 'column', height: '100vh', gap: '0', position: 'relative', overflow: 'hidden', background: 'var(--bg-secondary)' }}>
       
-      {/* Upper header controls */}
-      <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
-        <div>
-          <h1 style={{ fontSize: '24px', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-primary)' }}>
-            🖥️ GSV Document Workspace
-          </h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
-            Unified Document suite (Word, Excel, Notepad) integrated with ZFS Cloud storage database
-          </p>
+      {/* Custom Workspace Topbar */}
+      <div style={{
+        height: '64px',
+        background: 'var(--topbar-bg, rgba(30, 41, 59, 0.8))',
+        borderBottom: '1px solid var(--border-color, rgba(255, 255, 255, 0.1))',
+        backdropFilter: 'blur(12px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '0 24px',
+        gap: '16px',
+        flexShrink: 0,
+        zIndex: 100
+      }}>
+        {/* Left: Hamburger menu toggle, logo/title, and title input */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {/* Hamburger Menu Toggle (for Mobile) */}
+          {setMobileSidebarOpen && (
+            <button 
+              className="btn btn-ghost btn-icon btn-sm mobile-menu-toggle"
+              onClick={() => setMobileSidebarOpen(true)}
+              style={{ 
+                width: '32px', 
+                height: '32px', 
+                display: 'inline-flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                border: 'none',
+                background: 'transparent',
+                cursor: 'pointer',
+                color: 'var(--text-secondary)'
+              }}
+              title="Open Navigation Menu"
+            >
+              <Menu size={20} />
+            </button>
+          )}
+          
+          <h2 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            🖥️ <span className="desktop-only-label">Workspace:</span>
+          </h2>
+          
+          <input 
+            type="text" 
+            value={docTitle} 
+            onChange={e => setDocTitle(e.target.value)} 
+            className="form-control" 
+            style={{ 
+              width: '180px', 
+              fontWeight: 600, 
+              height: '32px', 
+              background: 'var(--bg-secondary)', 
+              color: 'var(--text-primary)', 
+              border: '1px solid var(--border-color)', 
+              borderRadius: '6px',
+              fontSize: '13px' 
+            }}
+            title="Document Title"
+          />
         </div>
-        
-        {/* Upper Switch panel */}
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+
+        {/* Right: Actions and Tabs */}
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          
+          {/* New Document Button */}
           <button 
-            className="btn btn-primary"
-            style={{ borderRadius: '8px', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600 }}
+            className="btn btn-primary btn-sm"
+            style={{ borderRadius: '8px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600 }}
             onClick={() => setShowNewDocDialog(true)}
           >
-            <Plus size={16} /> New Document
+            <Plus size={14} /> <span className="desktop-only-label">New Document</span><span className="mobile-menu-toggle"><Plus size={14} /></span>
           </button>
           
+          {/* Share Button */}
           <button 
-            className="btn btn-outline-light text-primary"
-            style={{ borderRadius: '8px', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, border: '1px solid var(--border-color)' }}
+            className="btn btn-outline-light text-primary btn-sm"
+            style={{ borderRadius: '8px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, border: '1px solid var(--border-color)' }}
             onClick={handleShareClick}
           >
-            <Cloud size={16} /> Share via Team Chat
+            <Cloud size={14} /> <span className="desktop-only-label">Share via Chat</span><span className="mobile-menu-toggle"><Cloud size={14} /></span>
           </button>
           
-          <div className="dropdown dropdown-export">
-            <button 
-              className="btn btn-outline-light text-white"
-              style={{ borderRadius: '8px', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', border: '1px solid var(--border-color)' }}
-              onClick={() => setShowHistoryDrawer(true)}
-            >
-              <History size={16} /> History ({workspaceFiles.length})
-            </button>
-          </div>
+          {/* History Button */}
+          <button 
+            className="btn btn-outline-light text-white btn-sm desktop-only-btn"
+            style={{ borderRadius: '8px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', border: '1px solid var(--border-color)' }}
+            onClick={() => setShowHistoryDrawer(true)}
+          >
+            <History size={14} /> History ({workspaceFiles.length})
+          </button>
 
-          <div className="glass-panel" style={{ padding: '4px', display: 'flex', gap: '4px', borderRadius: '10px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+          {/* Tab Selector */}
+          <div className="glass-panel" style={{ padding: '2px', display: 'flex', gap: '2px', borderRadius: '8px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
             <button 
-              className={`btn ${activeTab === 'word' ? 'btn-primary' : 'btn-ghost'}`}
-              style={{ borderRadius: '8px', padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}
+              className={`btn btn-sm ${activeTab === 'word' ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ borderRadius: '6px', padding: '4px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
               onClick={() => setActiveTab('word')}
             >
-              <Type size={14} /> Word
+              <Type size={12} /> Word
             </button>
             <button 
-              className={`btn ${activeTab === 'excel' ? 'btn-primary' : 'btn-ghost'}`}
-              style={{ borderRadius: '8px', padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}
+              className={`btn btn-sm ${activeTab === 'excel' ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ borderRadius: '6px', padding: '4px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
               onClick={() => setActiveTab('excel')}
             >
-              <Table size={14} /> Excel
+              <Table size={12} /> Excel
             </button>
             <button 
-              className={`btn ${activeTab === 'note' ? 'btn-primary' : 'btn-ghost'}`}
-              style={{ borderRadius: '8px', padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}
+              className={`btn btn-sm ${activeTab === 'note' ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ borderRadius: '6px', padding: '4px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
               onClick={() => setActiveTab('note')}
             >
-              <NoteIcon size={14} /> Note
+              <NoteIcon size={12} /> Note
             </button>
           </div>
         </div>
@@ -705,16 +761,7 @@ export default function EOfficePage() {
         
         {/* Editor Toolbar */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 16px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-secondary)', flexWrap: 'wrap' }}>
-          <input 
-            type="text" 
-            value={docTitle} 
-            onChange={e => setDocTitle(e.target.value)} 
-            className="form-control" 
-            style={{ width: '180px', fontWeight: 600, height: '32px', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', fontSize: '13px' }}
-            title="Document Title"
-          />
           
-          <div style={{ width: '1px', height: '20px', background: 'var(--border-color)' }}></div>
           
           {activeTab === 'word' && (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
@@ -1018,11 +1065,11 @@ export default function EOfficePage() {
                   display: flex;
                   justify-content: center;
                 }
-                .ql-editor {
+                 .ql-editor {
                   background-color: ${pageColor};
                   width: ${isLandscape ? '100%' : '95%'};
                   max-width: ${isLandscape ? '297mm' : '210mm'};
-                  min-height: ${isLandscape ? '210mm' : '1122px'};
+                  min-height: ${isLandscape ? '210mm' : '297mm'};
                   margin: 20px auto;
                   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
                   padding: ${pageMargin}; 
@@ -1033,6 +1080,23 @@ export default function EOfficePage() {
                   column-gap: 40px;
                   position: relative;
                   border: ${hasBorder ? '4px double #1e293b' : 'none'};
+                  zoom: ${zoomLevel / 100};
+                }
+                @media (max-width: 768px) {
+                  .desktop-only-label {
+                    display: none !important;
+                  }
+                  .mobile-menu-toggle {
+                    display: inline-flex !important;
+                  }
+                  .desktop-only-btn {
+                    display: none !important;
+                  }
+                }
+                @media (min-width: 769px) {
+                  .mobile-menu-toggle {
+                    display: none !important;
+                  }
                 }
                 ${watermarkText ? `
                 .ql-editor::before {
@@ -1461,8 +1525,10 @@ export default function EOfficePage() {
                       <div className="ribbon-btn" onClick={() => setIsFullscreen(prev => !prev)} style={{ color: 'var(--brand-primary)', fontWeight: 600 }}>{isFullscreen ? '↩️ Exit Fullscreen' : '🔲 Fit into Screen'}</div>
                     </div>
                     <div className="ribbon-group">
-                      <div className="ribbon-btn" onClick={() => toast.success('Zoomed in 125%')}>🔍 Zoom</div>
-                      <div className="ribbon-btn" onClick={() => toast.success('Zoom reset to 100%')}>💯 100%</div>
+                      <button className="ribbon-btn" onClick={() => setZoomLevel(prev => Math.min(prev + 10, 200))}>➕ Zoom In</button>
+                      <button className="ribbon-btn" onClick={() => setZoomLevel(prev => Math.max(prev - 10, 50))}>➖ Zoom Out</button>
+                      <button className="ribbon-btn" onClick={() => setZoomLevel(100)}>💯 100% (Reset)</button>
+                      <span className="ribbon-btn" style={{ fontWeight: 'bold', color: 'var(--brand-primary)', cursor: 'default' }}>🔍 {zoomLevel}%</span>
                     </div>
                   </div>
                 )}

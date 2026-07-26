@@ -1,6 +1,6 @@
 {
   "name": "gsv-office-client",
-  "version": "1.0.22",
+  "version": "1.0.23",
   "description": "GSV Office Windows Desktop Client",
   "main": "src/main.js",
   "author": "GSV",
@@ -49,15 +49,19 @@
       "icon": "assets/icon.ico"
     },
     "nsis": {
-      "oneClick": true,
-      "allowToChangeInstallationDirectory": false,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": false,
       "shortcutName": "GSV Office",
       "allowElevation": true,
       "perMachine": false,
       "runAfterFinish": true,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh",
+      "license": "assets/license.txt",
+      "artifactName": "GSVOffice-Setup.exe",
+      "warningsAsErrors": false
     },
     "portable": {
       "artifactName": "GSVOffice-Portable.exe"

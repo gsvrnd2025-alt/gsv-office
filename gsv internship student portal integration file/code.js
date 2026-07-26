@@ -286,13 +286,32 @@ function doGet(e) {
   if (e && e.parameter && e.parameter.action === 'dump_debug_reg_id') {
     const sheet = getSheet(SHEET_NAMES.REGISTRATIONS);
     const objects = getSheetDataAsObjects(sheet);
+    const keys = objects.length > 0 ? Object.keys(objects[0]) : [];
     const sample = objects.slice(0, 10).map(o => ({
-      regId: o.RegistrationID || o.registrationId,
+      keys: keys,
+      regId: o.RegistrationID || o.registrationId || o['Registration ID'] || o['RegistrationID'] || null,
       name: `${o.FirstName || ''} ${o.LastName || ''}`.trim(),
       mobile: o.MobileNumber || o.mobile,
       status: o.ApplicationStatus || o.status
     }));
-    return ContentService.createTextOutput(JSON.stringify(sample)).setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify({keys: keys, sample: sample})).setMimeType(ContentService.MimeType.JSON);
+  }
+  if (e && e.parameter && e.parameter.action === 'find_student') {
+    const regSheet = getSheet(SHEET_NAMES.REGISTRATIONS);
+    const consolidatedSheet = getSheet(SHEET_NAMES.CONSOLIDATED_INTERNSHIPS);
+    const closedSheet = getSheet('Closed and Opt-out');
+    const allRegSources = [
+      ...(regSheet ? getSheetDataAsObjects(regSheet) : []),
+      ...(consolidatedSheet ? getSheetDataAsObjects(consolidatedSheet) : []),
+      ...(closedSheet ? getSheetDataAsObjects(closedSheet) : [])
+    ];
+    const target = (e.parameter.id || '').toUpperCase().trim();
+    const found = allRegSources.filter(s => {
+      const rid = String(s.RegistrationID || s['Registration ID'] || '').toUpperCase().trim();
+      const name = `${s.FirstName || ''} ${s.LastName || ''}`.toUpperCase();
+      return rid.includes(target) || name.includes(target);
+    });
+    return ContentService.createTextOutput(JSON.stringify(found)).setMimeType(ContentService.MimeType.JSON);
   }
   try {
     let page;
@@ -1069,7 +1088,7 @@ function processRfidInventory(uid, mac, e) {
  * Marks RFID-based check-in or check-out attendance.
  * ESP32 calls: ?action=checkin&uid=XXXXXXXXXX&mac=... OR ?action=checkout&...
  */
-function markRfidAttendance(uid, action, mac, e) {
+function markRfidAttendance_UNUSED(uid, action, mac, e) {
   try {
     // ⭐️ PERFORMANCE: Use quickVerify for scans to bypass heavy DB locking & metadata updates
     if (!quickVerify(mac)) {
@@ -1390,13 +1409,14 @@ function fetchStudentSlotTiming(uid, mac) {
  */
 function lookupRfidTag(uid) {
   try {
-    if (!uid) return { status: 'error', message: 'No UID provided' };
+    if (!uid) return { status: 'error', name: 'UNKNOWN CARD', message: 'No UID provided', regId: 'N/A' };
 
     const stdUid = standardizeRfidFormat(uid);
-    const result = { status: 'error', message: 'No Record Found', uid: stdUid };
 
-    // Check Inventory
+    // 1. Check Inventory
     const invSheet = getSheet(SHEET_NAMES.RFID_INVENTORY);
+    let inInventory = false;
+    let inventoryEntry = null;
     if (invSheet) {
       const invData = invSheet.getDataRange().getValues();
       const invHeaders = invData[0];
@@ -1405,55 +1425,63 @@ function lookupRfidTag(uid) {
         if (standardizeRfidFormat(invData[i][tagIdx]) === stdUid) {
           const entry = {};
           invHeaders.forEach((h, idx) => { if (h) entry[h] = invData[i][idx]; });
-          // Format internal dates for the result
           if (entry.AddedDate) entry.AddedDate = formatDateTimeIndia(entry.AddedDate);
           if (entry.LastUpdated) entry.LastUpdated = formatDateTimeIndia(entry.LastUpdated);
-
-          result.inventory = entry;
-          result.status = 'success';
-          result.message = 'Record Found';
+          inventoryEntry = entry;
+          inInventory = true;
           break;
         }
       }
     }
 
-    // Check Registrations for a linked student
+    if (!inInventory) {
+      return { status: 'error', name: 'UNKNOWN CARD', message: 'Not in Inventory: Contact Admin', regId: 'N/A', uid: stdUid };
+    }
+
+    // 2. Check Registrations for a linked student
     const regSheet = getSheet(SHEET_NAMES.REGISTRATIONS);
     if (regSheet) {
       const regData = getSheetDataAsObjects(regSheet);
-      // Ensure we compare standardized IDs
       const student = regData.find(s => standardizeRfidFormat(s.RFID_TagID) === stdUid);
 
       if (student) {
-        const studentName = `${student.FirstName || ''} ${student.LastName || ''}`.trim();
-        const regId = String(student.RegistrationID || '');
-        const slot = getSlotTiming(student.Batch || '', getTodayStr(), regId);
+        const studentName = `${student.FirstName || student.firstName || ''} ${student.LastName || student.lastName || ''}`.trim();
+        const regId = String(student.RegistrationID || student.registrationId || student["Registration ID"] || '');
+        const collegeName = String(student.CollegeName || student.College || student.college || student["College Name"] || 'N/A');
+        const batchVal = String(student.Batch || student.batch || student["Batch"] || 'No Batch');
+        const slot = getSlotTiming(batchVal === 'No Batch' ? '' : batchVal, getTodayStr(), regId);
         
-        result.name = studentName; // Promoted to top level
-        result.regId = regId;      // Promoted to top level
-        result.college = String(student.CollegeName || 'N/A');
-        result.slotTiming = `${slot.start} - ${slot.end}`;
-        
-        result.student = {
+        return {
+          status: 'success',
+          message: 'Record Found',
+          uid: stdUid,
           name: studentName,
           regId: regId,
-          regNo: String(student.RegisterNumber || ''),
-          batch: String(student.Batch || 'No Batch'),
-          college: String(student.CollegeName || 'N/A'),
-          dept: String(student.Department || 'N/A'),
-          duration: student.DurationDays ? (student.DurationDays + " Days") : 'N/A',
-          startDate: student.InternshipStartDate ? formatDateDisplay(student.InternshipStartDate) : 'N/A',
-          endDate: student.InternshipEndDate ? formatDateDisplay(student.InternshipEndDate) : 'N/A',
-          status: student.ApplicationStatus || student.Status || 'Active'
+          college: collegeName,
+          slotTiming: `${slot.start} - ${slot.end}`,
+          batch: batchVal,
+          inventory: inventoryEntry,
+          student: {
+            name: studentName,
+            regId: regId,
+            regNo: String(student.RegisterNumber || student.registerNumber || student["Register Number"] || 'N/A'),
+            batch: batchVal,
+            college: collegeName,
+            dept: String(student.Department || student.department || student["Department"] || 'N/A'),
+            duration: student.DurationDays ? (student.DurationDays + " Days") : 'N/A',
+            startDate: student.InternshipStartDate ? formatDateDisplay(student.InternshipStartDate) : 'N/A',
+            endDate: student.InternshipEndDate ? formatDateDisplay(student.InternshipEndDate) : 'N/A',
+            status: student.ApplicationStatus || student.Status || 'Active'
+          }
         };
-        result.status = 'success';
-        result.message = 'Record Found';
       }
     }
-    return result;
+
+    // In inventory but not assigned
+    return { status: 'error', name: 'CARD UNASSIGNED', message: 'Card Unassigned: Contact Admin', regId: 'N/A', uid: stdUid, inventory: inventoryEntry };
   } catch (e) {
     Logger.log('lookupRfidTag error: ' + e.toString());
-    return { status: 'error', message: e.toString() };
+    return { status: 'error', name: 'SYSTEM ERROR', message: e.toString(), regId: 'N/A' };
   }
 }
 
@@ -4936,8 +4964,8 @@ function studentLogin(regId, mobile) {
           other: !!student.OtherUrl
         },
         permissions: {
-          attendance: student.AttendanceAccess === true || student.AttendanceAccess === 'TRUE',
-          diary: student.DiaryAccess === true || student.DiaryAccess === 'TRUE'
+          attendance: student.AttendanceAccess !== false && student.AttendanceAccess !== 'FALSE' && String(student.AttendanceAccess).trim().toUpperCase() !== 'FALSE',
+          diary: student.DiaryAccess !== false && student.DiaryAccess !== 'FALSE' && String(student.DiaryAccess).trim().toUpperCase() !== 'FALSE'
         }
       }
     };
@@ -9234,8 +9262,8 @@ function getStudentAttendance(registrationId) {
     while (current <= end) {
       const dISO = formatDateISO(current);
       const dDisplay = formatDate(current);
-      // Select the "best" record for the day (one with OutTime takes precedence)
-      let dayAttRecords = attendanceData.filter(r => formatDateISO(r.Date) === dISO);
+      // Select the "best" record for the day — exclude Denied records, prefer OutTime
+      let dayAttRecords = attendanceData.filter(r => formatDateISO(r.Date) === dISO && String(r.Status || '').toUpperCase() !== 'DENIED');
       let attRecord = dayAttRecords.find(r => r.OutTime && r.OutTime !== '' && r.OutTime !== 'N/A');
       if (!attRecord && dayAttRecords.length > 0) attRecord = dayAttRecords[0];
       const isSunday = current.getDay() === 0;
@@ -10922,22 +10950,37 @@ function getAttendanceRecords(dateFilter, statusFilter, regIdFilter, endDateFilt
   try {
     const attSheet = getSheet(SHEET_NAMES.ATTENDANCE);
     const regSheet = getSheet(SHEET_NAMES.REGISTRATIONS);
+    const consolidatedSheet = getSheet(SHEET_NAMES.CONSOLIDATED_INTERNSHIPS);
+    const closedSheet = getSheet('Closed and Opt-out');
     if (!attSheet || !regSheet) return [];
 
-    const allStudents = getSheetDataAsObjects(regSheet);
+    const allStudents = [
+      ...getSheetDataAsObjects(regSheet),
+      ...(consolidatedSheet ? getSheetDataAsObjects(consolidatedSheet) : []),
+      ...(closedSheet ? getSheetDataAsObjects(closedSheet) : [])
+    ];
     let attRecords = getSheetDataAsObjects(attSheet);
 
     // Build student lookup for enrichment
     const studentLookup = new Map();
     allStudents.forEach(s => {
       const rid = String(s.RegistrationID || '').trim().toUpperCase();
-      if (rid) {
+      if (rid && !studentLookup.has(rid)) {
         studentLookup.set(rid, {
           name: getStudentFullName_(s),
           batch: s.Batch || '',
           college: s.CollegeName || '',
           status: s.ApplicationStatus || s.Status || ''
         });
+      }
+    });
+
+    // Enrich all attendance records with student name from lookup
+    attRecords.forEach(r => {
+      const rid = String(r.StudentRegistrationID || '').trim().toUpperCase();
+      const sInfo = studentLookup.get(rid);
+      if (sInfo) {
+        r.StudentName = sInfo.name;
       }
     });
 
@@ -11285,8 +11328,36 @@ function generateConsolidatedAttendancePDF(options = {}) {
   try {
     const sheet = getSheet(SHEET_NAMES.ATTENDANCE);
     const regSheet = getSheet(SHEET_NAMES.REGISTRATIONS);
-    const allStudents = getSheetDataAsObjects(regSheet);
+    const consolidatedSheet = getSheet(SHEET_NAMES.CONSOLIDATED_INTERNSHIPS);
+    const closedSheet = getSheet('Closed and Opt-out');
+    if (!sheet || !regSheet) return { status: 'error', message: 'Required sheets missing' };
+
+    const allStudents = [
+      ...getSheetDataAsObjects(regSheet),
+      ...(consolidatedSheet ? getSheetDataAsObjects(consolidatedSheet) : []),
+      ...(closedSheet ? getSheetDataAsObjects(closedSheet) : [])
+    ];
     let records = getSheetDataAsObjects(sheet);
+
+    // Build student lookup for enrichment
+    const studentLookup = new Map();
+    allStudents.forEach(s => {
+      const rid = String(s.RegistrationID || '').trim().toUpperCase();
+      if (rid && !studentLookup.has(rid)) {
+        studentLookup.set(rid, {
+          name: getStudentFullName_(s)
+        });
+      }
+    });
+
+    // Enrich all records with student name from lookup
+    records.forEach(r => {
+      const rid = String(r.StudentRegistrationID || '').trim().toUpperCase();
+      const sInfo = studentLookup.get(rid);
+      if (sInfo) {
+        r.StudentName = sInfo.name;
+      }
+    });
 
     let studentInfo = null;
     let batchInfo = null;
@@ -12614,6 +12685,49 @@ function getPendingAttendanceDetails() {
     const reqRes = getAdminAttendanceRequests();
     const newRequests = reqRes.status === 'success' ? reqRes.requests : [];
 
+    // Map student details from registrations + consolidated + closed sheets
+    const regSheet = getSheet(SHEET_NAMES.REGISTRATIONS);
+    const consolidatedSheet = getSheet(SHEET_NAMES.CONSOLIDATED_INTERNSHIPS);
+    const closedSheet2 = getSheet('Closed and Opt-out');
+    const allRegSources = [
+      ...(regSheet ? getSheetDataAsObjects(regSheet) : []),
+      ...(consolidatedSheet ? getSheetDataAsObjects(consolidatedSheet) : []),
+      ...(closedSheet2 ? getSheetDataAsObjects(closedSheet2) : [])
+    ];
+    const regMap = {};
+    allRegSources.forEach(r => {
+      const id = String(r.RegistrationID || '').trim().toUpperCase();
+      if (id && !regMap[id]) { // first-found wins (active sheets first)
+        regMap[id] = {
+          RegistrationID: r.RegistrationID,
+          Name: [r.FirstName, r.MiddleName, r.LastName].filter(Boolean).join(' '),
+          CollegeName: r.CollegeName || '',
+          Batch: r.Batch || '',
+          StartDate: r.InternshipStartDate || '',
+          EndDate: r.InternshipEndDate || '',
+          RegisterNumber: r.RegisterNumber || ''
+        };
+      }
+    });
+
+    const attachStudentDetails = (item, idKey) => {
+      const regId = String(item[idKey] || '').trim().toUpperCase();
+      if (regId && regMap[regId]) {
+        item.StudentDetails = regMap[regId];
+      } else {
+        item.StudentDetails = null;
+      }
+    };
+
+    manualEntries.forEach(item => attachStudentDetails(item, 'StudentRegistrationID'));
+    mergedCorrections.forEach(item => attachStudentDetails(item, 'RegistrationID'));
+    mergedDiary.forEach(item => attachStudentDetails(item, 'RegistrationID'));
+    mergedGrace.forEach(item => attachStudentDetails(item, 'RegistrationID'));
+    srAccessRequests.forEach(item => attachStudentDetails(item, 'RegistrationID'));
+    srDocReplacements.forEach(item => attachStudentDetails(item, 'RegistrationID'));
+    recentHistory.forEach(item => attachStudentDetails(item, 'RegistrationID'));
+    newRequests.forEach(item => attachStudentDetails(item, 'RegistrationID'));
+
     const totalPending = manualEntries.length + mergedCorrections.length + mergedDiary.length + mergedGrace.length + srAccessRequests.length + srDocReplacements.length + newRequests.length;
 
     return {
@@ -13232,11 +13346,9 @@ function getAllStudents() {
     const data = [...mainData, ...closedData];
     if (data.length === 0) return [];
 
-    // Check if students have uploaded documents by checking the FILE_MANAGER
+    // Check if students have uploaded documents by checking the FILE_MANAGER and GENERATED_DOCUMENTS
     const fileSheet = getSheet(SHEET_NAMES.FILE_MANAGER);
     const fileData = getSheetDataAsObjects(fileSheet) || [];
-    const mandatoryTypes = ["Bonafide", "Declaration", "College ID", "Other Doc"];
-
     const studentsWithFiles = new Set();
     const projectDocCounts = {};
 
@@ -13244,11 +13356,23 @@ function getAllStudents() {
       const rid = String(f.StudentRegistrationID || f.RegistrationID || "").trim().toUpperCase();
       if (!rid) return;
       studentsWithFiles.add(rid);
+      projectDocCounts[rid] = (projectDocCounts[rid] || 0) + 1;
+    });
 
-      const type = String(f.DocType || f.type || "").trim().toLowerCase();
-      const isMandatory = mandatoryTypes.some(m => type.includes(m.toLowerCase()));
-      if (!isMandatory) {
-        projectDocCounts[rid] = (projectDocCounts[rid] || 0) + 1;
+    const genDocSheet = getSheet(SHEET_NAMES.GENERATED_DOCUMENTS);
+    const genDocData = getSheetDataAsObjects(genDocSheet) || [];
+    const seenPdfIds = {};
+    genDocData.forEach(d => {
+      const rid = String(d.StudentRegistrationID || "").trim().toUpperCase();
+      if (!rid) return;
+      studentsWithFiles.add(rid);
+      const pdfId = d.PdfFileId || d.pdfFileId;
+      if (pdfId) {
+        const key = rid + "_" + pdfId;
+        if (!seenPdfIds[key]) {
+          seenPdfIds[key] = true;
+          projectDocCounts[rid] = (projectDocCounts[rid] || 0) + 1;
+        }
       }
     });
 
@@ -13340,6 +13464,8 @@ function getAllStudents() {
         projectName: projectNames[regIdUpper] || '',
         hasDocuments: studentsWithFiles.has(regIdUpper),
         projectDocCount: projectDocCounts[regIdUpper] || 0,
+        attendanceAccess: (s.AttendanceAccess !== false && s.AttendanceAccess !== 'FALSE' && String(s.AttendanceAccess).trim().toUpperCase() !== 'FALSE'),
+        diaryAccess: (s.DiaryAccess !== false && s.DiaryAccess !== 'FALSE' && String(s.DiaryAccess).trim().toUpperCase() !== 'FALSE'),
         isTaskPending: taskStatusMap[regIdUpper] ? (taskStatusMap[regIdUpper].completed < taskStatusMap[regIdUpper].total) : false,
         isProjectPending: !!projectStatusMap[regIdUpper],
         attendanceCount: attendanceCountMap[regIdUpper] || 0,
@@ -13680,21 +13806,6 @@ function updateStudentProfile(data) {
 
   // Update fields
   const keys = Object.keys(data);
-  let statusUpdated = false;
-
-  // Auto-update status to 'Assigned' if RFID is provided and student is Approved/Active
-  if (data.RFID_TagID && String(data.RFID_TagID).trim() !== "") {
-    const currentStatus = String(regData[rowIndex - 1][regHeaders.indexOf('ApplicationStatus')] || "").trim();
-    const currentActualStatus = String(regData[rowIndex - 1][regHeaders.indexOf('Status')] || "").trim();
-
-    if (currentStatus === 'Approved' || currentActualStatus === 'Approved' || currentStatus === 'Active' || currentActualStatus === 'Active') {
-      data.ApplicationStatus = 'Assigned';
-      data.Status = 'Assigned';
-      if (!keys.includes('ApplicationStatus')) keys.push('ApplicationStatus');
-      if (!keys.includes('Status')) keys.push('Status');
-      statusUpdated = true;
-    }
-  }
 
   keys.forEach(key => {
     if (key === 'registrationId') return;
@@ -13710,11 +13821,7 @@ function updateStudentProfile(data) {
     }
   });
 
-  if (statusUpdated) {
-    logActivity('Status Updated', 'System', `Student ${data.registrationId} status set to Assigned due to RFID provision.`);
-  }
-
-  return { status: 'success', message: 'Profile updated successfully' + (statusUpdated ? ' and status set to Assigned.' : '.') };
+  return { status: 'success', message: 'Profile updated successfully.' };
 }
 
 function deleteRowsByColumnValue(sheetName, colName, value) {
@@ -14226,6 +14333,19 @@ function getStudentFullData(regId) {
     });
 
     if (!student) {
+      // Fallback search in Consolidated Internships sheet
+      const consolidatedSheet = getSheet(SHEET_NAMES.CONSOLIDATED_INTERNSHIPS);
+      if (consolidatedSheet) {
+        const consolidatedData = getSheetDataAsObjects(consolidatedSheet);
+        student = consolidatedData.find(r => {
+          const sId = String(r.RegistrationID || "").trim().toUpperCase();
+          const targetId = String(regId || "").trim().toUpperCase();
+          return sId === targetId;
+        });
+      }
+    }
+
+    if (!student) {
       // Fallback search in Closed and Opt-out sheet
       const closedSheet = getSheet('Closed and Opt-out');
       if (closedSheet) {
@@ -14335,8 +14455,8 @@ function getStudentComprehensiveProfile(regId) {
         other: !!findValue(d, "Other")
       },
       permissions: {
-        attendance: (d["AttendanceAccess"] === true || d["AttendanceAccess"] === 'TRUE'),
-        diary: (d["DiaryAccess"] === true || d["DiaryAccess"] === 'TRUE')
+        attendance: (d["AttendanceAccess"] !== false && d["AttendanceAccess"] !== 'FALSE' && String(d["AttendanceAccess"]).trim().toUpperCase() !== 'FALSE'),
+        diary: (d["DiaryAccess"] !== false && d["DiaryAccess"] !== 'FALSE' && String(d["DiaryAccess"]).trim().toUpperCase() !== 'FALSE')
       },
       rfidTag: d["RFID_TagID"] || '',
       certificateIssued: !!(d["CertificateLink"] || d["CertificateIssuedDate"])
@@ -14518,6 +14638,7 @@ function getStudentComprehensiveProfile(regId) {
       notifications: notifications,
       attendanceRequests: attendanceRequests,
       files: files,
+      summary: (filesResp && filesResp.status === 'success') ? filesResp.summary : null,
       consolidatedSummary: consolidatedSummary,
       todaySlot: getSlotTiming(details.batch, getTodayStr())
     };
@@ -14566,13 +14687,25 @@ function getAdvancedDiaryData(options) {
   try {
     const diarySheet = getSheet(SHEET_NAMES.STUDENT_DIARY);
     const regSheet = getSheet(SHEET_NAMES.REGISTRATIONS);
+    const consolidatedSheet = getSheet(SHEET_NAMES.CONSOLIDATED_INTERNSHIPS);
+    const closedSheet = getSheet('Closed and Opt-out');
     const diaryData = getSheetDataAsObjects(diarySheet);
-    const studentData = getSheetDataAsObjects(regSheet);
+    
+    const studentData = [
+      ...getSheetDataAsObjects(regSheet),
+      ...(consolidatedSheet ? getSheetDataAsObjects(consolidatedSheet) : []),
+      ...(closedSheet ? getSheetDataAsObjects(closedSheet) : [])
+    ];
 
     // Create students Map for O(1) lookups
     const studentMap = new Map();
     studentData.forEach(s => {
-      if (s.RegistrationID) studentMap.set(String(s.RegistrationID), s);
+      if (s.RegistrationID) {
+        const key = String(s.RegistrationID);
+        if (!studentMap.has(key)) {
+          studentMap.set(key, s);
+        }
+      }
     });
 
     // Create Attendance Index for O(1) lookups across all modes
@@ -15838,8 +15971,9 @@ function uploadStudentFile(regId, base64Data, fileName) {
  */
 function checkAndAutoAssignRfid(regId) {
   try {
-    const student = getStudentProfile(regId);
-    if (!student) return;
+    const resp = getStudentFullData(regId);
+    if (resp.status !== 'success' || !resp.studentData) return;
+    const student = resp.studentData;
 
     const statusVal = String(student.ApplicationStatus || student.Status || '').toLowerCase();
     const isApproved = (statusVal === 'approved' || statusVal === 'active');
@@ -15853,8 +15987,8 @@ function checkAndAutoAssignRfid(regId) {
     if (ed && today >= ed) return;
 
     // Rule 2: Automation setting must be 'Auto'
-    const settings = getAppSettings();
-    if (settings['RFID_Automation_Mode'] !== 'Auto') return;
+    const appSettings = getAppSettings();
+    if (appSettings.status !== 'success' || !appSettings.settings || appSettings.settings['RFID_Automation_Mode'] !== 'Auto') return;
 
     // Rule 3: Must have mandatory docs (strictly check availability)
     const b = String(student.BonafideUrl || '').trim();
@@ -16344,7 +16478,9 @@ function generateDaySlipPDF(regId, dateISO) {
   try {
     const attSheet = getSheet(SHEET_NAMES.ATTENDANCE);
     const records = getSheetDataAsObjects(attSheet);
-    const record = records.find(r => String(r.StudentRegistrationID) === String(regId) && formatDateISO(r.Date) === dateISO);
+    // ⭐️ Skip Denied records; prefer record with OutTime (checkout done)
+    const dayRecords = records.filter(r => String(r.StudentRegistrationID) === String(regId) && formatDateISO(r.Date) === dateISO && String(r.Status || '').toUpperCase() !== 'DENIED');
+    const record = dayRecords.find(r => r.OutTime && r.OutTime !== '') || (dayRecords.length > 0 ? dayRecords[dayRecords.length - 1] : null);
 
     const detailsResp = getStudentFullData(regId);
     const student = detailsResp.studentData;
@@ -16519,7 +16655,7 @@ function getRfidManagementState() {
       const hasTag = !!finalTag;
 
       const statusLower = String(s.status || s.actualStatus || '').toLowerCase();
-      const isValidStatus = (statusLower === 'approved' || statusLower === 'active');
+      const isValidStatus = (statusLower === 'approved' || statusLower === 'active' || statusLower === 'assigned');
 
       return {
         ...s,
@@ -16625,22 +16761,30 @@ function revokeRfidAssignment(regId) {
 }
 
 function handleRfidAutomationOnStatusChange(regId, newStatus) {
-  const settings = getAppSettings().settings;
-  const isAuto = settings['RFID_Automation_Mode'] === 'Auto';
-  if (!isAuto) return;
+  try {
+    const appSettings = getAppSettings();
+    if (appSettings.status !== 'success' || !appSettings.settings) return;
+    const settings = appSettings.settings;
+    const isAuto = settings['RFID_Automation_Mode'] === 'Auto';
+    if (!isAuto) return;
 
-  if (newStatus === 'Approved') {
-    // Check if documents are uploaded
-    const student = getStudentFullData(regId).studentData;
-    const docs = [student.BonafideUrl, student.DeclarationUrl, student.CollegeIdUrl];
-    const isComplete = docs.every(d => d && d.trim() !== '');
+    if (newStatus === 'Approved') {
+      // Check if documents are uploaded
+      const studentResp = getStudentFullData(regId);
+      if (studentResp.status !== 'success' || !studentResp.studentData) return;
+      const student = studentResp.studentData;
+      const docs = [student.BonafideUrl, student.DeclarationUrl, student.CollegeIdUrl];
+      const isComplete = docs.every(d => d && d.trim() !== '');
 
-    if (isComplete && !student.RFID_TagID) {
-      assignAvailableRfid(regId);
+      if (isComplete && !student.RFID_TagID) {
+        assignAvailableRfid(regId);
+      }
+    } else if (newStatus === 'Completed' || newStatus === 'Rejected' || newStatus === 'Closed') {
+      // Return RFID to pool
+      returnRfidToPool(regId);
     }
-  } else if (newStatus === 'Completed' || newStatus === 'Rejected' || newStatus === 'Closed') {
-    // Return RFID to pool
-    returnRfidToPool(regId);
+  } catch (e) {
+    Logger.log("Error in handleRfidAutomationOnStatusChange: " + e.toString());
   }
 }
 
@@ -16658,6 +16802,7 @@ function assignAvailableRfid(regId) {
       invSheet.getRange(rowIndex, headers.indexOf('Status') + 1).setValue('Assigned');
       invSheet.getRange(rowIndex, headers.indexOf('AssignedTo') + 1).setValue(regId);
       invSheet.getRange(rowIndex, headers.indexOf('LastUpdated') + 1).setValue(new Date());
+      SpreadsheetApp.flush(); // LOOP/BULK CONCURRENCY SAFETY
     }
 
     // Update Student Profile
@@ -16687,23 +16832,78 @@ function assignAvailableRfid(regId) {
   }
 }
 
+function bulkAssignRfidCards(regIds) {
+  try {
+    if (!regIds || !Array.isArray(regIds) || regIds.length === 0) {
+      return { status: 'error', message: 'No students selected' };
+    }
+
+    const invSheet = getSheet(SHEET_NAMES.RFID_INVENTORY);
+    if (!invSheet) return { status: 'error', message: 'Inventory sheet missing' };
+
+    const invData = getSheetDataAsObjects(invSheet);
+    const availableTags = invData.filter(r => r.Status === 'Available');
+
+    // Filter out students who already have a tag
+    const regSheet = getSheet(SHEET_NAMES.REGISTRATIONS);
+    const regData = getSheetDataAsObjects(regSheet);
+    const eligibleRegIds = regIds.filter(regId => {
+      const s = regData.find(student => String(student.RegistrationID || '').trim().toUpperCase() === String(regId).trim().toUpperCase());
+      return s && (!s.RFID_TagID || String(s.RFID_TagID).trim() === '');
+    });
+
+    if (eligibleRegIds.length === 0) {
+      return { status: 'success', message: 'All selected students already have RFID tags assigned.' };
+    }
+
+    if (availableTags.length < eligibleRegIds.length) {
+      return { 
+        status: 'error', 
+        message: `Not enough available RFID cards in inventory. Needed: ${eligibleRegIds.length}, Available: ${availableTags.length}. Please add more cards first.` 
+      };
+    }
+
+    let successCount = 0;
+    for (let i = 0; i < eligibleRegIds.length; i++) {
+      const regId = eligibleRegIds[i];
+      assignAvailableRfid(regId);
+      successCount++;
+    }
+
+    return { 
+      status: 'success', 
+      message: `Successfully auto-assigned RFID cards to ${successCount} student(s).` 
+    };
+  } catch (e) {
+    Logger.log("Error in bulkAssignRfidCards: " + e.toString());
+    return { status: 'error', message: e.toString() };
+  }
+}
+
 function returnRfidToPool(regId) {
-  const student = getStudentFullData(regId).studentData;
-  const tagId = student ? student.RFID_TagID : null;
-  if (!tagId) return;
+  try {
+    const resp = getStudentFullData(regId);
+    if (resp.status !== 'success' || !resp.studentData) return;
+    const student = resp.studentData;
+    const tagId = student.RFID_TagID;
+    if (!tagId) return;
 
-  const invSheet = getSheet(SHEET_NAMES.RFID_INVENTORY);
-  const rowIndex = findRowIndexByValue(invSheet, tagId, 'RFID_TagID');
-
-  if (rowIndex > -1) {
-    const headers = invSheet.getDataRange().getValues()[0];
-    invSheet.getRange(rowIndex, headers.indexOf('Status') + 1).setValue('Available');
-    invSheet.getRange(rowIndex, headers.indexOf('AssignedTo') + 1).setValue('');
-    invSheet.getRange(rowIndex, headers.indexOf('LastUpdated') + 1).setValue(new Date());
+    const invSheet = getSheet(SHEET_NAMES.RFID_INVENTORY);
+    if (invSheet) {
+      const rowIndex = findRowIndexByValue(invSheet, tagId, 'RFID_TagID');
+      if (rowIndex > -1) {
+        const headers = invSheet.getDataRange().getValues()[0];
+        invSheet.getRange(rowIndex, headers.indexOf('Status') + 1).setValue('Available');
+        invSheet.getRange(rowIndex, headers.indexOf('AssignedTo') + 1).setValue('');
+        invSheet.getRange(rowIndex, headers.indexOf('LastUpdated') + 1).setValue(new Date());
+      }
+    }
 
     // Clear from student profile
     updateStudentProfile({ registrationId: regId, RFID_TagID: '' });
     logActivity('RFID Auto-Pool', 'System', `Tag ${tagId} returned to pool from ${regId}`);
+  } catch (e) {
+    Logger.log("Error returning RFID to pool for " + regId + ": " + e.toString());
   }
 }
 
@@ -18696,13 +18896,52 @@ function getCurrentStudentStatus(regId) {
     const data = getSheetDataAsObjects(attendanceSheet);
     const today = getTodayStr();
 
-    const todayRecords = data.filter(r => r.StudentRegistrationID === regId && r.Date === today);
+    // ⭐️ Exclude "Denied" records — a denied scan must NOT block a later valid scan
+    const todayRecords = data.filter(r =>
+      r.StudentRegistrationID === regId &&
+      r.Date === today &&
+      String(r.Status || '').toUpperCase() !== 'DENIED'
+    );
     if (todayRecords.length > 0) {
       return { status: 'success', record: todayRecords[todayRecords.length - 1] };
     }
     return { status: 'success', record: null };
   } catch (e) {
     return { status: 'error', message: e.toString() };
+  }
+}
+
+/**
+ * ⭐️ Logs a denied RFID scan attempt into the Attendance sheet for full audit trail.
+ * @param {string} regId - Student registration ID
+ * @param {string} studentName - Student display name
+ * @param {string} reason - Short denial reason (e.g. "Portal Inactive", "Docs Pending")
+ * @param {string} deviceMac - MAC of the RFID reader
+ */
+function logDeniedAttendance(regId, studentName, reason, deviceMac) {
+  try {
+    if (!regId || regId === 'N/A') return; // Skip if no valid regId (card not assigned)
+    const zone = Session.getScriptTimeZone() || 'Asia/Kolkata';
+    const now = new Date();
+    const nowStr = Utilities.formatDate(now, zone, "hh:mm a");
+    const today = getTodayStr();
+    const sheet = getSheet(SHEET_NAMES.ATTENDANCE);
+    if (!sheet) return;
+    appendObjectToSheet(sheet, {
+      AttendanceID: "DENY_" + Date.now(),
+      StudentRegistrationID: regId,
+      StudentName: studentName || '',
+      Date: today,
+      Status: 'Denied',
+      InTime: nowStr,
+      OutTime: '',
+      EntryMode: 'RFID',
+      checkin_source: 'RFID',
+      Remarks: 'Denied: ' + reason,
+      Timestamp: now.toISOString()
+    });
+  } catch (e) {
+    Logger.log('logDeniedAttendance Error: ' + e.toString());
   }
 }
 
@@ -18717,12 +18956,22 @@ function recordWebCheckin(regId) {
     // 1. Check if portal is active
     const appStatus = String(studentInfo.studentData.ApplicationStatus || '').trim().toLowerCase();
     const status = String(studentInfo.studentData.Status || '').trim().toLowerCase();
-    const isActive = (appStatus === 'approved' || appStatus === 'active' || status === 'approved' || status === 'active');
+    const isActive = (appStatus === 'approved' || appStatus === 'active' || appStatus === 'assigned' || status === 'approved' || status === 'active' || status === 'assigned');
     
     if (!isActive) {
       return { 
         status: 'error', 
         message: 'Your portal is not active, please activate it.' 
+      };
+    }
+
+    // 1b. Check if attendance access is unlocked
+    const attAccess = studentInfo.studentData.AttendanceAccess;
+    const isUnlocked = (attAccess !== false && attAccess !== 'FALSE' && String(attAccess).trim().toUpperCase() !== 'FALSE');
+    if (!isUnlocked) {
+      return { 
+        status: 'error', 
+        message: 'Your attendance access is locked. Please contact admin.' 
       };
     }
 
@@ -18819,12 +19068,22 @@ function recordWebCheckout(regId) {
     // 1. Check if portal is active
     const appStatus = String(studentInfo.studentData.ApplicationStatus || '').trim().toLowerCase();
     const status = String(studentInfo.studentData.Status || '').trim().toLowerCase();
-    const isActive = (appStatus === 'approved' || appStatus === 'active' || status === 'approved' || status === 'active');
+    const isActive = (appStatus === 'approved' || appStatus === 'active' || appStatus === 'assigned' || status === 'approved' || status === 'active' || status === 'assigned');
     
     if (!isActive) {
       return { 
         status: 'error', 
         message: 'Your portal is not active, please activate it.' 
+      };
+    }
+
+    // 1b. Check if attendance access is unlocked
+    const attAccess = studentInfo.studentData.AttendanceAccess;
+    const isUnlocked = (attAccess !== false && attAccess !== 'FALSE' && String(attAccess).trim().toUpperCase() !== 'FALSE');
+    if (!isUnlocked) {
+      return { 
+        status: 'error', 
+        message: 'Your attendance access is locked. Please contact admin.' 
       };
     }
 
@@ -18975,17 +19234,19 @@ function getAdminAttendanceRequests() {
 function markRfidAttendance(rawUid, typeOverride = null, deviceMac = 'UNKNOWN') {
   try {
     const uid = standardizeRfidFormat(rawUid);
-    // ⭐️ Priority 2: Check Device Configuration (Registry)
+    // ⭐️ Check Device Configuration (Registry)
     const devSheet = getSheet(SHEET_NAMES.RFID_DEVICES);
     const devices = getSheetDataAsObjects(devSheet);
     const macClean = deviceMac.replace(/[:\s]/g, '').toUpperCase();
     const registeredDevice = devices.find(d => String(d.MAC_ID || '').replace(/[:\s]/g, '').toUpperCase() === macClean);
 
     if (!registeredDevice) {
+      logDeviceEvent(deviceMac, 'Unauthorized', 'MAC: ' + deviceMac);
       return { status: 'error', name: 'UNAUTHORIZED', message: 'DEVICE NOT REGISTRY' };
     }
 
     if (registeredDevice.Status === 'Disabled' || registeredDevice.Status === 'Blocked') {
+      logDeviceEvent(deviceMac, 'Blocked', 'MAC: ' + deviceMac);
       return { status: 'error', name: 'BLOCKED', message: 'DEVICE IS DISABLED' };
     }
 
@@ -19004,6 +19265,7 @@ function markRfidAttendance(rawUid, typeOverride = null, deviceMac = 'UNKNOWN') 
         const closedData = getSheetDataAsObjects(closedSheet);
         const closedStudent = closedData.find(s => standardizeRfidFormat(s.RFID_TagID) === uid);
         if (closedStudent) {
+          logDeviceEvent(deviceMac, 'RFID_Scan', 'UID: ' + uid + ' - Locked Student (Blocked/Closed/Opt-Out)');
           return { status: 'error', name: 'BLOCKED', message: 'STUDENT BLOCKED (CLOSED/OPTOUT)' };
         }
       }
@@ -19013,24 +19275,102 @@ function markRfidAttendance(rawUid, typeOverride = null, deviceMac = 'UNKNOWN') 
       const inventoryItem = invData.find(i => standardizeRfidFormat(i.RFID_TagID) === uid);
 
       if (inventoryItem) {
-        return { status: 'error', message: 'IN INVENTORY:NOT ASSIGNED' };
+        logDeviceEvent(deviceMac, 'RFID_Scan', 'UID: ' + uid + ' - Unassigned Tag in Inventory');
+        return { status: 'error', message: 'Card Unassigned: Contact Admin', name: 'CARD UNASSIGNED', detailStatus: 'Card Unassigned: Contact Admin' };
       } else {
-        return { status: 'error', message: 'ADD CARD:TO INVENTORY' };
+        logDeviceEvent(deviceMac, 'RFID_Scan', 'UID: ' + uid + ' - Unknown Tag Not in Inventory');
+        return { status: 'error', message: 'Not in Inventory: Contact Admin', name: 'UNKNOWN CARD', detailStatus: 'Not in Inventory: Contact Admin' };
       }
     }
 
-    const regId = student.RegistrationID;
+    const regId = student.RegistrationID || student.registrationId || student["Registration ID"] || '';
+    const studentName = `${student.FirstName || student.firstName || ''} ${student.LastName || student.lastName || ''}`.trim();
+    const collegeName = String(student.CollegeName || student.College || student.college || student["College Name"] || 'N/A');
+    const zone = Session.getScriptTimeZone() || 'Asia/Kolkata';
+    const now = new Date();
+    const nowStr = Utilities.formatDate(now, zone, "hh:mm a");
+    const today = getTodayStr();
+
+    // Fetch slot timings early
+    const batchId = String(student.Batch || student.batch || student["Batch"] || 'N/A');
+    const slot = getSlotTiming(batchId === 'N/A' ? '' : batchId, today, regId);
+    const slotTimingStr = `${slot.start} - ${slot.end}`;
+
+    // Sunday / Holiday check: if Sunday and no custom exception slot, block access
+    const isSunday = (now.getDay() === 0);
+    if (isSunday && (slot.source === 'fallback' || slot.type === 'DEFAULT')) {
+      logDeviceEvent(deviceMac, 'RFID_Scan_Fail', `Student: ${studentName} (${regId}) - Sunday Weekly Off`);
+      logDeniedAttendance(regId, studentName, 'Sunday Weekly Off', deviceMac);
+      return { 
+        status: 'error', 
+        name: studentName, 
+        regId: regId,
+        college: collegeName,
+        slotTiming: slotTimingStr,
+        batch: batchId,
+        message: 'Sunday Holiday',
+        detailStatus: 'Sunday Holiday'
+      };
+    }
 
     // 1. Check if portal is active
     const appStatus = String(student.ApplicationStatus || '').trim().toLowerCase();
     const status = String(student.Status || '').trim().toLowerCase();
-    const isActive = (appStatus === 'approved' || appStatus === 'active' || status === 'approved' || status === 'active');
+    const isActive = (appStatus === 'approved' || appStatus === 'active' || appStatus === 'assigned' || status === 'approved' || status === 'active' || status === 'assigned');
     
     if (!isActive) {
+      logDeviceEvent(deviceMac, 'RFID_Scan_Fail', `Student: ${studentName} (${regId}) - Portal Inactive`);
+      logDeniedAttendance(regId, studentName, 'Portal Inactive', deviceMac);
       return { 
         status: 'error', 
-        name: 'INACTIVE', 
-        message: 'Portal Inactive: Please Activate' 
+        name: studentName, 
+        regId: regId,
+        college: collegeName,
+        slotTiming: slotTimingStr,
+        batch: batchId,
+        message: 'Portal Inactive: Please Activate',
+        detailStatus: 'Portal Inactive'
+      };
+    }
+
+    // 1.5. Check if internship has started
+    if (student.InternshipStartDate) {
+      const startDate = new Date(student.InternshipStartDate);
+      if (!isNaN(startDate.getTime())) {
+        const todayOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const startOnly = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+        if (todayOnly < startOnly) {
+          logDeviceEvent(deviceMac, 'RFID_Scan_Fail', `Student: ${studentName} (${regId}) - Internship Not Started`);
+          logDeniedAttendance(regId, studentName, 'Internship Not Started', deviceMac);
+          return { 
+            status: 'error', 
+            name: studentName, 
+            regId: regId,
+            college: collegeName,
+            slotTiming: slotTimingStr,
+            batch: batchId,
+            message: 'Internship Not Started',
+            detailStatus: 'Internship Not Started'
+          };
+        }
+      }
+    }
+
+    // 1b. Check if attendance access is unlocked
+    const attAccess = student.AttendanceAccess;
+    const isUnlocked = (attAccess !== false && attAccess !== 'FALSE' && String(attAccess).trim().toUpperCase() !== 'FALSE');
+    if (!isUnlocked) {
+      logDeviceEvent(deviceMac, 'RFID_Scan_Fail', `Student: ${studentName} (${regId}) - Attendance Access Locked`);
+      logDeniedAttendance(regId, studentName, 'Access Locked', deviceMac);
+      return { 
+        status: 'error', 
+        name: studentName, 
+        regId: regId,
+        college: collegeName,
+        slotTiming: slotTimingStr,
+        batch: batchId,
+        message: 'Access Locked: Contact Admin',
+        detailStatus: 'Access Locked'
       };
     }
 
@@ -19038,19 +19378,21 @@ function markRfidAttendance(rawUid, typeOverride = null, deviceMac = 'UNKNOWN') 
     const docs = [student.BonafideUrl, student.DeclarationUrl, student.CollegeIdUrl];
     const isDocsComplete = docs.every(d => d && String(d).trim() !== '');
     if (!isDocsComplete) {
+      logDeviceEvent(deviceMac, 'RFID_Scan_Fail', `Student: ${studentName} (${regId}) - Docs Pending`);
+      logDeniedAttendance(regId, studentName, 'Documents Pending', deviceMac);
       return { 
         status: 'error', 
-        name: 'DOCS_PENDING', 
-        message: 'Documents Pending: Upload Docs' 
+        name: studentName, 
+        regId: regId,
+        college: collegeName,
+        slotTiming: slotTimingStr,
+        batch: batchId,
+        message: 'Documents Pending: Upload Docs',
+        detailStatus: 'Docs Pending'
       };
     }
 
     const current = getCurrentStudentStatus(regId);
-
-    const zone = Session.getScriptTimeZone() || 'Asia/Kolkata';
-    const now = new Date();
-    const nowStr = Utilities.formatDate(now, zone, "hh:mm a");
-    const today = getTodayStr();
 
     // Determine action: checkin, checkout
     let action = typeOverride;
@@ -19060,12 +19402,21 @@ function markRfidAttendance(rawUid, typeOverride = null, deviceMac = 'UNKNOWN') 
       } else if (!current.record.OutTime) {
         action = 'checkout';
       } else {
-        return { status: 'error', message: 'Already Done Today' };
+        logDeviceEvent(deviceMac, 'RFID_Scan_Fail', `Student: ${studentName} (${regId}) - Already Done Today`);
+        logDeniedAttendance(regId, studentName, 'Already Done Today (Both Scans)', deviceMac);
+        return { 
+          status: 'error', 
+          name: studentName,
+          regId: regId,
+          college: collegeName,
+          slotTiming: slotTimingStr,
+          batch: batchId,
+          message: 'Already Done Today',
+          detailStatus: 'Already Done Today'
+        };
       }
     }
 
-    const batchId = student.Batch || '';
-    const slot = getSlotTiming(batchId, today, regId);
     const nowMins = timeToMinutes(nowStr);
     const slotStartMins = timeToMinutes(slot.start);
     const slotEndMins = timeToMinutes(slot.end);
@@ -19075,20 +19426,70 @@ function markRfidAttendance(rawUid, typeOverride = null, deviceMac = 'UNKNOWN') 
 
     if (action === 'checkin') {
       if (current.record && current.record.InTime) {
-        return { status: 'success', message: student.FirstName + ': Already IN' };
+        const src = String(current.record.checkin_source || '').toUpperCase();
+        let alreadyMsg = 'Already checked in';
+        if (src === 'WEB') alreadyMsg = 'Already Web Checkin';
+        else if (src === 'RFID') alreadyMsg = 'Already RFID Checkin';
+        else if (src === 'ADMIN_APPROVAL') alreadyMsg = 'Already Approved Checkin';
+
+        logDeviceEvent(deviceMac, 'RFID_CheckIn_Fail', `Student: ${studentName} (${regId}) - Already checked in`);
+        logDeniedAttendance(regId, studentName, alreadyMsg, deviceMac);
+        return { 
+          status: 'error', 
+          name: studentName,
+          regId: regId,
+          college: collegeName,
+          slotTiming: slotTimingStr,
+          batch: batchId,
+          message: alreadyMsg,
+          detailStatus: alreadyMsg
+        };
       }
 
       // Checkin limits
       if (nowMins > (slotStartMins + checkinWindow)) {
-        return { status: 'error', message: 'Slot Timing Over' };
+        logDeviceEvent(deviceMac, 'RFID_CheckIn_Fail', `Student: ${studentName} (${regId}) - Late check-in`);
+        logDeniedAttendance(regId, studentName, 'Late Arrival: Slot Over', deviceMac);
+        return { 
+          status: 'error', 
+          name: studentName, 
+          regId: regId,
+          college: collegeName,
+          slotTiming: slotTimingStr,
+          batch: batchId,
+          message: 'Late Arrival: Slot Over',
+          detailStatus: 'Late Arrival'
+        };
       }
       if (nowMins < (slotStartMins - checkinWindow)) {
-        return { status: 'error', message: 'Too Early' };
+        logDeviceEvent(deviceMac, 'RFID_CheckIn_Fail', `Student: ${studentName} (${regId}) - Early check-in`);
+        logDeniedAttendance(regId, studentName, 'Early Arrival: Too Early', deviceMac);
+        return { 
+          status: 'error', 
+          name: studentName, 
+          regId: regId,
+          college: collegeName,
+          slotTiming: slotTimingStr,
+          batch: batchId,
+          message: 'Early Arrival: Too Early',
+          detailStatus: 'Early Arrival'
+        };
       }
 
       // Validate Slot Mode
       if (slot.mode === 'manual_only' || slot.mode === 'disabled') {
-        return { status: 'error', message: 'Use Web App' };
+        logDeviceEvent(deviceMac, 'RFID_CheckIn_Fail', `Student: ${studentName} (${regId}) - RFID disabled for slot`);
+        logDeniedAttendance(regId, studentName, 'RFID Disabled for Slot', deviceMac);
+        return { 
+          status: 'error', 
+          name: studentName, 
+          regId: regId,
+          college: collegeName,
+          slotTiming: slotTimingStr,
+          batch: batchId,
+          message: 'Use Web App',
+          detailStatus: 'RFID Disabled'
+        };
       }
 
       // Determine late status
@@ -19108,7 +19509,7 @@ function markRfidAttendance(rawUid, typeOverride = null, deviceMac = 'UNKNOWN') 
       appendObjectToSheet(sheet, {
         AttendanceID: "ATT_" + Date.now(),
         StudentRegistrationID: regId,
-        StudentName: `${student.FirstName} ${student.LastName}`,
+        StudentName: studentName,
         Date: today,
         Status: attendanceStatus,
         InTime: nowStr,
@@ -19119,27 +19520,62 @@ function markRfidAttendance(rawUid, typeOverride = null, deviceMac = 'UNKNOWN') 
         Timestamp: new Date().toISOString()
       });
       
+      logDeviceEvent(deviceMac, 'RFID_CheckIn', `Student: ${studentName} (${regId}) - Checked In (${msg})`);
+
       return { 
         status: 'success', 
-        name: `${student.FirstName} ${student.LastName}`,
+        name: studentName,
         regId: regId,
-        slotTiming: `${slot.start} - ${slot.end}`,
+        college: collegeName,
+        slotTiming: slotTimingStr,
+        batch: batchId,
         time: nowStr,
         detailStatus: attendanceStatus,
-        message: student.FirstName + ': ' + msg 
+        message: (student.FirstName || '') + ': ' + msg 
       };
 
     } else if (action === 'checkout') {
       if (!current.record || !current.record.InTime) {
-        return { status: 'error', message: 'Not Checked-In' };
+        logDeviceEvent(deviceMac, 'RFID_CheckOut_Fail', `Student: ${studentName} (${regId}) - Check-out without check-in`);
+        return { 
+          status: 'error', 
+          name: studentName, 
+          regId: regId,
+          college: collegeName,
+          slotTiming: slotTimingStr,
+          batch: batchId,
+          message: 'Not Checked-In',
+          detailStatus: 'Not Checked-In'
+        };
       }
       if (current.record.OutTime) {
-        return { status: 'success', message: student.FirstName + ': Already OUT' };
+        logDeviceEvent(deviceMac, 'RFID_CheckOut_Fail', `Student: ${studentName} (${regId}) - Already checked out`);
+        return { 
+          status: 'error', 
+          name: studentName, 
+          regId: regId,
+          college: collegeName,
+          slotTiming: slotTimingStr,
+          batch: batchId,
+          message: 'Already Checked-Out',
+          detailStatus: 'Already Checked-Out'
+        };
       }
 
       // Validate Slot Mode
       if (slot.mode === 'manual_only' || slot.mode === 'disabled') {
-        return { status: 'error', message: 'Use Web App' };
+        logDeviceEvent(deviceMac, 'RFID_CheckOut_Fail', `Student: ${studentName} (${regId}) - RFID disabled for slot`);
+        logDeniedAttendance(regId, studentName, 'RFID Disabled for Slot (Checkout)', deviceMac);
+        return { 
+          status: 'error', 
+          name: studentName, 
+          regId: regId,
+          college: collegeName,
+          slotTiming: slotTimingStr,
+          batch: batchId,
+          message: 'Use Web App',
+          detailStatus: 'RFID Disabled'
+        };
       }
 
       const earlyMins = slotEndMins - checkoutWindow;
@@ -19147,23 +19583,38 @@ function markRfidAttendance(rawUid, typeOverride = null, deviceMac = 'UNKNOWN') 
       if (nowMins < earlyMins) {
         // Log an Early Exit request automatically for audit
         try { submitAttendanceRequest(regId, "EARLY_EXIT", "RFID Early Checkout Auto-Logged"); } catch (e) { }
-        return { status: 'error', message: 'Early - Wait Admin' };
+        logDeviceEvent(deviceMac, 'RFID_CheckOut_Fail', `Student: ${studentName} (${regId}) - Early checkout attempt`);
+        logDeniedAttendance(regId, studentName, 'Early Checkout: Wait for Slot End', deviceMac);
+        return { 
+          status: 'error', 
+          name: studentName, 
+          regId: regId,
+          college: collegeName,
+          slotTiming: slotTimingStr,
+          batch: batchId,
+          message: 'Early - Wait Admin',
+          detailStatus: 'Early Checkout'
+        };
       }
 
       const sheet = getSheet(SHEET_NAMES.ATTENDANCE);
       updateObjectInSheet(sheet, "AttendanceID", current.record.AttendanceID, { OutTime: nowStr });
       
+      logDeviceEvent(deviceMac, 'RFID_CheckOut', `Student: ${studentName} (${regId}) - Checked Out`);
+
       return { 
         status: 'success', 
-        name: `${student.FirstName} ${student.LastName}`,
+        name: studentName,
         regId: regId,
-        slotTiming: `${slot.start} - ${slot.end}`,
+        college: collegeName,
+        slotTiming: slotTimingStr,
+        batch: batchId,
         time: nowStr,
         detailStatus: 'Checked Out',
-        message: student.FirstName + ': Checked Out' 
+        message: (student.FirstName || '') + ': Checked Out' 
       };
     } else {
-      return { status: 'error', message: 'Unknown Action: ' + action };
+      return { status: 'error', name: studentName, regId: regId, college: collegeName, slotTiming: slotTimingStr, batch: batchId, message: 'Unknown Action: ' + action, detailStatus: 'Unknown Action' };
     }
 
   } catch (e) {

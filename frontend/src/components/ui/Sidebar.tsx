@@ -140,6 +140,13 @@ export function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose, hidden
                 }
                 // Hide student portal for administrators/non-students
                 if (i.to === '/internship-student') return false;
+                
+                // Hide Remote Desktop entirely on web browser, only show in desktop app
+                if (i.to === '/remote-desktop') {
+                  const isDesktop = !!(window as any).gsvDesktop;
+                  if (!isDesktop) return false;
+                }
+                
                 return true;
               })
               .map(item => {

@@ -1,4 +1,9 @@
 import 'dart:async';
+import 'dart:collection';
+import 'dart:ffi';
+import 'dart:io';
+import 'package:ffi/ffi.dart';
+import 'package:win32/win32.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -52,6 +57,122 @@ class _MainScreenState extends State<MainScreen> {
   bool _isFirstLoad = true;
   Timer? _splashTimeoutTimer;
   PullToRefreshController? _pullToRefreshController;
+
+  void _sendMouseInput(double fractionX, double fractionY, String action) {
+    if (!Platform.isWindows) return;
+    try {
+      final input = calloc<INPUT>();
+      input.ref.type = INPUT_KEYBOARD; // Will set to mouse right below
+
+      int dx = (fractionX * 65535).round();
+      int dy = (fractionY * 65535).round();
+      int flags = MOUSEEVENTF_ABSOLUTE;
+
+      if (action == 'move') {
+        flags |= MOUSEEVENTF_MOVE;
+      } else if (action == 'leftdown') {
+        flags |= MOUSEEVENTF_LEFTDOWN;
+      } else if (action == 'leftup') {
+        flags |= MOUSEEVENTF_LEFTUP;
+      } else if (action == 'rightdown') {
+        flags |= MOUSEEVENTF_RIGHTDOWN;
+      } else if (action == 'rightup') {
+        flags |= MOUSEEVENTF_RIGHTUP;
+      }
+
+      input.ref.type = INPUT_MOUSE;
+      input.ref.mi.dx = dx;
+      input.ref.mi.dy = dy;
+      input.ref.mi.mouseData = 0;
+      input.ref.mi.dwFlags = flags;
+      input.ref.mi.time = 0;
+      input.ref.mi.dwExtraInfo = 0;
+
+      SendInput(1, input, sizeOf<INPUT>());
+      free(input);
+    } catch (e) {
+      debugPrint('Error sending mouse input: $e');
+    }
+  }
+
+  void _sendKeyboardInput(String key) {
+    if (!Platform.isWindows) return;
+    try {
+      if (key.length == 1) {
+        final int codeUnit = key.codeUnitAt(0);
+        // Key down
+        final inputDown = calloc<INPUT>();
+        inputDown.ref.type = INPUT_KEYBOARD;
+        inputDown.ref.ki.wVk = 0;
+        inputDown.ref.ki.wScan = codeUnit;
+        inputDown.ref.ki.dwFlags = KEYEVENTF_UNICODE;
+        SendInput(1, inputDown, sizeOf<INPUT>());
+        free(inputDown);
+
+        // Key up
+        final inputUp = calloc<INPUT>();
+        inputUp.ref.type = INPUT_KEYBOARD;
+        inputUp.ref.ki.wVk = 0;
+        inputUp.ref.ki.wScan = codeUnit;
+        inputUp.ref.ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+        SendInput(1, inputUp, sizeOf<INPUT>());
+        free(inputUp);
+      } else {
+        int vk = 0;
+        switch (key) {
+          case 'Enter':
+            vk = VK_RETURN;
+            break;
+          case 'Backspace':
+            vk = VK_BACK;
+            break;
+          case 'Tab':
+            vk = VK_TAB;
+            break;
+          case 'Escape':
+            vk = VK_ESCAPE;
+            break;
+          case 'Delete':
+            vk = VK_DELETE;
+            break;
+          case 'ArrowUp':
+            vk = VK_UP;
+            break;
+          case 'ArrowDown':
+            vk = VK_DOWN;
+            break;
+          case 'ArrowLeft':
+            vk = VK_LEFT;
+            break;
+          case 'ArrowRight':
+            vk = VK_RIGHT;
+            break;
+        }
+
+        if (vk != 0) {
+          // Key down
+          final inputDown = calloc<INPUT>();
+          inputDown.ref.type = INPUT_KEYBOARD;
+          inputDown.ref.ki.wVk = vk;
+          inputDown.ref.ki.wScan = 0;
+          inputDown.ref.ki.dwFlags = 0;
+          SendInput(1, inputDown, sizeOf<INPUT>());
+          free(inputDown);
+
+          // Key up
+          final inputUp = calloc<INPUT>();
+          inputUp.ref.type = INPUT_KEYBOARD;
+          inputUp.ref.ki.wVk = vk;
+          inputUp.ref.ki.wScan = 0;
+          inputUp.ref.ki.dwFlags = KEYEVENTF_KEYUP;
+          SendInput(1, inputUp, sizeOf<INPUT>());
+          free(inputUp);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error sending keyboard input: $e');
+    }
+  }
 
   @override
   void initState() {
@@ -189,6 +310,16 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  bool _shouldOpenInternally(String url) {
+    final lowercaseUrl = url.toLowerCase();
+    return lowercaseUrl.contains('docs.google.com') ||
+        lowercaseUrl.contains('drive.google.com') ||
+        lowercaseUrl.contains('script.google.com') ||
+        lowercaseUrl.endsWith('.pdf') ||
+        lowercaseUrl.contains('.pdf?') ||
+        lowercaseUrl.contains('format=pdf');
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -214,16 +345,188 @@ class _MainScreenState extends State<MainScreen> {
                   useShouldOverrideUrlLoading: true,
                   mediaPlaybackRequiresUserGesture: false,
                   allowsInlineMediaPlayback: true,
-                  iframeAllow: "camera; microphone",
+                  iframeAllow: "camera; microphone; display-capture",
                   iframeAllowFullscreen: true,
                   javaScriptEnabled: true,
                   domStorageEnabled: true,
                   databaseEnabled: true,
                   useOnDownloadStart: true,
                   applicationNameForUserAgent: 'GSVOfficeApp',
+                  supportMultipleWindows: true,
                 ),
+                initialUserScripts: UnmodifiableListView<UserScript>([
+                  UserScript(
+                    source: """
+                      window.gsvDesktop = {
+                        isFlutterWrapper: true,
+                        remoteInput: function(data) {
+                          window.flutter_inappwebview.callHandler('remoteInput', data);
+                        },
+                        copyFileToClipboard: function(data) {
+                          return window.flutter_inappwebview.callHandler('copyFileToClipboard', data);
+                        },
+                        copyFolderToClipboard: function(data) {
+                          return window.flutter_inappwebview.callHandler('copyFolderToClipboard', data);
+                        }
+                      };
+                    """,
+                    injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+                  ),
+                ]),
                 onWebViewCreated: (controller) {
                   _webViewController = controller;
+                  
+                  controller.addJavaScriptHandler(
+                    handlerName: 'remoteInput',
+                    callback: (args) {
+                      if (args.isEmpty) return;
+                      final data = args[0] as Map<String, dynamic>;
+                      if (data['type'] == 'mouse') {
+                        final String action = data['action'];
+                        final double fracX = data['fractionX'] is int ? (data['fractionX'] as int).toDouble() : data['fractionX'];
+                        final double fracY = data['fractionY'] is int ? (data['fractionY'] as int).toDouble() : data['fractionY'];
+                        _sendMouseInput(fracX, fracY, action);
+                      } else if (data['type'] == 'key') {
+                        final String key = data['key'] as String;
+                        _sendKeyboardInput(key);
+                      }
+                    }
+                  );
+
+                  controller.addJavaScriptHandler(
+                    handlerName: 'copyFileToClipboard',
+                    callback: (args) async {
+                      if (args.isEmpty) return {'success': false, 'reason': 'No arguments'};
+                      try {
+                        final data = args[0] as Map<String, dynamic>;
+                        final fileUrl = data['fileUrl'] as String;
+                        final fileName = data['fileName'] as String;
+                        final token = data['token'] as String?;
+
+                        final tempDir = Directory('${Directory.systemTemp.path}\\GSVOfficeClipboard');
+                        if (!await tempDir.exists()) {
+                          await tempDir.create(recursive: true);
+                        }
+
+                        final destPath = '${tempDir.path}\\$fileName';
+                        
+                        // Download file
+                        final client = HttpClient();
+                        client.badCertificateCallback = (cert, host, port) => true;
+                        
+                        final request = await client.getUrl(Uri.parse(fileUrl));
+                        if (token != null && token.isNotEmpty) {
+                          request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+                        }
+                        
+                        final response = await request.close();
+                        if (response.statusCode != 200) {
+                          return {'success': false, 'reason': 'Server status code ${response.statusCode}'};
+                        }
+                        
+                        final file = File(destPath);
+                        final fileStream = file.openWrite();
+                        await response.pipe(fileStream);
+
+                        if (Platform.isWindows) {
+                          final escapedPath = destPath.replaceAll("'", "''");
+                          final result = await Process.run('powershell', [
+                            '-NoProfile',
+                            '-Command',
+                            'Set-Clipboard -Path \'$escapedPath\''
+                          ]);
+                          if (result.exitCode != 0) {
+                            return {'success': false, 'reason': 'PowerShell failed: ${result.stderr}'};
+                          }
+                        }
+
+                        return {'success': true, 'path': destPath};
+                      } catch (err) {
+                        return {'success': false, 'reason': err.toString()};
+                      }
+                    }
+                  );
+
+                  controller.addJavaScriptHandler(
+                    handlerName: 'copyFolderToClipboard',
+                    callback: (args) async {
+                      if (args.isEmpty) return {'success': false, 'reason': 'No arguments'};
+                      try {
+                        final data = args[0] as Map<String, dynamic>;
+                        final folderId = data['folderId'] as String;
+                        final folderName = data['folderName'] as String;
+                        final serverUrl = data['serverUrl'] as String;
+                        final token = data['token'] as String?;
+
+                        final tempDir = Directory('${Directory.systemTemp.path}\\GSVOfficeClipboard');
+                        if (!await tempDir.exists()) {
+                          await tempDir.create(recursive: true);
+                        }
+
+                        final destPath = '${tempDir.path}\\$folderName';
+                        final destDir = Directory(destPath);
+                        if (await destDir.exists()) {
+                          await destDir.delete(recursive: true);
+                        }
+
+                        final zipPath = '${tempDir.path}\\gsv_folder_$folderId.zip';
+                        final zipFile = File(zipPath);
+                        if (await zipFile.exists()) {
+                          await zipFile.delete();
+                        }
+
+                        // Download zip
+                        final client = HttpClient();
+                        client.badCertificateCallback = (cert, host, port) => true;
+                        
+                        final url = '$serverUrl/api/files/folders/$folderId/download';
+                        final request = await client.getUrl(Uri.parse(url));
+                        if (token != null && token.isNotEmpty) {
+                          request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+                        }
+                        
+                        final response = await request.close();
+                        if (response.statusCode != 200) {
+                          return {'success': false, 'reason': 'Server status code ${response.statusCode}'};
+                        }
+                        
+                        final fileStream = zipFile.openWrite();
+                        await response.pipe(fileStream);
+
+                        if (Platform.isWindows) {
+                          final escapedZipPath = zipPath.replaceAll("'", "''");
+                          final escapedTempDir = tempDir.path.replaceAll("'", "''");
+                          final unzipResult = await Process.run('powershell', [
+                            '-NoProfile',
+                            '-Command',
+                            'Expand-Archive -Path \'$escapedZipPath\' -DestinationPath \'$escapedTempDir\' -Force'
+                          ]);
+
+                          try {
+                            await zipFile.delete();
+                          } catch (e) {}
+
+                          if (unzipResult.exitCode != 0) {
+                            return {'success': false, 'reason': 'PowerShell unzip failed: ${unzipResult.stderr}'};
+                          }
+
+                          final escapedDestPath = destPath.replaceAll("'", "''");
+                          final result = await Process.run('powershell', [
+                            '-NoProfile',
+                            '-Command',
+                            'Set-Clipboard -Path \'$escapedDestPath\''
+                          ]);
+                          if (result.exitCode != 0) {
+                            return {'success': false, 'reason': 'PowerShell Set-Clipboard failed: ${result.stderr}'};
+                          }
+                        }
+
+                        return {'success': true, 'path': destPath};
+                      } catch (err) {
+                        return {'success': false, 'reason': err.toString()};
+                      }
+                    }
+                  );
                 },
                 onLoadStart: (controller, url) {
                   setState(() {
@@ -263,16 +566,34 @@ class _MainScreenState extends State<MainScreen> {
                 },
                 onDownloadStartRequest: (controller, downloadStartRequest) async {
                   final url = downloadStartRequest.url.toString();
-                  if (await canLaunchUrl(Uri.parse(url))) {
-                    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Cannot download from $url')),
+                  if (_shouldOpenInternally(url)) {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => InternalWebViewScreen(url: url),
+                      ),
                     );
+                  } else {
+                    if (await canLaunchUrl(Uri.parse(url))) {
+                      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Cannot download from $url')),
+                      );
+                    }
                   }
                 },
                 shouldOverrideUrlLoading: (controller, navigationAction) async {
                   final url = navigationAction.request.url.toString();
+                  // Check if it should be opened internally
+                  if (_shouldOpenInternally(url)) {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => InternalWebViewScreen(url: url),
+                      ),
+                    );
+                    return NavigationActionPolicy.CANCEL;
+                  }
+
                   // Let the webview handle local domain requests, but open external links in system browser
                   if (!url.contains(_serverUrl.replaceAll('http://', '').replaceAll('https://', '').split(':')[0])) {
                     if (await canLaunchUrl(Uri.parse(url))) {
@@ -281,6 +602,25 @@ class _MainScreenState extends State<MainScreen> {
                     }
                   }
                   return NavigationActionPolicy.ALLOW;
+                },
+                onCreateWindow: (controller, createWindowAction) async {
+                  final requestUrl = createWindowAction.request.url;
+                  if (requestUrl != null) {
+                    final urlStr = requestUrl.toString();
+                    if (_shouldOpenInternally(urlStr)) {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => InternalWebViewScreen(url: urlStr),
+                        ),
+                      );
+                    } else {
+                      if (await canLaunchUrl(requestUrl)) {
+                        await launchUrl(requestUrl, mode: LaunchMode.externalApplication);
+                      }
+                    }
+                    return true;
+                  }
+                  return false;
                 },
               ),
 
@@ -422,6 +762,132 @@ class _MainScreenState extends State<MainScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class InternalWebViewScreen extends StatefulWidget {
+  final String url;
+  const InternalWebViewScreen({Key? key, required this.url}) : super(key: key);
+
+  @override
+  State<InternalWebViewScreen> createState() => _InternalWebViewScreenState();
+}
+
+class _InternalWebViewScreenState extends State<InternalWebViewScreen> {
+  InAppWebViewController? _webViewController;
+  bool _isLoading = true;
+  double _loadProgress = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          widget.url,
+          style: const TextStyle(fontSize: 13, overflow: TextOverflow.ellipsis),
+        ),
+        backgroundColor: const Color(0xFF1E293B),
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => _webViewController?.reload(),
+          ),
+          IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () async {
+              if (await _webViewController?.canGoBack() ?? false) {
+                _webViewController?.goBack();
+              }
+            },
+          ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          InAppWebView(
+            initialUrlRequest: URLRequest(url: WebUri(widget.url)),
+            initialSettings: InAppWebViewSettings(
+              useShouldOverrideUrlLoading: true,
+              mediaPlaybackRequiresUserGesture: false,
+              allowsInlineMediaPlayback: true,
+              javaScriptEnabled: true,
+              domStorageEnabled: true,
+              databaseEnabled: true,
+              useOnDownloadStart: true,
+              supportMultipleWindows: true,
+            ),
+            onWebViewCreated: (controller) {
+              _webViewController = controller;
+            },
+            onLoadStart: (controller, url) {
+              setState(() {
+                _isLoading = true;
+              });
+            },
+            onLoadStop: (controller, url) {
+              setState(() {
+                _isLoading = false;
+              });
+            },
+            onProgressChanged: (controller, progress) {
+              setState(() {
+                _loadProgress = progress / 100;
+                if (progress >= 100) {
+                  _isLoading = false;
+                }
+              });
+            },
+            onDownloadStartRequest: (controller, downloadStartRequest) async {
+              final url = downloadStartRequest.url.toString();
+              if (await canLaunchUrl(Uri.parse(url))) {
+                await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+              }
+            },
+            shouldOverrideUrlLoading: (controller, navigationAction) async {
+              final url = navigationAction.request.url.toString();
+              final lowercaseUrl = url.toLowerCase();
+              final isGoogleOrPdf = lowercaseUrl.contains('docs.google.com') ||
+                  lowercaseUrl.contains('drive.google.com') ||
+                  lowercaseUrl.contains('script.google.com') ||
+                  lowercaseUrl.endsWith('.pdf') ||
+                  lowercaseUrl.contains('.pdf?') ||
+                  lowercaseUrl.contains('format=pdf');
+              if (!isGoogleOrPdf) {
+                if (await canLaunchUrl(Uri.parse(url))) {
+                  await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+                  return NavigationActionPolicy.CANCEL;
+                }
+              }
+              return NavigationActionPolicy.ALLOW;
+            },
+            onCreateWindow: (controller, createWindowAction) async {
+              final requestUrl = createWindowAction.request.url;
+              if (requestUrl != null) {
+                controller.loadUrl(urlRequest: URLRequest(url: requestUrl));
+                return true;
+              }
+              return false;
+            },
+          ),
+          if (_isLoading)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 3,
+              child: LinearProgressIndicator(
+                value: _loadProgress > 0 ? _loadProgress : null,
+                backgroundColor: Colors.transparent,
+                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
+              ),
+            ),
+        ],
       ),
     );
   }

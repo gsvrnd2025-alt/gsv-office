@@ -10946,10 +10946,13 @@
         }
 
         function handleNotificationClick(notifId, type, batchId) {
+            const regId = loggedInStudentData.registrationId || loggedInStudentData.RegistrationID;
+            const notif = (studentData.notifications || []).find(n => (n.id || n.ID || n.NotificationID) === notifId);
+
             // Mark as read automatically on click
             google.script.run.withSuccessHandler(() => {
                 refreshNotifications();
-            }).markNotificationRead(notifId);
+            }).markNotificationRead(notifId, regId);
 
             // If it's a chat notification, open the respective chat
             if (type === 'chat') {
@@ -10958,28 +10961,40 @@
                 } else {
                     openFloatingChat('admin', 'Admin');
                 }
+            } else if (notif) {
+                // If it is a standard notification, show its details in a modal
+                showSuccessModal(`
+                    <div style="text-align:left;">
+                        <h5 class="fw-bold text-primary">${notif.title || 'Notification'}</h5>
+                        <p class="text-muted small">Received: ${formatTime(notif.time)}</p>
+                        <hr>
+                        <div style="white-space: pre-wrap; font-size: 0.95rem;">${notif.message}</div>
+                    </div>
+                `);
             }
         }
 
         function markNotificationRead(id, event) {
             if (event) event.stopPropagation();
+            const regId = loggedInStudentData.registrationId || loggedInStudentData.RegistrationID;
             google.script.run.withSuccessHandler(() => {
                 refreshNotifications();
-            }).markNotificationRead(id);
+            }).markNotificationRead(id, regId);
         }
 
         function markAllNotificationsRead() {
             google.script.run.withSuccessHandler(() => {
                 refreshNotifications();
-            }).markAllStudentNotificationsRead(loggedInStudentData.registrationId);
+            }).markAllStudentNotificationsRead(loggedInStudentData.registrationId || loggedInStudentData.RegistrationID);
         }
 
         async function deleteNotificationById(id, event) {
             if (event) event.stopPropagation();
             if (!(await showConfirmModal('Are you sure you want to delete this notification?'))) return;
+            const regId = loggedInStudentData.registrationId || loggedInStudentData.RegistrationID;
             google.script.run.withSuccessHandler(() => {
                 refreshNotifications();
-            }).deleteNotification(id);
+            }).deleteNotification(id, regId);
         }
 
         function studentLogout() {

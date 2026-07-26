@@ -365,8 +365,8 @@ export class FilesService implements OnModuleInit {
       }
     }
 
-    // 3. Batch insert in chunks of 50
-    const CHUNK_SIZE = 50;
+    // 3. Batch insert in chunks of 500
+    const CHUNK_SIZE = 500;
     for (let i = 0; i < filesToInsert.length; i += CHUNK_SIZE) {
       const chunk = filesToInsert.slice(i, i + CHUNK_SIZE);
       const values = [];

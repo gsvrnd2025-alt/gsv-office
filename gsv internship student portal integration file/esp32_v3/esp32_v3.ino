@@ -88,15 +88,19 @@ String uiMessage = "";
 
 enum ResultStep {
   RES_NONE,
+  RES_DENIED_LABEL,   // ⭐️ NEW: Show "DENIED" keyword first
   RES_DENIED_1,
   RES_DENIED_2,
   RES_DENIED_3,
   RES_NAME,
   RES_REG,
   RES_COLLEGE,
+  RES_BATCH,
   RES_SLOT,
+  RES_PUNCH_TIME,
   RES_STATUS_SUCCESS,
-  RES_STATUS_DETAIL
+  RES_STATUS_DETAIL,
+  RES_REASON_SHOW     // ⭐️ NEW: Show denial reason for 2s at end
 };
 
 ResultStep resultStep = RES_NONE;
@@ -179,6 +183,24 @@ unsigned long lastRfidPacketTime = 0;
 String lastRawUid = "";
 bool cardInRange = false;
 
+// ==================== LED BLINK ENGINE ====================
+// LED modes:
+//   IDLE        → RED steady (ready to scan) or RED steady (processing)
+//   SUCCESS     → GREEN blinks fast for ~2s, then returns to IDLE (RED steady)
+//   DENIED      → RED blinks 4 times fast, then returns to IDLE (RED steady)
+enum LedMode {
+  LED_MODE_IDLE,           // RED steady (scan ready / processing)
+  LED_MODE_RESULT_SUCCESS, // GREEN blinks fast, RED off
+  LED_MODE_RESULT_DENIED   // RED blinks 4x fast then IDLE
+};
+volatile LedMode currentLedMode = LED_MODE_IDLE;
+unsigned long ledModeStartTime = 0;
+const unsigned long LED_RESULT_DURATION_MS = 2000; // How long result blink lasts
+unsigned long lastLedBlinkTime = 0;
+bool ledBlinkState = false;
+int deniedBlinkCount = 0;          // ⭐️ Count RED blinks for denied (max 4)
+const int DENIED_BLINK_MAX = 4;    // ⭐️ 4 blinks then return to steady RED
+
 // 🔧 ADDED MISSING GLOBALS
 volatile bool cardProcessing = false;
 volatile bool lastResponseSuccess = false; // ⭐️ Track cloud response outcome
@@ -188,6 +210,7 @@ String currentName = "";
 String currentRegId = ""; // ⭐️ ADDED: Registration ID
 String currentCollege = "";
 String currentSlotTiming = "";
+String currentBatch = "";
 String currentPunchTime = "";
 String currentDetailStatus = "";
 int infoCycle = 0;        // 0: None, 1: MAC, 2: IP
@@ -250,6 +273,9 @@ void updateUIEngine();
 void scrollRow2(String text);
 void setCustomIcons();
 void beep(int freq, int duration);
+void beepSuccess();
+void beepDenied();
+void triggerResultLed(bool success);
 String formatCardNumber(String hexUid);
 void processCard(String uid);
 void processCardTask(void *parameter);
@@ -263,6 +289,7 @@ void updateLcdConnectionIcons();
 void showBootError(String errorMsg);
 void updateRTC();
 String getRTC();
+String getRTCDate();
 void setRtcTime(String timeStr);
 void logDeviceEvent(String event, String details);
 void fetchSwitchStatus();
@@ -769,6 +796,22 @@ String getRTC() {
   return String(t);
 }
 
+String getRTCDate() {
+  if (!hasInternet)
+    return "00/00";
+  if (!timeSynced) {
+    configTime(19800, 0, "pool.ntp.org", "time.google.com");
+    timeSynced = true;
+    return "00/00";
+  }
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo, 100))
+    return "00/00";
+  char d[6];
+  strftime(d, sizeof(d), "%d/%m", &timeinfo);
+  return String(d);
+}
+
 String cleanLCD(String s) {
   String res = "";
   for (int i = 0; i < s.length(); i++) {
@@ -865,15 +908,54 @@ void updateUIEngine() {
   if (!lcdMutex)
     return;
 
-  // LED Status Handling (per spec: GREEN=ready, RED=error/processing)
-  bool isReady = (uiState == UI_HOME && currentSyncStatus == SYNC_OK &&
-                  !cardProcessing && !scanLocked);
-  if (isReady) {
-    digitalWrite(LED_GREEN, HIGH);
-    digitalWrite(LED_PIN, LOW);
+  // ==================== NON-BLOCKING LED BLINK ENGINE ====================
+  unsigned long nowLed = millis();
+
+  if (currentLedMode == LED_MODE_RESULT_SUCCESS) {
+    // ⭐️ GREEN blinks fast every 150ms for LED_RESULT_DURATION_MS, then back to IDLE (steady GREEN)
+    if (nowLed - ledModeStartTime > LED_RESULT_DURATION_MS) {
+      currentLedMode = LED_MODE_IDLE;
+      digitalWrite(LED_GREEN, HIGH); // steady GREEN
+      digitalWrite(LED_PIN, LOW);   // RED off
+      lastLedBlinkTime = nowLed;
+    } else if (nowLed - lastLedBlinkTime >= 150) {
+      lastLedBlinkTime = nowLed;
+      ledBlinkState = !ledBlinkState;
+      digitalWrite(LED_GREEN, ledBlinkState ? HIGH : LOW);
+      digitalWrite(LED_PIN, LOW); // RED off during success blink
+    }
+  } else if (currentLedMode == LED_MODE_RESULT_DENIED) {
+    // ⭐️ RED blinks exactly 4 times (200ms on / 200ms off), then back to steady GREEN
+    if (nowLed - lastLedBlinkTime >= 200) {
+      lastLedBlinkTime = nowLed;
+      ledBlinkState = !ledBlinkState;
+      if (ledBlinkState) {
+        digitalWrite(LED_PIN, HIGH);
+        digitalWrite(LED_GREEN, LOW);
+      } else {
+        digitalWrite(LED_PIN, LOW);
+        // Count falling edges as completed blinks
+        deniedBlinkCount++;
+        if (deniedBlinkCount >= DENIED_BLINK_MAX) {
+          currentLedMode = LED_MODE_IDLE;
+          deniedBlinkCount = 0;
+          ledBlinkState = false;
+          digitalWrite(LED_GREEN, HIGH); // steady GREEN again
+          digitalWrite(LED_PIN, LOW);   // RED off
+        }
+      }
+    }
   } else {
-    digitalWrite(LED_GREEN, LOW);
-    digitalWrite(LED_PIN, HIGH);
+    // IDLE mode:
+    // If card is processing or scan is locked, only RED light is ON (stable RED, GREEN goes off).
+    // Else, GREEN is ON (stable GREEN, ready to scan).
+    if (cardProcessing || scanLocked) {
+      digitalWrite(LED_PIN, HIGH);
+      digitalWrite(LED_GREEN, LOW);
+    } else {
+      digitalWrite(LED_GREEN, HIGH);
+      digitalWrite(LED_PIN, LOW);
+    }
   }
 
   // --- BOOT SCREENS (can use clear) ---
@@ -962,121 +1044,137 @@ void updateUIEngine() {
     String displayMsg = "";
     unsigned long elapsed = millis() - resultTimer;
 
-    if (resultStep == RES_DENIED_1 || resultStep == RES_DENIED_2 || resultStep == RES_DENIED_3) {
-      if (currentMode == MODE_VERIFY) {
-        // VRF Mode Denied Path
+    // ── VRF MODE: separate short flow ──
+    if (currentMode == MODE_VERIFY) {
+      if (resultStep == RES_DENIED_LABEL || resultStep == RES_DENIED_1 || resultStep == RES_DENIED_2 || resultStep == RES_DENIED_3) {
         if (resultStep == RES_DENIED_1) {
-          displayMsg = lastUserName; // Shows e.g. "Record Not Found"
-          if (elapsed > 2000) {
-            resultStep = RES_DENIED_2;
-            resultTimer = millis();
-          }
+          displayMsg = lastUserName;
+          if (elapsed > 2000) { resultStep = RES_DENIED_2; resultTimer = millis(); }
         } else if (resultStep == RES_DENIED_2) {
-          displayMsg = lastDetailedStatus; // Shows e.g. "Add to Inventory"
+          displayMsg = lastDetailedStatus;
           if (elapsed > 2000) {
-            if (lastDetailedStatus == "Card Available") {
-              resultStep = RES_DENIED_3;
-              resultTimer = millis();
-            } else {
-              uiState = UI_HOME;
-              resultStep = RES_NONE;
-            }
+            if (lastDetailedStatus == "Card Available") { resultStep = RES_DENIED_3; resultTimer = millis(); }
+            else { uiState = UI_HOME; resultStep = RES_NONE; }
           }
         } else if (resultStep == RES_DENIED_3) {
-          displayMsg = lastStatusMsg; // Shows e.g. "Not Assigned"
-          if (elapsed > 2000) {
-            uiState = UI_HOME;
-            resultStep = RES_NONE;
-          }
+          displayMsg = lastStatusMsg;
+          if (elapsed > 2000) { uiState = UI_HOME; resultStep = RES_NONE; }
         }
       } else {
-        // Standard Attendance Mode Denied Path
-        if (resultStep == RES_DENIED_1) {
-          displayMsg = "Denied";
-          if (elapsed > 2000) {
-            resultStep = RES_DENIED_2;
-            resultTimer = millis();
-          }
-        } else if (resultStep == RES_DENIED_2) {
-          displayMsg = lastStatusMsg; // Shows the reason, e.g. "Portal Inactive: Please Activate" or "Slot Timing Over"
-          if (elapsed > 2000) {
-            resultStep = RES_DENIED_3;
-            resultTimer = millis();
-          }
-        } else if (resultStep == RES_DENIED_3) {
-          displayMsg = "Contact Admin";
-          if (elapsed > 2000) {
-            uiState = UI_HOME;
-            resultStep = RES_NONE;
-          }
-        }
-      }
-    } else {
-      // Success Path
-      if (currentMode == MODE_VERIFY) {
-        // VRF Verification Mode Success Flow:
-        // Name -> RID -> College -> Slot Timing
         if (resultStep == RES_NAME) {
           displayMsg = currentName;
-          if (elapsed > 2000) {
-            resultStep = RES_REG;
-            resultTimer = millis();
-          }
+          if (elapsed > 2000) { resultStep = RES_REG; resultTimer = millis(); }
         } else if (resultStep == RES_REG) {
           displayMsg = currentRegId;
-          if (elapsed > 2000) {
-            resultStep = RES_COLLEGE;
-            resultTimer = millis();
-          }
+          if (elapsed > 2000) { resultStep = RES_COLLEGE; resultTimer = millis(); }
         } else if (resultStep == RES_COLLEGE) {
           displayMsg = currentCollege;
-          if (elapsed > 2000) {
-            resultStep = RES_SLOT;
-            resultTimer = millis();
-          }
+          if (elapsed > 3000) { resultStep = RES_BATCH; resultTimer = millis(); }
+        } else if (resultStep == RES_BATCH) {
+          displayMsg = "Batch: " + currentBatch;
+          if (elapsed > 2000) { resultStep = RES_SLOT; resultTimer = millis(); }
         } else if (resultStep == RES_SLOT) {
-          displayMsg = currentSlotTiming;
-          if (elapsed > 2000) {
-            uiState = UI_HOME;
-            resultStep = RES_NONE;
-          }
+          displayMsg = "Start: " + currentSlotTiming;
+          if (elapsed > 2000) { uiState = UI_HOME; resultStep = RES_NONE; }
         }
-      } else {
-        // Standard Attendance Mode Success Flow:
-        // Name -> RID -> Slot Timing -> Success - [Time] -> [Detail Status] (Present/Late/Checked Out/etc.)
-        if (resultStep == RES_NAME) {
-          displayMsg = currentName;
-          if (elapsed > 2000) {
-            resultStep = RES_REG;
-            resultTimer = millis();
-          }
-        } else if (resultStep == RES_REG) {
-          displayMsg = currentRegId;
-          if (elapsed > 2000) {
-            resultStep = RES_SLOT;
-            resultTimer = millis();
-          }
-        } else if (resultStep == RES_SLOT) {
-          displayMsg = currentSlotTiming;
-          if (elapsed > 2000) {
-            resultStep = RES_STATUS_SUCCESS;
-            resultTimer = millis();
-          }
-        } else if (resultStep == RES_STATUS_SUCCESS) {
-          displayMsg = "Success";
-          if (currentPunchTime.length() > 0) {
-            displayMsg += " - " + currentPunchTime;
-          }
-          if (elapsed > 2000) {
-            resultStep = RES_STATUS_DETAIL;
-            resultTimer = millis();
-          }
-        } else if (resultStep == RES_STATUS_DETAIL) {
-          displayMsg = currentDetailStatus;
-          if (elapsed > 2000) {
-            uiState = UI_HOME;
-            resultStep = RES_NONE;
-          }
+      }
+
+    // ── STANDARD ATTENDANCE MODE ──
+    } else {
+
+      // ── DENIED path with NO student info (unregistered card, system error) ──
+      if (resultStep == RES_DENIED_LABEL) {
+        // ⭐️ Step 0: Show "DENIED" keyword first (2s)
+        displayMsg = ">> DENIED <<";
+        if (elapsed > 2000) {
+          resultStep = RES_DENIED_1;
+          resultTimer = millis();
+        }
+
+      } else if (resultStep == RES_DENIED_1) {
+        // Step 1: Show status/reason message (3s for reason)
+        displayMsg = lastStatusMsg.length() > 0 ? lastStatusMsg : "Access Denied";
+        if (elapsed > 3000) {
+          resultStep = RES_DENIED_2;
+          resultTimer = millis();
+        }
+
+      } else if (resultStep == RES_DENIED_2) {
+        // Step 2: Show detailed message (2s)
+        displayMsg = lastDetailedStatus.length() > 0 ? lastDetailedStatus : "Card Not Found";
+        if (elapsed > 2000) {
+          uiState = UI_HOME;
+          resultStep = RES_NONE;
+        }
+
+      // ── SUCCESS or DENIED-with-student-info: Full sequence ──
+      // ⭐️ FULL SEQUENCE:
+      // DENIED/SUCCESS label (2s) → Reason (3s) → Name (3s) → RegID (2s) 
+      // → College (2s) → Batch (2s) → Slot Time (2s) → Scan Time (2s) → UI_HOME
+      } else if (resultStep == RES_STATUS_SUCCESS) {
+        // ⭐️ Show SUCCESS or DENIED keyword first in this path (2s)
+        displayMsg = lastResponseSuccess ? ">> SUCCESS <<" : ">> DENIED <<";
+        if (elapsed > 2000) {
+          resultStep = RES_STATUS_DETAIL; // Go to Reason next
+          resultTimer = millis();
+        }
+
+      } else if (resultStep == RES_STATUS_DETAIL) {
+        // ⭐️ Show the denial/success reason - same as dashboard (3s for reason)
+        String reason = lastResponseSuccess ? currentDetailStatus : lastStatusMsg;
+        displayMsg = reason.length() > 0 ? reason : (lastResponseSuccess ? "Marked Present" : "Access Denied");
+        if (elapsed > 3000) {
+          resultStep = RES_NAME; // Go to Student Name next
+          resultTimer = millis();
+        }
+
+      } else if (resultStep == RES_NAME) {
+        // Show student name (2s for name)
+        displayMsg = currentName;
+        if (elapsed > 2000) {
+          resultStep = RES_REG;
+          resultTimer = millis();
+        }
+
+      } else if (resultStep == RES_REG) {
+        // Show Registration ID (2s)
+        displayMsg = currentRegId;
+        if (elapsed > 2000) {
+          resultStep = RES_COLLEGE;
+          resultTimer = millis();
+        }
+
+      } else if (resultStep == RES_COLLEGE) {
+        // Show College (2s)
+        displayMsg = currentCollege;
+        if (elapsed > 2000) {
+          resultStep = RES_BATCH;
+          resultTimer = millis();
+        }
+
+      } else if (resultStep == RES_BATCH) {
+        // Show Batch (2s)
+        displayMsg = "Batch: " + currentBatch;
+        if (elapsed > 2000) {
+          resultStep = RES_SLOT;
+          resultTimer = millis();
+        }
+
+      } else if (resultStep == RES_SLOT) {
+        // Show Slot (2s)
+        displayMsg = "Slot: " + currentSlotTiming;
+        if (elapsed > 2000) {
+          resultStep = RES_PUNCH_TIME;
+          resultTimer = millis();
+        }
+
+      } else if (resultStep == RES_PUNCH_TIME) {
+        // Show Punch Time (2s)
+        String scanTime = currentPunchTime.length() > 0 ? currentPunchTime : getRTC();
+        displayMsg = "Time: " + scanTime;
+        if (elapsed > 2000) {
+          uiState = UI_HOME;
+          resultStep = RES_NONE;
         }
       }
     }
@@ -1240,6 +1338,7 @@ void processCard(String uid) {
   currentRegId = "";
   currentCollege = "";
   currentSlotTiming = "";
+  currentBatch = "";
   currentPunchTime = "";
   currentDetailStatus = "";
   currentStep = STEP_CARD_NUM;
@@ -1276,7 +1375,16 @@ void processCardTask(void *parameter) {
     lastDetailedStatus = "WiFi Disconnected";
     lastStatusMsg = "WiFi Disconnected";
     currentName = "NO WIFI";
-    beep(400, 300);
+
+    lcdLock();
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("  >> DENIED <<  ");
+    lcdUnlock();
+
+    triggerResultLed(false);
+    beepDenied();
+
     uiState = UI_RESULT;
     resultStep = RES_DENIED_1;
     resultTimer = millis();
@@ -1290,7 +1398,16 @@ void processCardTask(void *parameter) {
     lastDetailedStatus = "Check Connection";
     lastStatusMsg = "Check Connection";
     currentName = "NO INTERNET";
-    beep(400, 300);
+
+    lcdLock();
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("  >> DENIED <<  ");
+    lcdUnlock();
+
+    triggerResultLed(false);
+    beepDenied();
+
     uiState = UI_RESULT;
     resultStep = RES_DENIED_1;
     resultTimer = millis();
@@ -1304,7 +1421,16 @@ void processCardTask(void *parameter) {
     lastDetailedStatus = "No Script ID";
     lastStatusMsg = "No Script ID";
     currentName = "CONFIG ERROR";
-    beep(400, 300);
+
+    lcdLock();
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("  >> DENIED <<  ");
+    lcdUnlock();
+
+    triggerResultLed(false);
+    beepDenied();
+
     uiState = UI_RESULT;
     resultStep = RES_DENIED_1;
     resultTimer = millis();
@@ -1319,7 +1445,16 @@ void processCardTask(void *parameter) {
     lastDetailedStatus = "Device Not Verified";
     lastStatusMsg = "Device Not Verified";
     currentName = "DATABASE ERROR";
-    beep(400, 300);
+
+    lcdLock();
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("  >> DENIED <<  ");
+    lcdUnlock();
+
+    triggerResultLed(false);
+    beepDenied();
+
     uiState = UI_RESULT;
     resultStep = RES_DENIED_1;
     resultTimer = millis();
@@ -1351,12 +1486,13 @@ void processCardTask(void *parameter) {
     // ⭐️ RETRY LOGIC: Google Apps Script TLS can fail transiently (HTTP -11)
     for (int attempt = 0; attempt < 3; attempt++) {
       if (http.begin(client, url)) {
-        http.setTimeout(8000);
+        http.setTimeout(15000); // Increased from 8s to 15s to handle Apps Script latencies
         code = http.GET();
         if (code == 200 || code == 302) {
           break; // Success
         }
         http.end();
+        client.stop(); // release SSL resources immediately
         webLog("Cloud: Attempt " + String(attempt + 1) + " failed (HTTP " +
                String(code) + "). Retrying...");
       }
@@ -1370,25 +1506,68 @@ void processCardTask(void *parameter) {
     if (code == 200 || code == 302) {
       String response = http.getString();
       http.end();
+      client.stop(); // release SSL resources immediately
       webLog("Cloud: HTTP " + String(code) + " OK");
       parseGoogleResponse(response);
 
-      // Route to correct UI result flow
+      // Check if student info is available (registered student denied/success)
+      bool hasStudentInfo = (currentRegId.length() > 0 && currentRegId != "N/A" &&
+                             currentName != "UNAUTHORIZED" && currentName != "BLOCKED" &&
+                             currentName != "DATABASE ERROR" && currentName != "REGISTRY ERROR" &&
+                             currentName != "DEVICE BLOCKED");
+
+      // 1. Immediately display the outcome on the LCD
+      lcdLock();
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print(lastResponseSuccess ? "  >> SUCCESS <<" : "  >> DENIED <<  ");
+      lcdUnlock();
+
+      // 2. Trigger LED result flash
+      triggerResultLed(lastResponseSuccess);
+
+      // 3. Trigger Beep (blocking)
+      if (lastResponseSuccess) {
+        beepSuccess();
+        delay(1000); // Hold success screen for extra 1s (total ~1.5s visibility)
+      } else {
+        beepDenied(); // Blocks for 3s (total 3s visibility during alarm)
+      }
+
+      // 4. Route to next step in UI result flow and start timer AFTER beep finishes
       uiState = UI_RESULT;
       resultTimer = millis();
+
       if (lastResponseSuccess) {
-        resultStep = RES_NAME;
+        // Success: skip outcome header (since we just showed it) and go straight to Reason (3s)
+        resultStep = RES_STATUS_DETAIL;
       } else {
-        resultStep = RES_DENIED_1;
+        if (hasStudentInfo) {
+          // Denied with student info: skip outcome header and go straight to Reason (3s)
+          resultStep = RES_STATUS_DETAIL;
+        } else {
+          // Denied no student info: skip outcome header and go straight to Reason (3s)
+          resultStep = RES_DENIED_1;
+        }
       }
     } else {
       http.end();
+      client.stop(); // release SSL resources immediately
       webLog("Cloud Error: HTTP " + String(code) + " after 3 attempts");
       lastUserName = "CLOUD ERROR";
       lastDetailedStatus = "Code: " + String(code);
       lastStatusMsg = "HTTP " + String(code);
       currentName = "CLOUD ERROR";
-      beep(400, 600);
+
+      lcdLock();
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("  >> DENIED <<  ");
+      lcdUnlock();
+
+      triggerResultLed(false);
+      beepDenied(); // Blocking 3s beep
+
       uiState = UI_RESULT;
       resultStep = RES_DENIED_1;
       resultTimer = millis();
@@ -1397,12 +1576,26 @@ void processCardTask(void *parameter) {
 
 WAIT_AND_UNLOCK:
   // ⭐️ CRITICAL: Wait for UI result sequence to complete BEFORE unlocking
-  // This prevents re-scanning while result is still being displayed
+  // In VRF/INV modes, unlock immediately (operators scan many cards quickly).
+  // In attendance modes, wait so the student has time to read their result.
   {
-    int safetyCounter = 0;
-    while (uiState == UI_RESULT && safetyCounter < 2000) { // Max 20s safety
-      vTaskDelay(pdMS_TO_TICKS(10));
-      safetyCounter++;
+    if (currentMode == MODE_VERIFY || currentMode == MODE_INV) {
+      // Just let the first frame of UI_RESULT render (≤800 ms), then unlock
+      int fastCounter = 0;
+      while (uiState != UI_RESULT && fastCounter < 100) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+        fastCounter++;
+      }
+      vTaskDelay(pdMS_TO_TICKS(800)); // Show result briefly before unlock
+    } else {
+      // ⭐️ Wait for the FULL result display sequence to complete before unlocking.
+      // Full sequence max: Name(2)+Reg(2)+College(3)+Batch(2)+Start(2)+Scan(2)+Status(2)+Reason(3) = 18s
+      // Safety cap at 30s to prevent infinite lock.
+      int safetyCounter = 0;
+      while (uiState == UI_RESULT && safetyCounter < 3000) { // Max 30s safety
+        vTaskDelay(pdMS_TO_TICKS(10));
+        safetyCounter++;
+      }
     }
   }
 
@@ -1440,9 +1633,6 @@ void parseGoogleResponse(String response) {
       lastDetailedStatus = "Bad Response";
       webLog("ERROR: JSON Parse failed. Length: " + String(response.length()));
     }
-    beep(400, 300);
-    delay(100);
-    beep(400, 300);
     return;
   }
 
@@ -1458,7 +1648,6 @@ void parseGoogleResponse(String response) {
       lastDetailedStatus = "Inventory Available"; // Trigger "Record Found"
       lastStatusMsg = "Not Assigned";
       currentName = "UNASSIGNED";
-      beep(400, 600);
       return;
     }
 
@@ -1467,13 +1656,11 @@ void parseGoogleResponse(String response) {
     currentRegId = regId;
     currentCollege = doc["college"] | "N/A";
     currentSlotTiming = doc["slotTiming"] | "N/A";
+    currentBatch = doc["batch"] | "N/A";
     currentPunchTime = doc["time"] | "";
     currentDetailStatus = doc["detailStatus"] | "";
     lastStatusMsg = doc["message"] | "Success";
     lastDetailedStatus = lastStatusMsg;
-    beep(1500, 100);
-    delay(80);
-    beep(2000, 150);
   } else {
     lastResponseSuccess = false; // ⭐️ §3: Track validation failure
     String errName = doc["name"] | "Denied";
@@ -1501,6 +1688,12 @@ void parseGoogleResponse(String response) {
       // Card-level errors (TAG NOT FOUND, UNASSIGNED, etc.) → NOT a DB error
       lastUserName = errName;
       lastDetailedStatus = errMsg;
+      currentRegId = doc["regId"] | "";
+      currentCollege = doc["college"] | "N/A";
+      currentSlotTiming = doc["slotTiming"] | "N/A";
+      currentBatch = doc["batch"] | "N/A";
+      currentPunchTime = doc["time"] | "";
+      currentDetailStatus = doc["detailStatus"] | "";
     }
 
     currentName = lastUserName;
@@ -1518,13 +1711,6 @@ void parseGoogleResponse(String response) {
          lastDetailedStatus = "Card Available";
          lastStatusMsg = "Not Assigned";
       }
-    }
-
-    // ⭐️ DENIED BEEP (Slightly longer for registry errors)
-    if (errName == "UNAUTHORIZED" || errName == "DATABASE ERROR") {
-      beep(300, 1000);
-    } else {
-      beep(400, 600);
     }
   }
 }
@@ -1703,6 +1889,39 @@ void handleButtons() {
 }
 
 void beep(int freq, int duration) { tone(BUZZER_PIN, freq, duration); }
+
+// ✅ SUCCESS sound: single loud clear ding (one clean tone)
+void beepSuccess() {
+  tone(BUZZER_PIN, 2500, 400); // Single loud high-pitched ding
+  delay(450);
+  noTone(BUZZER_PIN);
+}
+
+// ❌ DENIED sound: loud continuous buzzer for 3 seconds
+void beepDenied() {
+  // Loud alternating two-tone alarm for 3 seconds
+  unsigned long startTime = millis();
+  while (millis() - startTime < 3000) {
+    tone(BUZZER_PIN, 800, 200);
+    delay(220);
+    tone(BUZZER_PIN, 400, 200);
+    delay(220);
+  }
+  noTone(BUZZER_PIN);
+}
+
+// ⭐️ Trigger LED result flash (called from processCardTask on Core1)
+// SUCCESS → GREEN blinks fast 2s then returns to steady RED
+// DENIED  → RED blinks exactly 4 times then returns to steady RED
+void triggerResultLed(bool success) {
+  ledModeStartTime = millis();
+  lastLedBlinkTime = millis();
+  ledBlinkState = false;
+  deniedBlinkCount = 0; // Reset denied blink counter
+  digitalWrite(LED_PIN, LOW);   // Turn off RED during transition
+  digitalWrite(LED_GREEN, LOW); // Turn off GREEN during transition
+  currentLedMode = success ? LED_MODE_RESULT_SUCCESS : LED_MODE_RESULT_DENIED;
+}
 
 // ==================== WIFI & NETWORK ====================
 void connectWiFi() {

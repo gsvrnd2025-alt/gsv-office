@@ -1,0 +1,504 @@
+﻿diff --git a/gsv-office-appscript/AdminDashboard.html b/gsv internship student portal integration file/AdminDashboard.html
+index b5ad3e4..6f6bd0d 100644
+--- a/gsv-office-appscript/AdminDashboard.html
++++ b/gsv internship student portal integration file/AdminDashboard.html	
+@@ -3618,122 +3618,6 @@
+             color: #991b1b !important;
+             border: 1px solid #fca5a5 !important;
+         }
+-
+-        @media screen and (max-width: 768px) {
+-            /* Force table to not behave like a table anymore */
+-            table.table, 
+-            table.table thead, 
+-            table.table tbody, 
+-            table.table th, 
+-            table.table td, 
+-            table.table tr { 
+-                display: block !important; 
+-                width: 100% !important;
+-            }
+-            
+-            /* Hide table headers */
+-            table.table thead tr { 
+-                position: absolute;
+-                top: -9999px;
+-                left: -9999px;
+-            }
+-            
+-            table.table tr { 
+-                border: 1px solid rgba(0, 0, 0, 0.08) !important;
+-                margin-bottom: 16px !important;
+-                border-radius: 12px !important;
+-                background: #ffffff !important;
+-                padding: 16px !important;
+-                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05) !important;
+-            }
+-            
+-            table.table td { 
+-                border: none !important;
+-                border-bottom: 1px dashed rgba(0, 0, 0, 0.08) !important; 
+-                position: relative !important;
+-                padding: 10px 4px !important;
+-                padding-left: 45% !important; 
+-                text-align: right !important;
+-                font-size: 0.85rem !important;
+-                white-space: normal !important;
+-                min-height: 40px !important;
+-                display: flex !important;
+-                align-items: center !important;
+-                justify-content: flex-end !important;
+-            }
+-            
+-            table.table td:last-child {
+-                border-bottom: 0 !important;
+-            }
+-            
+-            table.table td::before { 
+-                position: absolute !important;
+-                top: 50% !important;
+-                left: 8px !important;
+-                transform: translateY(-50%) !important;
+-                width: 40% !important; 
+-                padding-right: 10px !important; 
+-                white-space: nowrap !important;
+-                text-align: left !important;
+-                font-weight: 700 !important;
+-                color: #64748b !important; /* slate-500 */
+-                font-size: 0.8rem !important;
+-            }
+-            
+-            /* Specific column labels based on tables */
+-            #recentActivityTable td:nth-of-type(1)::before { content: "Timestamp" !important; }
+-            #recentActivityTable td:nth-of-type(2)::before { content: "Activity" !important; }
+-
+-            #applicationsTable td:nth-of-type(1)::before { content: "Select" !important; }
+-            #applicationsTable td:nth-of-type(2)::before { content: "Student Info" !important; }
+-            #applicationsTable td:nth-of-type(3)::before { content: "Batch" !important; }
+-            #applicationsTable td:nth-of-type(4)::before { content: "Date Applied" !important; }
+-            #applicationsTable td:nth-of-type(5)::before { content: "Status" !important; }
+-            #applicationsTable td:nth-of-type(6)::before { content: "Actions" !important; }
+-
+-            #manageStudentsTable td:nth-of-type(1)::before { content: "Select" !important; }
+-            #manageStudentsTable td:nth-of-type(2)::before { content: "Student" !important; }
+-            #manageStudentsTable td:nth-of-type(3)::before { content: "Batch" !important; }
+-            #manageStudentsTable td:nth-of-type(4)::before { content: "College/Dept" !important; }
+-            #manageStudentsTable td:nth-of-type(5)::before { content: "Status" !important; }
+-            #manageStudentsTable td:nth-of-type(6)::before { content: "Actions" !important; }
+-
+-            #diaryTable td:nth-of-type(1)::before { content: "Student" !important; }
+-            #diaryTable td:nth-of-type(2)::before { content: "Date" !important; }
+-            #diaryTable td:nth-of-type(3)::before { content: "Diary Entry" !important; }
+-            #diaryTable td:nth-of-type(4)::before { content: "Actions" !important; }
+-
+-            #attendanceTable td:nth-of-type(1)::before { content: "Date" !important; }
+-            #attendanceTable td:nth-of-type(2)::before { content: "Student" !important; }
+-            #attendanceTable td:nth-of-type(3)::before { content: "In Time" !important; }
+-            #attendanceTable td:nth-of-type(4)::before { content: "Out Time" !important; }
+-            #attendanceTable td:nth-of-type(5)::before { content: "Status" !important; }
+-            #attendanceTable td:nth-of-type(6)::before { content: "Actions" !important; }
+-
+-            #docAccessRequestsTable td:nth-of-type(1)::before { content: "Student" !important; }
+-            #docAccessRequestsTable td:nth-of-type(2)::before { content: "File Name" !important; }
+-            #docAccessRequestsTable td:nth-of-type(3)::before { content: "Status" !important; }
+-            #docAccessRequestsTable td:nth-of-type(4)::before { content: "Date" !important; }
+-            #docAccessRequestsTable td:nth-of-type(5)::before { content: "Actions" !important; }
+-
+-            #taskHistoryTable td:nth-of-type(1)::before { content: "Task ID" !important; }
+-            #taskHistoryTable td:nth-of-type(2)::before { content: "Date" !important; }
+-            #taskHistoryTable td:nth-of-type(3)::before { content: "Description" !important; }
+-            #taskHistoryTable td:nth-of-type(4)::before { content: "Status" !important; }
+-
+-            #projectHistoryTable td:nth-of-type(1)::before { content: "Project ID" !important; }
+-            #projectHistoryTable td:nth-of-type(2)::before { content: "Title" !important; }
+-            #projectHistoryTable td:nth-of-type(3)::before { content: "Status" !important; }
+-
+-            #publishedNoticesTable td:nth-of-type(1)::before { content: "Type" !important; }
+-            #publishedNoticesTable td:nth-of-type(2)::before { content: "Title" !important; }
+-            #publishedNoticesTable td:nth-of-type(3)::before { content: "Priority" !important; }
+-            #publishedNoticesTable td:nth-of-type(4)::before { content: "Target" !important; }
+-            #publishedNoticesTable td:nth-of-type(5)::before { content: "Created" !important; }
+-            #publishedNoticesTable td:nth-of-type(6)::before { content: "Status" !important; }
+-            #publishedNoticesTable td:nth-of-type(7)::before { content: "Read" !important; }
+-            #publishedNoticesTable td:nth-of-type(8)::before { content: "Actions" !important; }
+-        }
+     </style>
+     <script>
+         window.onerror = function (message, source, lineno, colno, error) {
+@@ -4221,6 +4105,8 @@
+                         Email Selected</button>
+                     <button class="action-btn btn-edit" onclick="handleBulkAssignToBatch()"><i class="fas fa-users"></i>
+                         Assign to Batch</button>
++                    <button class="action-btn btn-approve" onclick="handleBulkAssignRfid()"><i class="fas fa-id-card"></i>
++                        Auto-Assign RFID</button>
+                 </div>
+                 <div id="allStudentsTableContainer" class="table-responsive">
+                     <div class="loading" id="allStudentsLoading">Loading student data...</div>
+@@ -4234,6 +4120,7 @@
+                                 <th>Batch</th>
+                                 <th>College</th>
+                                 <th>Status</th>
++                                <th>Access</th>
+                                 <th>Internship Period</th>
+                                 <th>Documents</th>
+                                 <th>Profile</th>
+@@ -5021,6 +4908,7 @@
+                                         <tr>
+                                             <th>Intern Details</th>
+                                             <th>Device ID</th>
++                                            <th>Access</th>
+                                             <th>Schedule (Shift)</th>
+                                             <th>Internship Window</th>
+                                             <th class="text-end">Actions</th>
+@@ -9036,7 +8924,10 @@
+                     <td class="checkbox-cell"><input type="checkbox" class="form-check-input student-select-checkbox" onchange="updateBulkActionUI('manageStudents')"></td>
+                     <td data-label="Student">
+                         <div class="fw-bold text-primary" style="cursor:pointer;" onclick="openStudentProfileModal('${s.registrationId}')">${s.name}</div>
+-                        <div class="small text-muted">${s.registrationId}</div>
++                        <div class="small text-muted d-flex align-items-center gap-2 flex-wrap">
++                            ${s.registrationId}
++                            ${s.rfidTag ? `<span class="badge" style="background-color: #f3f0ff; color: #5f3dc4; border: 1px dashed #d6bcfa; font-size: 0.65rem; padding: 2px 6px; display: inline-flex; align-items: center; gap: 3px;"><i class="fas fa-id-card"></i> RFID: ${s.rfidTag}</span>` : ''}
++                        </div>
+                     </td>
+                     <td data-label="College"><div class="small">${s.college || 'N/A'}</div></td>
+                     <td data-label="Batch"><span class="badge bg-light text-dark border">${s.batch || 'None'}</span></td>
+@@ -9576,10 +9467,7 @@
+             }
+ 
+             // On Load: Jump to Initial Section (Persistence Support)
+-            let initialSection = '<?= initialSection ?>';
+-            if (initialSection.indexOf('<' + '?=') !== -1 || !initialSection) {
+-                initialSection = 'dashboard';
+-            }
++            const initialSection = '<?= initialSection ?>';
+             if (initialSection && initialSection !== 'dashboard') {
+                 const link = document.querySelector(`.sidebar-nav a[onclick*="${initialSection}"]`);
+                 showSection(initialSection, link, false, false);
+@@ -9621,9 +9509,6 @@
+         // --- NAVIGATION & UI ---
+         let gsvNavStack = [];
+         let currentActiveSectionId = '<?= initialSection || "dashboard" ?>';
+-        if (currentActiveSectionId.indexOf('<' + '?=') !== -1 || !currentActiveSectionId) {
+-            currentActiveSectionId = 'dashboard';
+-        }
+ 
+         function gsvNavigateBack() {
+             if (gsvNavStack.length > 1) {
+@@ -10786,9 +10671,6 @@
+         function loadDashboardStats(providedStats = null) {
+             const container = document.getElementById('dashboardStats');
+             if (providedStats) {
+-                if (providedStats && typeof providedStats === 'object' && !providedStats.status) {
+-                    providedStats.status = 'success';
+-                }
+                 renderDashboardStats(providedStats, container);
+                 return;
+             }
+@@ -11110,6 +10992,20 @@
+                  <div class="form-group"><strong>Pincode:</strong> <input type="text" class="form-control profile-input" name="Pincode" value="${details.pincode || ''}" disabled></div>
+                   <div class="form-group"><strong>Duration (Days):</strong> <input type="text" class="form-control profile-input" name="DurationDays" value="${durationVal ? Math.round(durationVal) : ''}" disabled title="Numbers only"></div>
+                  <div class="form-group" style="grid-column: 1 / -1;"><strong>RFID Card UID:</strong> <input type="text" class="form-control profile-input" name="RFID_TagID" value="${details.rfidTag || ''}" placeholder="Scan card or enter UID" disabled></div>
++                  <div class="form-group" style="grid-column: 1 / -1; display: flex; gap: 30px; align-items: center; background: rgba(0,0,0,0.02); padding: 10px; border-radius: 5px; border: 1px solid #ddd;">
++                      <div class="form-check" style="display: flex; align-items: center; gap: 8px; margin: 0;">
++                          <input class="form-check-input profile-input" type="checkbox" name="AttendanceAccess" id="editAttendanceAccess" ${details.permissions && details.permissions.attendance ? 'checked' : ''} disabled style="width: 18px; height: 18px; cursor: pointer;">
++                          <label class="form-check-label fw-bold" for="editAttendanceAccess" style="cursor: pointer; font-size: 0.9rem; margin: 0;">
++                              <i class="fas fa-lock-open text-success me-1"></i> Attendance Access (Unlocked)
++                          </label>
++                      </div>
++                      <div class="form-check" style="display: flex; align-items: center; gap: 8px; margin: 0;">
++                          <input class="form-check-input profile-input" type="checkbox" name="DiaryAccess" id="editDiaryAccess" ${details.permissions && details.permissions.diary ? 'checked' : ''} disabled style="width: 18px; height: 18px; cursor: pointer;">
++                          <label class="form-check-label fw-bold" for="editDiaryAccess" style="cursor: pointer; font-size: 0.9rem; margin: 0;">
++                              <i class="fas fa-book-open text-primary me-1"></i> Diary Access (Unlocked)
++                          </label>
++                      </div>
++                  </div>
+             </div>
+         </div>
+         </form>
+@@ -11332,7 +11228,11 @@
+                             validationError = `${input.name} must contain only numbers.`;
+                         }
+                     }
+-                    data[input.name] = input.value;
++                    if (input.type === 'checkbox') {
++                        data[input.name] = input.checked ? 'TRUE' : 'FALSE';
++                    } else {
++                        data[input.name] = input.value;
++                    }
+                 }
+             });
+ 
+@@ -12332,7 +12232,7 @@
+                     const div = document.createElement('div');
+                     div.className = 'form-check py-1';
+                     div.innerHTML = `
+-                        <input class="form-check-input student-report-checkbox" type="checkbox" value="${s.id}" id="chk_${s.id}" checked onchange="updateSelectedStudentCount()">
++                        <input class="form-check-input student-report-checkbox" type="checkbox" value="${s.id}" id="chk_${s.id}" onchange="updateSelectedStudentCount()">
+                         <label class="form-check-label small" for="chk_${s.id}">
+                             ${s.name} <span class="text-muted">(${s.id})</span>
+                         </label>
+@@ -12340,7 +12240,7 @@
+                     list.appendChild(div);
+                 });
+ 
+-                document.getElementById('selectAllBatchStudents').checked = true;
++                document.getElementById('selectAllBatchStudents').checked = false;
+                 updateSelectedStudentCount();
+             }).searchStudentsForReports(batchName);
+         }
+@@ -14421,7 +14321,7 @@
+             }
+ 
+             if (!students || students.length === 0) {
+-                tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted">No students found.</td></tr>`;
++                tbody.innerHTML = `<tr><td colspan="11" class="text-center text-muted">No students found.</td></tr>`;
+             } else {
+                 students.forEach(student => {
+                     const docCount = (student.projectDocCount || 0);
+@@ -14447,6 +14347,11 @@
+                 <td data-label="Status">
+                     ${getStatusBadgesHtml(student)}
+                 </td>
++                <td data-label="Access">
++                    ${student.attendanceAccess 
++                        ? `<span class="badge bg-success" style="font-size: 0.8rem; padding: 4px 8px; border-radius: 4px;"><i class="fas fa-lock-open me-1"></i> Active</span>`
++                        : `<span class="badge bg-danger" style="font-size: 0.8rem; padding: 4px 8px; border-radius: 4px;"><i class="fas fa-lock me-1"></i> Locked</span>`}
++                </td>
+                 <td data-label="Period">
+                     <div class="fw-bold">
+                         ${student.internshipStart ? formatDate(student.internshipStart) : 'N/A'} 
+@@ -14630,6 +14535,52 @@
+                 .createBatch(batchName, mentorName, '', '', workArea, 'Active', document.getElementById('newBatchSkill').value);
+         }
+ 
++        /**
++         * Gathers selected students and auto-assigns RFID cards to them in bulk.
++         */
++        async function handleBulkAssignRfid() {
++            const selectedCheckboxes = document.querySelectorAll('#manageStudentsTable tbody input[type="checkbox"]:checked');
++            if (selectedCheckboxes.length === 0) {
++                showAdminFeedback('Please select at least one student to auto-assign RFID cards.', 'warning');
++                return;
++            }
++
++            const regIds = [];
++            selectedCheckboxes.forEach(cb => {
++                const tr = cb.closest('tr');
++                const regId = (tr.dataset.regid || '').trim().toUpperCase();
++                if (regId) {
++                    regIds.push(regId);
++                }
++            });
++
++            if (regIds.length === 0) {
++                showAdminFeedback('Could not find registration IDs for selected student(s).', 'error');
++                return;
++            }
++
++            const confirmed = await window.showConfirmModal(`Are you sure you want to auto-assign available RFID cards to the ${regIds.length} selected student(s)?`);
++            if (!confirmed) return;
++
++            showAdminFeedback(`Auto-assigning RFID cards to ${regIds.length} student(s)...`, 'info');
++
++            google.script.run
++                .withSuccessHandler(function(res) {
++                    if (res && res.status === 'success') {
++                        showAdminFeedback(res.message, 'success');
++                        const mainCheckbox = document.querySelector('#manageStudentsTable thead input[type="checkbox"]');
++                        if (mainCheckbox) mainCheckbox.checked = false;
++                        loadAllStudentsForManagement();
++                    } else {
++                        showAdminFeedback(res ? res.message : 'Failed to auto-assign RFID cards.', 'error');
++                    }
++                })
++                .withFailureHandler(function(err) {
++                    showAdminFeedback('Error: ' + err.message, 'error');
++                })
++                .bulkAssignRfidCards(regIds);
++        }
++
+         /**
+          * Gathers selected students and opens the "Assign to Batch" modal.
+          */
+@@ -16268,6 +16219,25 @@
+             );
+         }
+ 
++        function renderStudentDetailsHtml(registrationId, studentName, studentDetails) {
++            let name = studentName || (studentDetails ? studentDetails.Name : '');
++            let college = studentDetails ? studentDetails.CollegeName : '';
++            let batch = studentDetails ? studentDetails.Batch : '';
++            let rollNum = studentDetails ? (studentDetails.RegisterNumber || '') : '';
++            let period = '';
++            if (studentDetails && studentDetails.StartDate && studentDetails.EndDate) {
++                period = `${formatDateSafe(studentDetails.StartDate)} - ${formatDateSafe(studentDetails.EndDate)}`;
++            }
++            const regDisplay = rollNum ? `${registrationId || ''} <span class="badge bg-secondary ms-1" style="font-size: 0.75rem;">Roll: ${rollNum}</span>` : (registrationId || '');
++            return `
++                <div class="fw-bold text-primary small">${regDisplay}</div>
++                ${name ? `<div class="fw-bold small text-dark">${name}</div>` : ''}
++                ${college ? `<div class="text-secondary small fst-italic" style="font-size: 0.8rem;"><i class="fas fa-university me-1"></i>${college}</div>` : ''}
++                ${batch ? `<div class="text-muted small" style="font-size: 0.8rem;"><i class="fas fa-layer-group me-1"></i>Batch: ${batch}</div>` : ''}
++                ${period ? `<div class="text-muted small" style="font-size: 0.8rem;"><i class="fas fa-calendar-alt me-1"></i>Period: ${period}</div>` : ''}
++            `;
++        }
++
+         function renderAttendanceRequests(manuals, corrections, diaries, graces, accesses, docReplacements, history, newReqs = []) {
+             const container = document.getElementById('attendanceRequestsTableContainer');
+             let html = '';
+@@ -16284,7 +16254,7 @@
+                             <thead class="bg-light">
+                                 <tr>
+                                     <th style="width: 40px; text-align: center;"><input type="checkbox" onchange="toggleSelectAllRequests('standard', this.checked)"></th>
+-                                    <th>Student ID</th><th>Type / Status</th><th>Target Date / Time</th><th>Reason</th><th>Actions</th>
++                                    <th>Student Details</th><th>Type / Status</th><th>Target Date / Time</th><th>Reason</th><th>Actions</th>
+                                 </tr>
+                             </thead>
+                             <tbody>
+@@ -16298,7 +16268,7 @@
+                     html += `
+                         <tr>
+                             <td style="text-align: center; vertical-align: middle;"><input type="checkbox" name="request_checkbox" data-reqid="${reqId}" data-type="standard" onchange="updateRequestsBulkActionUI()"></td>
+-                            <td data-label="Student ID" class="small fw-bold">${req.RegistrationID || ''}</td>
++                            <td data-label="Student Details" class="small">${renderStudentDetailsHtml(req.RegistrationID, req.StudentName, req.StudentDetails)}</td>
+                             <td data-label="Type / Status" class="small"><span class="badge bg-info text-dark fw-bold">${req.Type || ''}</span><br/><span class="badge bg-warning text-dark mt-1 fw-bold">${req.Status || ''}</span></td>
+                             <td data-label="Scheduled Time" class="small">
+                                 ${formatDateSafe(req.TargetDate || req.Date || '')}
+@@ -16330,7 +16300,7 @@
+                             <thead class="bg-light">
+                                 <tr>
+                                     <th style="width: 40px; text-align: center;"><input type="checkbox" onchange="toggleSelectAllRequests('grace', this.checked)"></th>
+-                                    <th>Student ID</th><th>Extension Details</th><th>Access Needed</th><th>Reason</th><th>Actions</th>
++                                    <th>Student Details</th><th>Extension Details</th><th>Access Needed</th><th>Reason</th><th>Actions</th>
+                                 </tr>
+                             </thead>
+                             <tbody>
+@@ -16343,7 +16313,7 @@
+                     html += `
+                         <tr>
+                             <td style="text-align: center; vertical-align: middle;"><input type="checkbox" name="request_checkbox" data-reqid="${reqId}" data-type="grace" onchange="updateRequestsBulkActionUI()"></td>
+-                            <td data-label="Student ID" class="small fw-bold">${g.RegistrationID || ''}</td>
++                            <td data-label="Student Details" class="small">${renderStudentDetailsHtml(g.RegistrationID, g.StudentName, g.StudentDetails)}</td>
+                             <td data-label="Extension Details" class="small">
+                                 <div class="badge bg-white text-dark border d-block mb-1">From: ${formatDate(g.TargetDate || g.StartDate || '')}</div>
+                                 <div class="badge bg-white text-dark border d-block">To: ${formatDate(g.EndDate || g.ExpiryTimestamp || '')}</div>
+@@ -16389,7 +16359,7 @@
+                     html += `
+                         <tr>
+                             <td style="text-align: center; vertical-align: middle;"><input type="checkbox" name="request_checkbox" data-reqid="${m.AttendanceID}" data-type="manual" onchange="updateRequestsBulkActionUI()"></td>
+-                            <td data-label="Student Details"><div class="fw-bold">${m.StudentName}</div><div class="small text-muted">${m.StudentRegistrationID}</div></td>
++                            <td data-label="Student Details" class="small">${renderStudentDetailsHtml(m.StudentRegistrationID, m.StudentName, m.StudentDetails)}</td>
+                              <td data-label="Type / Date">
+                                 <span class="badge ${typeBadge} mb-1 d-block">${m.Status || 'Manual'}</span>
+                                 <div class="small text-muted">${formatDate(m.Date)}</div>
+@@ -16422,7 +16392,7 @@
+                             <thead class="bg-light">
+                                 <tr>
+                                     <th style="width: 40px; text-align: center;"><input type="checkbox" onchange="toggleSelectAllRequests('diary', this.checked)"></th>
+-                                    <th>Student ID</th><th>Target Date</th><th>Reason / Remark</th><th>Actions</th>
++                                    <th>Student Details</th><th>Target Date</th><th>Reason / Remark</th><th>Actions</th>
+                                 </tr>
+                             </thead>
+                             <tbody>
+@@ -16435,7 +16405,7 @@
+                     html += `
+                         <tr>
+                             <td style="text-align: center; vertical-align: middle;"><input type="checkbox" name="request_checkbox" data-reqid="${reqId}" data-type="diary" onchange="updateRequestsBulkActionUI()"></td>
+-                            <td data-label="Student ID" class="small fw-bold">${d.RegistrationID || ''}</td>
++                            <td data-label="Student Details" class="small">${renderStudentDetailsHtml(d.RegistrationID, d.StudentName, d.StudentDetails)}</td>
+                             <td data-label="Target Date" class="small font-monospace">${formatDate(d.TargetDate)}</td>
+                             <td data-label="Reason / Remark"><div class="small text-muted text-wrap" style="max-width:300px">${d.Reason || ''}</div></td>
+                             <td data-label="Actions">
+@@ -16464,7 +16434,7 @@
+                             <thead class="bg-light">
+                                 <tr>
+                                     <th style="width: 40px; text-align: center;"><input type="checkbox" onchange="toggleSelectAllRequests('correction', this.checked)"></th>
+-                                    <th>Student ID</th><th>Target Day</th><th>Reason & Type</th><th>Evidence</th><th>Actions</th>
++                                    <th>Student Details</th><th>Target Day</th><th>Reason & Type</th><th>Evidence</th><th>Actions</th>
+                                 </tr>
+                             </thead>
+                             <tbody>
+@@ -16478,7 +16448,7 @@
+                     html += `
+                         <tr>
+                             <td style="text-align: center; vertical-align: middle;"><input type="checkbox" name="request_checkbox" data-reqid="${reqId}" data-type="correction" onchange="updateRequestsBulkActionUI()"></td>
+-                            <td data-label="Student ID" class="small fw-bold">${c.RegistrationID || ''}</td>
++                            <td data-label="Student Details" class="small">${renderStudentDetailsHtml(c.RegistrationID, c.StudentName, c.StudentDetails)}</td>
+                             <td data-label="Target Day" class="small">${formatDate(c.TargetDate)}</td>
+                             <td data-label="Reason & Type"><span class="badge bg-light text-dark border mb-1">${c.LeaveType || c.RequestType || 'Correction'}</span><div class="small text-muted">${c.Reason || ''}</div></td>
+                             <td data-label="Evidence">${attach}</td>
+@@ -16508,7 +16478,7 @@
+                             <thead class="bg-light">
+                                 <tr>
+                                     <th style="width: 40px; text-align: center;"><input type="checkbox" onchange="toggleSelectAllRequests('access', this.checked)"></th>
+-                                    <th>Student</th><th>Section</th><th>Reason</th><th>Date</th><th>Actions</th>
++                                    <th>Student Details</th><th>Section</th><th>Reason</th><th>Date</th><th>Actions</th>
+                                 </tr>
+                             </thead>
+                             <tbody>
+@@ -16521,7 +16491,7 @@
+                     html += `
+                         <tr>
+                             <td style="text-align: center; vertical-align: middle;"><input type="checkbox" name="request_checkbox" data-reqid="${reqId}" data-type="access" onchange="updateRequestsBulkActionUI()"></td>
+-                            <td data-label="Student"><div class="fw-bold small">${a.RegistrationID}</div><div class="small text-muted">${a.StudentName || ''}</div></td>
++                            <td data-label="Student Details" class="small">${renderStudentDetailsHtml(a.RegistrationID, a.StudentName, a.StudentDetails)}</td>
+                             <td data-label="Section"><span class="badge bg-light text-primary border">${(a.Section || 'N/A').toUpperCase()}</span></td>
+                             <td data-label="Reason"><div class="small text-muted text-wrap" style="max-width:200px">${a.Reason || ''}</div></td>
+                             <td data-label="Date" class="small text-muted">${formatDate(a.RequestDate || a.Date || a.Timestamp)}</td>
+@@ -16551,7 +16521,7 @@
+                             <thead class="bg-light">
+                                 <tr>
+                                     <th style="width: 40px; text-align: center;"><input type="checkbox" onchange="toggleSelectAllRequests('docReplacements', this.checked)"></th>
+-                                    <th>Student</th><th>Document</th><th>File</th><th>Date</th><th>Actions</th>
++                                    <th>Student Details</th><th>Document</th><th>File</th><th>Date</th><th>Actions</th>
+                                 </tr>
+                             </thead>
+                             <tbody>
+@@ -16567,7 +16537,7 @@
+                     html += `
+                         <tr>
+                             <td style="text-align: center; vertical-align: middle;"><input type="checkbox" name="request_checkbox" data-reqid="${reqId}" data-type="${isDeletion ? 'docDeletion' : 'docReplacement'}" onchange="updateRequestsBulkActionUI()"></td>
+-                            <td data-label="Student"><div class="fw-bold small">${d.RegistrationID}</div><div class="small text-muted">${d.StudentName || ''}</div></td>
++                            <td data-label="Student Details" class="small">${renderStudentDetailsHtml(d.RegistrationID, d.StudentName, d.StudentDetails)}</td>
+                             <td data-label="Document"><span class="badge bg-light text-dark border">${(d.TargetDocument || d.DocType || 'N/A').toUpperCase()}</span></td>
+                             <td data-label="File">${fileLink}</td>
+                             <td data-label="Date" class="small text-muted">${formatDate(d.RequestDate || d.Timestamp)}</td>
+@@ -16599,7 +16569,7 @@
+                         <div class="table-responsive">
+                             <table class="table table-hover table-sm mb-0 admin-table" style="font-size: 0.85rem;">
+                                 <thead class="bg-light sticky-top">
+-                                    <tr><th>Student</th><th>Type / Date</th><th>Status / Outcome</th><th>Admin Comment</th><th>Processed Date</th><th style="min-width:140px;">Actions</th></tr>
++                                    <tr><th>Student Details</th><th>Type / Date</th><th>Status / Outcome</th><th>Admin Comment</th><th>Processed Date</th><th style="min-width:140px;">Actions</th></tr>
+                                 </thead>
+                                 <tbody>
+             `;
+@@ -16636,7 +16606,7 @@
+ 
+                     html += `
+                         <tr>
+-                            <td data-label="Student"><div class="fw-bold">${h.RegistrationID}</div><div class="small text-muted">${h.StudentName || ''}</div></td>
++                            <td data-label="Student Details" class="small">${renderStudentDetailsHtml(h.RegistrationID, h.StudentName, h.StudentDetails)}</td>
+                             <td data-label="Type / Date"><span class="badge bg-light text-dark border">${h.RequestType || h.Type || 'N/A'}</span><br/><small class="text-muted">${targetDate}</small></td>
+                             <td data-label="Status / Outcome">
+                                 <span class="badge bg-${badgeColor}">${h.Status}</span>
+@@ -17903,7 +17873,7 @@
+             if (!tbody) return;
+             tbody.innerHTML = '';
+             if (!students || students.length === 0) {
+-                tbody.innerHTML = '<tr><td colspan="5" class="text-center p-5 text-muted"><i class="fas fa-id-card fs-2 mb-3 d-block"></i>No active RFID assignments currently in use.</td></tr>';
++                tbody.innerHTML = '<tr><td colspan="6" class="text-center p-5 text-muted"><i class="fas fa-id-card fs-2 mb-3 d-block"></i>No active RFID assignments currently in use.</td></tr>';
+                 return;
+             }
+             students.forEach(s => {
+@@ -17916,6 +17886,11 @@
+                         <div class="small text-primary fw-bold mt-1"><i class="fas fa-briefcase me-1"></i>${s.department || ''}</div>
+                     </td>
+                     <td data-label="Device ID"><div class="badge bg-success text-white shadow-sm border-0 px-3 py-2 fw-bold"><i class="fas fa-check-circle me-1"></i> ${s.rfidTag}</div></td>
++                    <td data-label="Access">
++                        ${s.attendanceAccess 
++                            ? `<span class="badge bg-success" style="font-size: 0.8rem; padding: 4px 8px; border-radius: 4px;"><i class="fas fa-lock-open me-1"></i> Active</span>`
++                            : `<span class="badge bg-danger" style="font-size: 0.8rem; padding: 4px 8px; border-radius: 4px;"><i class="fas fa-lock me-1"></i> Locked</span>`}
++                    </td>
+                     <td data-label="Schedule (Shift)">
+                         <div class="small fw-bold text-primary"><i class="fas fa-business-time me-1"></i>${s.slotDisplay}</div>
+                         <div class="badge bg-light text-dark border small fw-bold">${s.batch}</div>

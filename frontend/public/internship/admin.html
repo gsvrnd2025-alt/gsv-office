@@ -3673,6 +3673,122 @@
             color: #991b1b !important;
             border: 1px solid #fca5a5 !important;
         }
+
+        @media screen and (max-width: 768px) {
+            /* Force table to not behave like a table anymore */
+            table.table, 
+            table.table thead, 
+            table.table tbody, 
+            table.table th, 
+            table.table td, 
+            table.table tr { 
+                display: block !important; 
+                width: 100% !important;
+            }
+            
+            /* Hide table headers */
+            table.table thead tr { 
+                position: absolute;
+                top: -9999px;
+                left: -9999px;
+            }
+            
+            table.table tr { 
+                border: 1px solid rgba(0, 0, 0, 0.08) !important;
+                margin-bottom: 16px !important;
+                border-radius: 12px !important;
+                background: #ffffff !important;
+                padding: 16px !important;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05) !important;
+            }
+            
+            table.table td { 
+                border: none !important;
+                border-bottom: 1px dashed rgba(0, 0, 0, 0.08) !important; 
+                position: relative !important;
+                padding: 10px 4px !important;
+                padding-left: 45% !important; 
+                text-align: right !important;
+                font-size: 0.85rem !important;
+                white-space: normal !important;
+                min-height: 40px !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: flex-end !important;
+            }
+            
+            table.table td:last-child {
+                border-bottom: 0 !important;
+            }
+            
+            table.table td::before { 
+                position: absolute !important;
+                top: 50% !important;
+                left: 8px !important;
+                transform: translateY(-50%) !important;
+                width: 40% !important; 
+                padding-right: 10px !important; 
+                white-space: nowrap !important;
+                text-align: left !important;
+                font-weight: 700 !important;
+                color: #64748b !important; /* slate-500 */
+                font-size: 0.8rem !important;
+            }
+            
+            /* Specific column labels based on tables */
+            #recentActivityTable td:nth-of-type(1)::before { content: "Timestamp" !important; }
+            #recentActivityTable td:nth-of-type(2)::before { content: "Activity" !important; }
+
+            #applicationsTable td:nth-of-type(1)::before { content: "Select" !important; }
+            #applicationsTable td:nth-of-type(2)::before { content: "Student Info" !important; }
+            #applicationsTable td:nth-of-type(3)::before { content: "Batch" !important; }
+            #applicationsTable td:nth-of-type(4)::before { content: "Date Applied" !important; }
+            #applicationsTable td:nth-of-type(5)::before { content: "Status" !important; }
+            #applicationsTable td:nth-of-type(6)::before { content: "Actions" !important; }
+
+            #manageStudentsTable td:nth-of-type(1)::before { content: "Select" !important; }
+            #manageStudentsTable td:nth-of-type(2)::before { content: "Student" !important; }
+            #manageStudentsTable td:nth-of-type(3)::before { content: "Batch" !important; }
+            #manageStudentsTable td:nth-of-type(4)::before { content: "College/Dept" !important; }
+            #manageStudentsTable td:nth-of-type(5)::before { content: "Status" !important; }
+            #manageStudentsTable td:nth-of-type(6)::before { content: "Actions" !important; }
+
+            #diaryTable td:nth-of-type(1)::before { content: "Student" !important; }
+            #diaryTable td:nth-of-type(2)::before { content: "Date" !important; }
+            #diaryTable td:nth-of-type(3)::before { content: "Diary Entry" !important; }
+            #diaryTable td:nth-of-type(4)::before { content: "Actions" !important; }
+
+            #attendanceTable td:nth-of-type(1)::before { content: "Date" !important; }
+            #attendanceTable td:nth-of-type(2)::before { content: "Student" !important; }
+            #attendanceTable td:nth-of-type(3)::before { content: "In Time" !important; }
+            #attendanceTable td:nth-of-type(4)::before { content: "Out Time" !important; }
+            #attendanceTable td:nth-of-type(5)::before { content: "Status" !important; }
+            #attendanceTable td:nth-of-type(6)::before { content: "Actions" !important; }
+
+            #docAccessRequestsTable td:nth-of-type(1)::before { content: "Student" !important; }
+            #docAccessRequestsTable td:nth-of-type(2)::before { content: "File Name" !important; }
+            #docAccessRequestsTable td:nth-of-type(3)::before { content: "Status" !important; }
+            #docAccessRequestsTable td:nth-of-type(4)::before { content: "Date" !important; }
+            #docAccessRequestsTable td:nth-of-type(5)::before { content: "Actions" !important; }
+
+            #taskHistoryTable td:nth-of-type(1)::before { content: "Task ID" !important; }
+            #taskHistoryTable td:nth-of-type(2)::before { content: "Date" !important; }
+            #taskHistoryTable td:nth-of-type(3)::before { content: "Description" !important; }
+            #taskHistoryTable td:nth-of-type(4)::before { content: "Status" !important; }
+
+            #projectHistoryTable td:nth-of-type(1)::before { content: "Project ID" !important; }
+            #projectHistoryTable td:nth-of-type(2)::before { content: "Title" !important; }
+            #projectHistoryTable td:nth-of-type(3)::before { content: "Status" !important; }
+
+            #publishedNoticesTable td:nth-of-type(1)::before { content: "Type" !important; }
+            #publishedNoticesTable td:nth-of-type(2)::before { content: "Title" !important; }
+            #publishedNoticesTable td:nth-of-type(3)::before { content: "Priority" !important; }
+            #publishedNoticesTable td:nth-of-type(4)::before { content: "Target" !important; }
+            #publishedNoticesTable td:nth-of-type(5)::before { content: "Created" !important; }
+            #publishedNoticesTable td:nth-of-type(6)::before { content: "Status" !important; }
+            #publishedNoticesTable td:nth-of-type(7)::before { content: "Read" !important; }
+            #publishedNoticesTable td:nth-of-type(8)::before { content: "Actions" !important; }
+        }
     </style>
     <script>
         window.onerror = function (message, source, lineno, colno, error) {
@@ -9518,7 +9634,10 @@
             }
 
             // On Load: Jump to Initial Section (Persistence Support)
-            const initialSection = '<?= initialSection ?>';
+            let initialSection = '<?= initialSection ?>';
+            if (initialSection.indexOf('<?=') !== -1 || !initialSection) {
+                initialSection = 'dashboard';
+            }
             if (initialSection && initialSection !== 'dashboard') {
                 const link = document.querySelector(`.sidebar-nav a[onclick*="${initialSection}"]`);
                 showSection(initialSection, link, false, false);
@@ -9560,6 +9679,9 @@
         // --- NAVIGATION & UI ---
         let gsvNavStack = [];
         let currentActiveSectionId = '<?= initialSection || "dashboard" ?>';
+        if (currentActiveSectionId.indexOf('<?=') !== -1 || !currentActiveSectionId) {
+            currentActiveSectionId = 'dashboard';
+        }
 
         function gsvNavigateBack() {
             if (gsvNavStack.length > 1) {
@@ -10722,9 +10844,6 @@
         function loadDashboardStats(providedStats = null) {
             const container = document.getElementById('dashboardStats');
             if (providedStats) {
-                if (providedStats && typeof providedStats === 'object' && !providedStats.status) {
-                    providedStats.status = 'success';
-                }
                 renderDashboardStats(providedStats, container);
                 return;
             }
@@ -12268,7 +12387,7 @@
                     const div = document.createElement('div');
                     div.className = 'form-check py-1';
                     div.innerHTML = `
-                        <input class="form-check-input student-report-checkbox" type="checkbox" value="${s.id}" id="chk_${s.id}" onchange="updateSelectedStudentCount()">
+                        <input class="form-check-input student-report-checkbox" type="checkbox" value="${s.id}" id="chk_${s.id}" checked onchange="updateSelectedStudentCount()">
                         <label class="form-check-label small" for="chk_${s.id}">
                             ${s.name} <span class="text-muted">(${s.id})</span>
                         </label>
@@ -12276,7 +12395,7 @@
                     list.appendChild(div);
                 });
 
-                document.getElementById('selectAllBatchStudents').checked = false;
+                document.getElementById('selectAllBatchStudents').checked = true;
                 updateSelectedStudentCount();
             }).searchStudentsForReports(batchName);
         }
@@ -17159,20 +17278,20 @@
 
         // Attach listener for the manual attendance form
         const markForm = document.getElementById('markAttendanceForm');
-        
-        async function logoutAdmin() {
-            if (await showConfirmModal("Are you sure you want to logout?")) {
-                window.location.href = '/internship/index.html';
-            }
-        }
         if (markForm) {
             markForm.addEventListener('submit', handleMarkAttendanceSubmit);
         }
 
-
-                    
-
-
+        /* --- MISSING UI HELPERS ADDED BY AGENT --- */
+        async function logoutAdmin() {
+            if (await showConfirmModal("Are you sure you want to logout?")) {
+                google.script.run
+                    .withSuccessHandler(function (url) {
+                        window.top.location.href = url;
+                    })
+                    .getPublishedUrl();
+            }
+        }
 
         function viewAdminProfile() {
             const modalEl = document.getElementById('adminProfileModal');
@@ -21836,43 +21955,6 @@
             initMobileSidebar();
         }
     </script>
-    <!-- Floating Back to GSV Office Button -->
-    <a href="/dashboard" class="gsv-back-btn">
-        <i class="bi bi-arrow-left"></i>
-        <span>Back to GSV Office</span>
-    </a>
-    <style>
-        .gsv-back-btn {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            z-index: 99999;
-            background: linear-gradient(135deg, #4f46e5, #06b6d4);
-            color: #ffffff !important;
-            padding: 10px 18px;
-            border-radius: 50px;
-            font-family: 'Inter', system-ui, -apple-system, sans-serif;
-            font-size: 14px;
-            font-weight: 600;
-            text-decoration: none !important;
-            box-shadow: 0 4px 15px rgba(79, 70, 229, 0.4);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            transition: all 0.3s ease;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(10px);
-        }
-        .gsv-back-btn:hover {
-            transform: translateY(-2px) scale(1.05);
-            box-shadow: 0 6px 20px rgba(79, 70, 229, 0.6);
-            background: linear-gradient(135deg, #4338ca, #0891b2);
-        }
-        .gsv-back-btn i {
-            font-size: 16px;
-            font-weight: bold;
-        }
-    </style>
 </body>
 
 </html>

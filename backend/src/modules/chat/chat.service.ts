@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, OnModuleInit, Inject, forwardRef, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { ChatGateway } from '../../gateways/chat.gateway';
 
@@ -54,6 +54,16 @@ export class ChatService implements OnModuleInit {
       console.log('[ChatService] Verified member_removal_requests table exists.');
     } catch (err) {
       console.error('Error creating member_removal_requests table:', err);
+    }
+
+    try {
+      // Ensure left_at column exists on conversation_members (added in v5.x, may be missing on older deployments)
+      await this.dataSource.query(`
+        ALTER TABLE conversation_members ADD COLUMN IF NOT EXISTS left_at TIMESTAMPTZ;
+      `);
+      console.log('[ChatService] Verified conversation_members.left_at column exists.');
+    } catch (err) {
+      console.error('Failed to ensure left_at column on conversation_members:', err);
     }
 
     try {
@@ -317,7 +327,18 @@ export class ChatService implements OnModuleInit {
       [dto.conversationId, dto.senderId]
     );
     if (membership && (membership.role === 'blocked' || membership.left_at !== null)) {
-      throw new Error('You are blocked from sending messages in this group.');
+      throw new ForbiddenException('You are blocked from sending messages in this group.');
+    }
+
+    const [conv] = await this.dataSource.query(`SELECT type, metadata FROM conversations WHERE id = $1`, [dto.conversationId]);
+    if (conv && conv.type === 'group') {
+      const metadata = typeof conv.metadata === 'string' ? JSON.parse(conv.metadata) : (conv.metadata || {});
+      const settings = metadata.settings || {};
+      const sendMessagesPermission = settings.sendMessages || 'all';
+      
+      if (sendMessagesPermission === 'admins' && (!membership || membership.role !== 'admin')) {
+        throw new ForbiddenException('Only admins can send messages in this group.');
+      }
     }
 
     let mappedType = dto.type || 'text';
@@ -354,36 +375,49 @@ export class ChatService implements OnModuleInit {
     }
 
     if (folderId) {
-      const members = await this.dataSource.query(
-        `SELECT user_id FROM conversation_members WHERE conversation_id = $1 AND user_id != $2`,
-        [dto.conversationId, dto.senderId]
-      );
-      
-      // Get all descendant folders including the folder itself
-      const descendants = await this.dataSource.query(
-        `WITH RECURSIVE descendants AS (
-           SELECT id FROM folders WHERE id = $1
-           UNION ALL
-           SELECT f.id FROM folders f
-           INNER JOIN descendants d ON d.id = f.parent_id
-         )
-         SELECT id FROM descendants`,
-        [folderId]
+      // Grant folder access to all descendants for all group members in one atomic operation
+      await this.dataSource.query(
+        `INSERT INTO folder_access_requests (folder_id, owner_id, requester_id, requester_name, status, permission)
+         SELECT desc.id, $2, cm.user_id, 'Chat Auto-Share', 'approved', 'read'
+         FROM (
+           WITH RECURSIVE descendants AS (
+             SELECT id FROM folders WHERE id = $1
+             UNION ALL
+             SELECT f.id FROM folders f
+             INNER JOIN descendants d ON d.id = f.parent_id
+           )
+           SELECT id FROM descendants
+         ) desc
+         CROSS JOIN (
+           SELECT user_id FROM conversation_members WHERE conversation_id = $3 AND user_id != $2
+         ) cm
+         WHERE NOT EXISTS (
+           SELECT 1 FROM folder_access_requests far 
+           WHERE far.folder_id = desc.id AND far.requester_id = cm.user_id
+         )`,
+        [folderId, dto.senderId, dto.conversationId]
       );
 
-      for (const m of members) {
-        for (const desc of descendants) {
-          await this.dataSource.query(
-            `INSERT INTO folder_access_requests (folder_id, owner_id, requester_id, requester_name, status, permission)
-             SELECT $1, $2, $3, 'Chat Auto-Share', 'approved', 'read'
-             WHERE NOT EXISTS (
-               SELECT 1 FROM folder_access_requests 
-               WHERE folder_id = $1 AND requester_id = $3
-             )`,
-            [desc.id, dto.senderId, m.user_id]
-          );
-        }
-      }
+      // Grant file_shares for all files inside the folder tree in one atomic operation
+      await this.dataSource.query(
+        `INSERT INTO file_shares (file_id, shared_by, shared_with_user_id, permission)
+         SELECT fl.id, $2, cm.user_id, 'view'
+         FROM files fl
+         JOIN (
+           WITH RECURSIVE descendants AS (
+             SELECT id FROM folders WHERE id = $1
+             UNION ALL
+             SELECT f.id FROM folders f
+             INNER JOIN descendants d ON d.id = f.parent_id
+           )
+           SELECT id FROM descendants
+         ) desc ON fl.folder_id = desc.id
+         CROSS JOIN (
+           SELECT user_id FROM conversation_members WHERE conversation_id = $3 AND user_id != $2
+         ) cm
+         ON CONFLICT (file_id, shared_with_user_id) DO NOTHING`,
+        [folderId, dto.senderId, dto.conversationId]
+      );
     }
 
     await this.dataSource.query(
@@ -465,14 +499,14 @@ export class ChatService implements OnModuleInit {
   }
 
   async addMember(conversationId: string, userId: string, requestingUserId: string) {
-    const [conv] = await this.dataSource.query(`SELECT type FROM conversations WHERE id = $1`, [conversationId]);
+    const [conv] = await this.dataSource.query(`SELECT type, metadata FROM conversations WHERE id = $1`, [conversationId]);
     if (conv && conv.type === 'group') {
       const [senderMember] = await this.dataSource.query(
         `SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
         [conversationId, requestingUserId]
       );
-      if (!senderMember || senderMember.role !== 'admin') {
-        throw new Error('Only group admins can directly add members to this group');
+      if (!senderMember) {
+        throw new ForbiddenException('You are not a member of this group');
       }
     }
 
@@ -510,16 +544,26 @@ export class ChatService implements OnModuleInit {
   }
 
   async updateConversation(id: string, dto: any, requestingUserId?: string) {
-    // For group chats, enforce admin-only for name/description changes
+    const [conv] = await this.dataSource.query(`SELECT type, metadata FROM conversations WHERE id = $1`, [id]);
+    
     if (requestingUserId) {
-      const [conv] = await this.dataSource.query(`SELECT type FROM conversations WHERE id = $1`, [id]);
       if (conv && conv.type === 'group') {
+        const metadata = typeof conv.metadata === 'string' ? JSON.parse(conv.metadata) : (conv.metadata || {});
+        const settings = metadata.settings || {};
+        const editGroupInfoPermission = settings.editGroupInfo || 'all';
+
         const [reqMember] = await this.dataSource.query(
           `SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
           [id, requestingUserId]
         );
-        if (!reqMember || reqMember.role !== 'admin') {
-          throw new Error('Only group admins can update group details');
+        if (!reqMember) {
+          throw new ForbiddenException('You are not a member of this group');
+        }
+
+        const isAdmin = reqMember.role === 'admin';
+        const canEdit = isAdmin || editGroupInfoPermission === 'all';
+        if (!canEdit) {
+          throw new ForbiddenException('Only group admins can update group details');
         }
       }
     }
@@ -543,6 +587,14 @@ export class ChatService implements OnModuleInit {
       fields.push(`metadata = $${idx++}`);
       values.push(typeof dto.metadata === 'string' ? dto.metadata : JSON.stringify(dto.metadata));
     }
+    if (dto.avatarUrl !== undefined) {
+      fields.push(`avatar_url = $${idx++}`);
+      values.push(dto.avatarUrl);
+    } else if (dto.avatar_url !== undefined) {
+      fields.push(`avatar_url = $${idx++}`);
+      values.push(dto.avatar_url);
+    }
+    
     
     if (fields.length === 0) return { success: true };
     
@@ -651,20 +703,24 @@ export class ChatService implements OnModuleInit {
   }
 
   async createInvitation(conversationId: string, invitedById: string, inviteeId: string) {
-    const [senderMember] = await this.dataSource.query(
-      `SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
-      [conversationId, invitedById]
-    );
-    if (!senderMember || senderMember.role !== 'admin') {
-      throw new Error('Only admins can invite new members to this group');
-    }
+    const [conv] = await this.dataSource.query(`SELECT type, name, metadata FROM conversations WHERE id = $1`, [conversationId]);
+    if (!conv) throw new NotFoundException('Conversation not found');
 
+    if (conv.type === 'group') {
+      const [senderMember] = await this.dataSource.query(
+        `SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
+        [conversationId, invitedById]
+      );
+      if (!senderMember) {
+        throw new ForbiddenException('You are not a member of this group');
+      }
+    }
     const [existingMember] = await this.dataSource.query(
       `SELECT id FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
       [conversationId, inviteeId]
     );
     if (existingMember) {
-      throw new Error('User is already a member of this conversation');
+      throw new BadRequestException('User is already a member of this conversation');
     }
 
     const [invitation] = await this.dataSource.query(
@@ -675,10 +731,6 @@ export class ChatService implements OnModuleInit {
       [conversationId, invitedById, inviteeId]
     );
 
-    const [conv] = await this.dataSource.query(
-      `SELECT name FROM conversations WHERE id = $1`,
-      [conversationId]
-    );
     const [inviter] = await this.dataSource.query(
       `SELECT full_name FROM users WHERE id = $1`,
       [invitedById]
@@ -766,12 +818,17 @@ export class ChatService implements OnModuleInit {
   }
 
   async removeMember(conversationId: string, userIdToRemove: string, requestingUserId: string) {
+    const [isSystemAdmin] = await this.dataSource.query(
+      `SELECT id FROM users WHERE id = $1 AND role_id IN (SELECT id FROM roles WHERE name IN ('Super Admin', 'Admin'))`,
+      [requestingUserId]
+    );
     const [reqMember] = await this.dataSource.query(
       `SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
       [conversationId, requestingUserId]
     );
-    if (!reqMember || reqMember.role !== 'admin') {
-      throw new Error('Only admins can remove members from this group');
+    const canRemove = isSystemAdmin || (reqMember && reqMember.role === 'admin');
+    if (!canRemove) {
+      throw new ForbiddenException('Only admins can remove members from this group');
     }
 
     // Get remaining members BEFORE removal for broadcasting
@@ -823,15 +880,20 @@ export class ChatService implements OnModuleInit {
 
   async changeMemberRole(conversationId: string, targetUserId: string, newRole: string, requestingUserId: string) {
     if (newRole !== 'admin' && newRole !== 'member' && newRole !== 'blocked') {
-      throw new Error('Invalid role specified');
+      throw new BadRequestException('Invalid role specified');
     }
 
+    const [isSystemAdmin] = await this.dataSource.query(
+      `SELECT id FROM users WHERE id = $1 AND role_id IN (SELECT id FROM roles WHERE name IN ('Super Admin', 'Admin'))`,
+      [requestingUserId]
+    );
     const [reqMember] = await this.dataSource.query(
       `SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
       [conversationId, requestingUserId]
     );
-    if (!reqMember || reqMember.role !== 'admin') {
-      throw new Error('Only admins can change member roles in this group');
+    const canChangeRole = isSystemAdmin || (reqMember && reqMember.role === 'admin');
+    if (!canChangeRole) {
+      throw new ForbiddenException('Only admins can change member roles in this group');
     }
 
     let systemContent = '';
@@ -947,7 +1009,7 @@ export class ChatService implements OnModuleInit {
       [requestId]
     );
     if (!request) {
-      throw new Error('Removal request not found or not pending');
+      throw new BadRequestException('Removal request not found or not pending');
     }
 
     const { conversation_id: conversationId, target_user_id: targetUserId } = request;
@@ -958,7 +1020,7 @@ export class ChatService implements OnModuleInit {
       [conversationId, adminId]
     );
     if (!adminMember || adminMember.role !== 'admin') {
-      throw new Error('Only admins can approve removal requests');
+      throw new ForbiddenException('Only admins can approve removal requests');
     }
 
     // Update the request status
@@ -978,7 +1040,7 @@ export class ChatService implements OnModuleInit {
       [requestId]
     );
     if (!request) {
-      throw new Error('Removal request not found or not pending');
+      throw new BadRequestException('Removal request not found or not pending');
     }
 
     const { conversation_id: conversationId } = request;
@@ -989,7 +1051,7 @@ export class ChatService implements OnModuleInit {
       [conversationId, adminId]
     );
     if (!adminMember || adminMember.role !== 'admin') {
-      throw new Error('Only admins can reject removal requests');
+      throw new ForbiddenException('Only admins can reject removal requests');
     }
 
     // Update request status to 'rejected'
@@ -1006,6 +1068,182 @@ export class ChatService implements OnModuleInit {
       });
     } catch (e) {}
 
+    return { success: true };
+  }
+
+  async joinConversation(conversationId: string, userId: string) {
+    const [conv] = await this.dataSource.query(`SELECT type, metadata, created_by FROM conversations WHERE id = $1`, [conversationId]);
+    if (!conv) throw new NotFoundException('Group not found');
+    if (conv.type !== 'group') throw new BadRequestException('Only group conversations can be joined via link');
+
+    const metadata = typeof conv.metadata === 'string' ? JSON.parse(conv.metadata) : (conv.metadata || {});
+    const settings = metadata.settings || {};
+    
+    // Check if already a member
+    const [exists] = await this.dataSource.query(
+      `SELECT id FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
+      [conversationId, userId]
+    );
+    if (exists) return { success: true, joined: true, message: 'Already a member' };
+
+    // If approval is required, create a join request in group_invitations
+    if (settings.approveMembers === true) {
+      const creatorId = conv.created_by || userId;
+      
+      const [invitation] = await this.dataSource.query(
+        `INSERT INTO group_invitations (conversation_id, invited_by_id, invitee_id, status)
+         VALUES ($1, $2, $3, 'pending')
+         ON CONFLICT (conversation_id, invitee_id) DO UPDATE SET status = 'pending', updated_at = NOW()
+         RETURNING *`,
+        [conversationId, creatorId, userId]
+      );
+      
+      // Notify admins
+      const admins = await this.dataSource.query(
+        `SELECT user_id FROM conversation_members WHERE conversation_id = $1 AND role = 'admin'`,
+        [conversationId]
+      );
+      const [user] = await this.dataSource.query(`SELECT full_name FROM users WHERE id = $1`, [userId]);
+      for (const admin of admins) {
+        try {
+          this.chatGateway.emitToUser(admin.user_id, 'notification:new', {
+            type: 'group_join_request',
+            conversationId,
+            message: `${user?.full_name || 'Someone'} requested to join your group.`
+          });
+        } catch (e) {}
+      }
+      return { success: true, joined: false, message: 'Join request sent to group admins' };
+    }
+
+    // Otherwise add directly
+    await this.dataSource.query(
+      `INSERT INTO conversation_members (conversation_id, user_id, role)
+       VALUES ($1, $2, 'member')
+       ON CONFLICT (conversation_id, user_id) DO UPDATE SET left_at = NULL, role = 'member'`,
+      [conversationId, userId]
+    );
+
+    const [user] = await this.dataSource.query(`SELECT full_name FROM users WHERE id = $1`, [userId]);
+    const systemContent = `${user?.full_name || 'A teammate'} joined via invite link.`;
+    await this.dataSource.query(
+      `INSERT INTO messages (conversation_id, sender_id, content, type)
+       VALUES ($1, $2, $3, 'system')`,
+      [conversationId, userId, systemContent]
+    );
+
+    try {
+      this.chatGateway.emitToConversation(conversationId, 'message:new', {
+        conversationId,
+        type: 'system',
+        content: systemContent
+      });
+      // also notify the user
+      this.chatGateway.emitToUser(userId, 'message:new', {
+        conversationId,
+        type: 'system',
+        content: systemContent
+      });
+    } catch (e) {}
+
+    return { success: true, joined: true, message: 'Joined group successfully' };
+  }
+
+  async getGroupInvitations(conversationId: string, adminId: string) {
+    const [reqMember] = await this.dataSource.query(
+      `SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
+      [conversationId, adminId]
+    );
+    if (!reqMember || reqMember.role !== 'admin') {
+      throw new ForbiddenException('Only group admins can view join requests');
+    }
+
+    return this.dataSource.query(
+      `SELECT gi.*, u.full_name AS user_name, u.login_id AS user_login, u.employee_id AS user_employee_id
+       FROM group_invitations gi
+       JOIN users u ON u.id = gi.invitee_id
+       WHERE gi.conversation_id = $1 AND gi.status = 'pending' AND gi.invited_by_id = gi.invitee_id
+       ORDER BY gi.created_at DESC`,
+      [conversationId]
+    );
+  }
+
+  async approveGroupInvitation(conversationId: string, invitationId: string, adminId: string) {
+    const [reqMember] = await this.dataSource.query(
+      `SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
+      [conversationId, adminId]
+    );
+    if (!reqMember || reqMember.role !== 'admin') {
+      throw new ForbiddenException('Only group admins can approve join requests');
+    }
+
+    const [invitation] = await this.dataSource.query(
+      `SELECT * FROM group_invitations WHERE id = $1 AND conversation_id = $2 AND status = 'pending'`,
+      [invitationId, conversationId]
+    );
+    if (!invitation) throw new NotFoundException('Join request not found or already processed');
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.query(
+        `UPDATE group_invitations SET status = 'accepted', updated_at = NOW() WHERE id = $1`,
+        [invitationId]
+      );
+
+      await manager.query(
+        `INSERT INTO conversation_members (conversation_id, user_id, role)
+         VALUES ($1, $2, 'member')
+         ON CONFLICT (conversation_id, user_id) DO UPDATE SET left_at = NULL, role = 'member'`,
+        [conversationId, invitation.invitee_id]
+      );
+
+      const [user] = await manager.query(`SELECT full_name FROM users WHERE id = $1`, [invitation.invitee_id]);
+      const systemContent = `${user?.full_name || 'A teammate'} was approved to join the group.`;
+      
+      await manager.query(
+        `INSERT INTO messages (conversation_id, sender_id, content, type)
+         VALUES ($1, $2, $3, 'system')`,
+         [conversationId, adminId, systemContent]
+      );
+
+      try {
+        this.chatGateway.emitToConversation(conversationId, 'message:new', {
+          conversationId,
+          type: 'system',
+          content: systemContent
+        });
+        this.chatGateway.emitToUser(invitation.invitee_id, 'message:new', {
+          conversationId,
+          type: 'system',
+          content: systemContent
+        });
+      } catch (e) {}
+    });
+
+    return { success: true };
+  }
+
+  async rejectGroupInvitation(conversationId: string, invitationId: string, adminId: string) {
+    const [reqMember] = await this.dataSource.query(
+      `SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
+      [conversationId, adminId]
+    );
+    if (!reqMember || reqMember.role !== 'admin') {
+      throw new ForbiddenException('Only group admins can reject join requests');
+    }
+
+    await this.dataSource.query(
+      `UPDATE group_invitations SET status = 'rejected', updated_at = NOW() WHERE id = $1 AND conversation_id = $2`,
+      [invitationId, conversationId]
+    );
+
+    return { success: true };
+  }
+
+  async toggleMute(conversationId: string, userId: string, isMuted: boolean) {
+    await this.dataSource.query(
+      `UPDATE conversation_members SET is_muted = $1 WHERE conversation_id = $2 AND user_id = $3`,
+      [isMuted, conversationId, userId]
+    );
     return { success: true };
   }
 }
