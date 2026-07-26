@@ -336,43 +336,66 @@
   border-bottom: 1px solid var(--wa-border);
   background: var(--wa-header);
   flex-shrink: 0;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-/* Chat header top row: name/status on left, action buttons on right */
-.chatHeaderRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  min-width: 0;
-}
-
-/* Chat header bottom row: search/filter controls - hidden on mobile */
-.chatHeaderControls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-}
-
-@media (max-width: 768px) {
-  .chatHeaderControls {
-    /* On mobile, keep controls but smaller */
-    flex-wrap: wrap;
-  }
-  .chatHeaderControls .desktopOnlyControl {
-    display: none !important;
-  }
+  gap: 12px;
 }
 
 .chatHeaderInfo {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
+  flex: 1;
 }
-.headerAvatar {
+
+.chatHeaderRight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.chatHeaderControls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chatActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Ensure call/video buttons are ALWAYS visible */
+.callBtn {
+  flex-shrink: 0 !important;
+  min-width: 36px;
+  min-height: 36px;
+}
+
+@media (max-width: 900px) {
+  .chatHeader {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .chatHeaderRight {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+@media (max-width: 600px) {
+  .chatHeaderControls {
+    display: none !important;
+  }
+  .chatHeaderRight {
+    width: auto;
+  }
+  .chatActions .blockBtn {
+    display: none !important;
+  }
+}
   width: 36px;
   height: 36px;
 }

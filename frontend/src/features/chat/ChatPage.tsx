@@ -3362,84 +3362,119 @@ export default function ChatPage() {
             </div>
           )}
 
-          {/* ── Chat Header (2-row layout) ── */}
+          {/* ── Chat Header (Sleek 1-line on laptop, responsive on mobile) ── */}
           <div className={styles.chatHeader} style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
-            {/* Row 1: Name/Status + Action Buttons — always visible on every screen size */}
-            <div className={styles.chatHeaderRow}>
-              <div className={styles.chatHeaderInfo}>
-                <button 
-                  className={`btn btn-ghost btn-icon ${styles['mobile-only-back-btn']}`} 
-                  onClick={() => { setChatSidebarCollapsed(false); navigate('/chat'); }}
-                  style={{ marginRight: '8px' }}
-                  title="Back to Chats"
-                >
-                  <ArrowLeft size={18} style={{ color: 'var(--text-secondary)' }} />
-                </button>
-                <button 
-                  className={`btn btn-ghost btn-icon ${styles['desktop-only-btn']}`} 
-                  onClick={() => setSidebarCollapsed && setSidebarCollapsed(!sidebarCollapsed)}
-                  style={{ marginRight: '8px' }}
-                  title="Toggle Sidebar"
-                >
-                  <Menu size={18} style={{ color: 'var(--text-secondary)' }} />
-                </button>
-                <button 
-                  className={`btn btn-ghost btn-icon ${styles['desktop-only-btn']}`} 
-                  onClick={() => setChatSidebarCollapsed(!chatSidebarCollapsed)}
-                  style={{ marginRight: '8px' }}
-                  title={chatSidebarCollapsed ? "Expand Conversation List" : "Collapse Conversation List"}
-                >
-                  {chatSidebarCollapsed
-                    ? <ChevronRight size={18} style={{ color: 'var(--text-secondary)' }} />
-                    : <ChevronRight size={18} style={{ color: 'var(--text-secondary)', transform: 'rotate(180deg)' }} />}
-                </button>
-                <div 
-                  onClick={() => setShowGroupDetails(!showGroupDetails)} 
-                  style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', flex: 1, minWidth: 0 }}
-                  title="Click to view conversation info and settings"
-                >
-                  <div className={styles.convAvatar} style={{ background: 'var(--gradient-brand)', padding: 0, overflow: 'hidden' }}>
-                    {activeConv.avatar_url || activeConv.avatarUrl ? (
-                      <img src={activeConv.avatar_url || activeConv.avatarUrl} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    ) : (
-                      activeConv.type === 'group' || activeConv.type === 'department'
-                        ? <Hash size={16} />
-                        : (partnerName?.charAt(0).toUpperCase() || 'U')
-                    )}
+            <div className={styles.chatHeaderInfo}>
+              <button 
+                className={`btn btn-ghost btn-icon ${styles['mobile-only-back-btn']}`} 
+                onClick={() => { setChatSidebarCollapsed(false); navigate('/chat'); }}
+                style={{ marginRight: '8px' }}
+                title="Back to Chats"
+              >
+                <ArrowLeft size={18} style={{ color: 'var(--text-secondary)' }} />
+              </button>
+              <button 
+                className={`btn btn-ghost btn-icon ${styles['desktop-only-btn']}`} 
+                onClick={() => setSidebarCollapsed && setSidebarCollapsed(!sidebarCollapsed)}
+                style={{ marginRight: '8px' }}
+                title="Toggle Sidebar"
+              >
+                <Menu size={18} style={{ color: 'var(--text-secondary)' }} />
+              </button>
+              <button 
+                className={`btn btn-ghost btn-icon ${styles['desktop-only-btn']}`} 
+                onClick={() => setChatSidebarCollapsed(!chatSidebarCollapsed)}
+                style={{ marginRight: '8px' }}
+                title={chatSidebarCollapsed ? "Expand Conversation List" : "Collapse Conversation List"}
+              >
+                {chatSidebarCollapsed
+                  ? <ChevronRight size={18} style={{ color: 'var(--text-secondary)' }} />
+                  : <ChevronRight size={18} style={{ color: 'var(--text-secondary)', transform: 'rotate(180deg)' }} />}
+              </button>
+              <div 
+                onClick={() => setShowGroupDetails(!showGroupDetails)} 
+                style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', flex: 1, minWidth: 0 }}
+                title="Click to view conversation info and settings"
+              >
+                <div className={styles.convAvatar} style={{ background: 'var(--gradient-brand)', padding: 0, overflow: 'hidden' }}>
+                  {activeConv.avatar_url || activeConv.avatarUrl ? (
+                    <img src={activeConv.avatar_url || activeConv.avatarUrl} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    activeConv.type === 'group' || activeConv.type === 'department'
+                      ? <Hash size={16} />
+                      : (partnerName?.charAt(0).toUpperCase() || 'U')
+                  )}
+                </div>
+                <div>
+                  <div className={styles.chatName}>
+                    {activeConv.type === 'private' ? partnerName : (activeConv.name || 'GSVConnect Group')}
                   </div>
-                  <div>
-                    <div className={styles.chatName}>
-                      {activeConv.type === 'private' ? partnerName : (activeConv.name || 'GSVConnect Group')}
-                    </div>
-                    <div className={styles.chatStatus}>
-                      {activeConv.type === 'private' ? (
-                        (() => {
-                          const isOnline = partner ? onlineUsers.has(partner.id) : false;
-                          if (isOnline) {
-                            return (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <span className="status-dot online" style={{ width: '6px', height: '6px', background: 'var(--brand-success)' }} />
-                                <span>Online</span>
-                              </div>
-                            );
-                          } else {
-                            return (
-                              <span>Offline {partner?.lastSeen ? `| Last seen ${new Date(partner.lastSeen).toLocaleDateString('en-IN')}` : ''}</span>
-                            );
-                          }
-                        })()
-                      ) : (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span className="status-dot online" style={{ width: '6px', height: '6px', background: 'var(--brand-primary)' }} />
-                          <span>Department Public Room</span>
-                        </div>
-                      )}
-                    </div>
+                  <div className={styles.chatStatus}>
+                    {activeConv.type === 'private' ? (
+                      (() => {
+                        const isOnline = partner ? onlineUsers.has(partner.id) : false;
+                        if (isOnline) {
+                          return (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span className="status-dot online" style={{ width: '6px', height: '6px', background: 'var(--brand-success)' }} />
+                              <span>Online</span>
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <span>Offline {partner?.lastSeen ? `| Last seen ${new Date(partner.lastSeen).toLocaleDateString('en-IN')}` : ''}</span>
+                          );
+                        }
+                      })()
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span className="status-dot online" style={{ width: '6px', height: '6px', background: 'var(--brand-primary)' }} />
+                        <span>Department Public Room</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
+            </div>
 
-              {/* Action buttons — always visible in row 1 */}
+            {/* Header Right Group: Controls + Actions */}
+            <div className={styles.chatHeaderRight}>
+              <div className={styles.chatHeaderControls}>
+                <select
+                  value={fileCategory}
+                  onChange={e => setFileCategory(e.target.value as any)}
+                  className="form-control"
+                  style={{
+                    width: '90px',
+                    height: '28px',
+                    fontSize: '11px',
+                    padding: '0 4px',
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-color)',
+                    color: 'var(--text-primary)',
+                    borderRadius: '6px'
+                  }}
+                  title="Filter by file type"
+                >
+                  <option value="all">All Files</option>
+                  <option value="image">Images</option>
+                  <option value="doc">Docs</option>
+                  <option value="zip">Zips</option>
+                  <option value="folder">Folders</option>
+                </select>
+                <div className="search-bar" style={{ width: '150px' }}>
+                  <Search size={12} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }} />
+                  <input
+                    type="text"
+                    placeholder="🔍 Search Files..."
+                    value={fileSearch}
+                    onChange={e => setFileSearch(e.target.value)}
+                    className="form-control"
+                    style={{ paddingLeft: '28px', height: '28px', fontSize: '11px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                  />
+                </div>
+              </div>
+
               <div className={styles.chatActions}>
                 {activeConv?.type === 'private' && partner && (
                   <button 
@@ -3482,7 +3517,7 @@ export default function ChatPage() {
                 >
                   <CheckSquare size={18} />
                 </button>
-                {/* Call Buttons — always visible, never hidden on any screen */}
+                {/* Call Buttons — always visible, never hidden */}
                 <button 
                   className={`btn btn-ghost btn-icon ${styles.callBtn}`}
                   onClick={() => handleCallHandshake('audio')} 
@@ -3499,43 +3534,6 @@ export default function ChatPage() {
                 >
                   <Video size={18} style={{ color: 'var(--brand-primary)' }} />
                 </button>
-              </div>
-            </div>
-
-            {/* Row 2: File Search + Filter Controls (collapse on mobile) */}
-            <div className={styles.chatHeaderControls}>
-              <select
-                value={fileCategory}
-                onChange={e => setFileCategory(e.target.value as any)}
-                className={`form-control ${styles.desktopOnlyControl}`}
-                style={{
-                  width: '90px',
-                  height: '28px',
-                  fontSize: '11px',
-                  padding: '0 4px',
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-primary)',
-                  borderRadius: '6px'
-                }}
-                title="Filter by file type"
-              >
-                <option value="all">All Files</option>
-                <option value="image">Images</option>
-                <option value="doc">Docs</option>
-                <option value="zip">Zips</option>
-                <option value="folder">Folders</option>
-              </select>
-              <div className={`search-bar ${styles.desktopOnlyControl}`} style={{ width: '160px' }}>
-                <Search size={12} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }} />
-                <input
-                  type="text"
-                  placeholder="🔍 Search Files..."
-                  value={fileSearch}
-                  onChange={e => setFileSearch(e.target.value)}
-                  className="form-control"
-                  style={{ paddingLeft: '28px', height: '28px', fontSize: '11px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
-                />
               </div>
             </div>
           </div>
