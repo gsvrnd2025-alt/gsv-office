@@ -16,6 +16,11 @@ const path = require('path');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
+const urlModule = require('url');
+
+function isWebContentsValid(win) {
+  return win && typeof win.isDestroyed === 'function' && !win.isDestroyed() && win.webContents && typeof win.webContents.isDestroyed === 'function' && !win.webContents.isDestroyed();
+}
 
 // ─── Prevent second instance ─────────────────────────────────────────────────
 const gotLock = app.requestSingleInstanceLock();
@@ -163,11 +168,14 @@ function createPopup(type, payload) {
     }
   });
 
-  // Load call-popup.html which exists (popup.html was the legacy name and does not exist)
-  activePopup.loadFile(path.join(__dirname, 'call-popup.html'));
+  // Load call-popup.html using pathToFileURL to ensure text/html mime-type and proper CSS parsing
+  const popupHtmlUrl = urlModule.pathToFileURL(path.join(__dirname, 'call-popup.html')).href;
+  activePopup.loadURL(popupHtmlUrl);
   
   activePopup.webContents.once('did-finish-load', () => {
-    activePopup.webContents.send('popup-data', { type, payload });
+    if (isWebContentsValid(activePopup)) {
+      activePopup.webContents.send('popup-data', { type, payload });
+    }
   });
 
   activePopup.on('closed', () => {
@@ -194,7 +202,7 @@ ipcMain.on('popup-action', (event, { action, type, payload }) => {
   }
   
   // Forward the action to the renderer
-  if (mainWindow) {
+  if (isWebContentsValid(mainWindow)) {
     mainWindow.webContents.send(`popup-response`, { action, type, payload });
   }
   
@@ -214,13 +222,13 @@ ipcMain.on('incoming-message', (event, payload) => {
 
   notification.on('click', () => {
     openMainWindow();
-    if (mainWindow) {
+    if (isWebContentsValid(mainWindow)) {
       mainWindow.webContents.send('notification-click', payload);
     }
   });
 
   notification.on('reply', (e, replyText) => {
-    if (mainWindow) {
+    if (isWebContentsValid(mainWindow)) {
       mainWindow.webContents.send('notification-reply', { ...payload, replyText });
     }
   });
@@ -545,7 +553,8 @@ function openSettingsWindow() {
     show: false
   });
 
-  settingsWindow.loadFile(path.join(__dirname, 'settings.html'));
+  const settingsHtmlUrl = urlModule.pathToFileURL(path.join(__dirname, 'settings.html')).href;
+  settingsWindow.loadURL(settingsHtmlUrl);
   
   settingsWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
     console.error(`[Settings Window] Failed to load: ${errorDescription} (${errorCode})`);
@@ -834,11 +843,14 @@ ipcMain.handle('show-incoming-call-popup', async (event, data) => {
     }
   });
 
-  callPopupWindow.loadFile(path.join(__dirname, 'call-popup.html'));
+  const popupHtmlUrl = urlModule.pathToFileURL(path.join(__dirname, 'call-popup.html')).href;
+  callPopupWindow.loadURL(popupHtmlUrl);
 
   callPopupWindow.webContents.once('did-finish-load', () => {
-    callPopupWindow.webContents.send('call-data', data);
-    callPopupWindow.showInactive();
+    if (isWebContentsValid(callPopupWindow)) {
+      callPopupWindow.webContents.send('call-data', data);
+      callPopupWindow.showInactive();
+    }
   });
 
   callPopupWindow.on('closed', () => {
@@ -1159,7 +1171,7 @@ ipcMain.on('call-action-response', (event, response) => {
     action = response;
   }
   
-  if (mainWindow && mainWindow.webContents) {
+  if (isWebContentsValid(mainWindow)) {
     const eventName = type === 'remote-desktop' ? 'gsv-remote-action' : 'gsv-call-action';
     mainWindow.webContents.executeJavaScript(`
       window.dispatchEvent(new CustomEvent('${eventName}', { detail: '${action}' }));
@@ -1203,7 +1215,7 @@ function handleDeepLink(url) {
   openMainWindow();
   
   // Pass the deep link to the frontend if it's ready
-  if (mainWindow && mainWindow.webContents) {
+  if (isWebContentsValid(mainWindow)) {
     // We send it via executeJavaScript as a custom event
     mainWindow.webContents.executeJavaScript(`
       window.dispatchEvent(new CustomEvent('gsv-deep-link', { detail: '${url}' }));
