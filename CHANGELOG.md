@@ -1,3 +1,21 @@
+## Release v1.0.38 (2026-07-26)
+
+595f1f7 fix: chat mobile call buttons layout, ringtone enhancement with rejection audio, remote desktop online user sorting, and sound resonance updates
+ce90dc0 chore(release): bump version to v1.0.37 [skip ci]
+b6ae3ba fix: resolve admin dashboard initialization crash by proxying getAdminComprehensiveData
+4f2b769 chore(release): bump version to v1.0.36 [skip ci]
+3af5712 fix: resolve admin dashboard data loading and fallback proxy connection logic
+75ddd22 chore(release): bump version to v1.0.35 [skip ci]
+487351d fix: update clasp script id, prevent duplicate sync error prefix, and resolve mobile layout overlap and scrollbar issues
+ec0e4a9 chore(release): bump version to v1.0.34 [skip ci]
+068f2a1 Propagate synchronization errors up to the caller in syncInternshipData
+b3b50a6 chore(release): bump version to v1.0.33 [skip ci]
+2601e74 Improve Google Sheets sync response parsing and error handling
+a420f9b chore(release): bump version to v1.0.32 [skip ci]
+1e6f21a feat: fix google.script.run shims, implement real backend resolvers, add manual sync settings, and add pull-to-refresh on mobile client
+083cb47 chore(release): bump version to v1.0.31 [skip ci]
+5305e1d feat: serve internship portal HTML pages locally with google.script.run proxy shims
+
 ## Release v1.0.37 (2026-06-13)
 
 b6ae3ba fix: resolve admin dashboard initialization crash by proxying getAdminComprehensiveData
