@@ -22,6 +22,19 @@ function isWebContentsValid(win) {
   return win && typeof win.isDestroyed === 'function' && !win.isDestroyed() && win.webContents && typeof win.webContents.isDestroyed === 'function' && !win.webContents.isDestroyed();
 }
 
+function getCallPopupDataUrl() {
+  try {
+    const htmlPath = path.join(__dirname, 'call-popup.html');
+    if (fs.existsSync(htmlPath)) {
+      const content = fs.readFileSync(htmlPath, 'utf8');
+      return 'data:text/html;charset=utf-8,' + encodeURIComponent(content);
+    }
+  } catch (e) {
+    console.error('Failed to read call-popup.html:', e);
+  }
+  return urlModule.pathToFileURL(path.join(__dirname, 'call-popup.html')).href;
+}
+
 // ─── Prevent second instance ─────────────────────────────────────────────────
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -168,9 +181,8 @@ function createPopup(type, payload) {
     }
   });
 
-  // Load call-popup.html using pathToFileURL to ensure text/html mime-type and proper CSS parsing
-  const popupHtmlUrl = urlModule.pathToFileURL(path.join(__dirname, 'call-popup.html')).href;
-  activePopup.loadURL(popupHtmlUrl);
+  // Load call-popup.html using data URI to guarantee text/html MIME parsing
+  activePopup.loadURL(getCallPopupDataUrl());
   
   activePopup.webContents.once('did-finish-load', () => {
     if (isWebContentsValid(activePopup)) {
@@ -843,8 +855,7 @@ ipcMain.handle('show-incoming-call-popup', async (event, data) => {
     }
   });
 
-  const popupHtmlUrl = urlModule.pathToFileURL(path.join(__dirname, 'call-popup.html')).href;
-  callPopupWindow.loadURL(popupHtmlUrl);
+  callPopupWindow.loadURL(getCallPopupDataUrl());
 
   callPopupWindow.webContents.once('did-finish-load', () => {
     if (isWebContentsValid(callPopupWindow)) {
