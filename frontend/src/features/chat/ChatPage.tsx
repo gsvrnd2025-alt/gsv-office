@@ -101,7 +101,7 @@ import Editor from '@monaco-editor/react';
 import { useAuthStore } from '../../store/auth.store';
 import logoImg from '../../assets/gsvlogo.png';
 import { SoundManager } from '../../utils/sound';
-import { copyTextToClipboard } from '../../utils/clipboard';
+import { copyTextToClipboard, copyImageToClipboard } from '../../utils/clipboard';
 import toast from 'react-hot-toast';
 import styles from './ChatPage.module.css';
 
@@ -2898,6 +2898,12 @@ export default function ChatPage() {
               <span style={{ fontSize: '15px', fontWeight: 600 }}>{previewFile.name}</span>
             </div>
             <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+              {previewFile.type === 'photo' && (
+                <button style={{ background: 'rgba(99, 102, 241, 0.3)', border: '1px solid rgba(99, 102, 241, 0.6)', borderRadius: '6px', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px 10px', gap: '6px', fontSize: '13px', fontWeight: 600 }} onClick={async (e) => { e.stopPropagation(); const toastId = toast.loading('Copying image to RAM clipboard...'); const ok = await copyImageToClipboard(previewFile.url, previewFile.name); if (ok) toast.success('Image copied to clipboard! 📋', { id: toastId }); else toast.error('Could not copy image to clipboard.', { id: toastId }); }} title="Copy Image to RAM Clipboard">
+                  <Copy size={16} />
+                  <span>Copy Image</span>
+                </button>
+              )}
               <button style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={(e) => { e.stopPropagation(); handleShareFile({ fileUrl: previewFile.url, fileName: previewFile.name }); }} title="Share Link">
                 <Send size={18} />
               </button>
@@ -5697,22 +5703,12 @@ export default function ChatPage() {
                 } else {
                   const isImage = msgContextMenu.msg.type === 'photo' || finalFileName.toLowerCase().match(/\.(jpg|jpeg|png|gif|svg|webp)$/);
                   if (isImage) {
-                    const toastId = toast.loading(`Copying image to clipboard...`);
-                    try {
-                      const response = await fetch(fUrl);
-                      const blob = await response.blob();
-                      await navigator.clipboard.write([
-                        new ClipboardItem({ [blob.type]: blob })
-                      ]);
-                      toast.success('Image copied to clipboard! 📋', { id: toastId });
-                    } catch (err: any) {
-                      const fullUrl = fUrl.startsWith('http') ? fUrl : `${window.location.origin}${fUrl}`;
-                      const success = copyTextToClipboard(fullUrl);
-                      if (success) {
-                        toast.success('Image link copied to clipboard! 📋', { id: toastId });
-                      } else {
-                        toast.error('Could not copy image or link. Try right-clicking to copy.', { id: toastId });
-                      }
+                    const toastId = toast.loading(`Copying image to RAM clipboard...`);
+                    const ok = await copyImageToClipboard(fUrl, finalFileName);
+                    if (ok) {
+                      toast.success('Image copied to clipboard! 📋 (Ready to paste)', { id: toastId });
+                    } else {
+                      toast.error('Could not copy image. Link copied to clipboard.', { id: toastId });
                     }
                   } else {
                     const fullUrl = fUrl.startsWith('http') ? fUrl : `${window.location.origin}${fUrl}`;
@@ -5723,7 +5719,11 @@ export default function ChatPage() {
               }
               setMsgContextMenu(null);
             }} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', padding: '8px 12px', cursor: 'pointer', fontWeight: 600 }}>
-              <Copy size={15} /> {(window as any).gsvDesktop ? 'Copy File/Folder to PC Clipboard' : (msgContextMenu.msg.type === 'folder' ? 'Copy Folder Link' : 'Copy File Link')}
+              <Copy size={15} /> {
+                msgContextMenu.msg.type === 'photo' || (msgContextMenu.msg.file_name || msgContextMenu.msg.fileName || '').toLowerCase().match(/\.(jpg|jpeg|png|gif|svg|webp)$/)
+                  ? 'Copy Image to Clipboard'
+                  : ((window as any).gsvDesktop ? 'Copy File/Folder to PC Clipboard' : (msgContextMenu.msg.type === 'folder' ? 'Copy Folder Link' : 'Copy File Link'))
+              }
             </div>
           )}
 

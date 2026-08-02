@@ -217,8 +217,30 @@ export default function RegisterPage() {
                 onFocus={handleFocus}
                 onBlur={handleBlur}
               />
-              <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', display: 'flex', padding: 0 }}>
-                {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                title={showPassword ? "Hide password" : "Show password"}
+                style={{
+                  position: 'absolute',
+                  right: '8px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: showPassword ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'rgba(99, 102, 241, 0.25)',
+                  border: '1px solid rgba(99, 102, 241, 0.6)',
+                  borderRadius: '6px',
+                  color: showPassword ? '#ffffff' : '#818cf8',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '4px 6px',
+                  transition: 'all 0.2s ease',
+                  boxShadow: showPassword ? '0 0 10px rgba(99, 102, 241, 0.6)' : 'none',
+                  zIndex: 3
+                }}
+              >
+                {showPassword ? <EyeOff size={14} strokeWidth={2.2} /> : <Eye size={14} strokeWidth={2.2} />}
               </button>
             </div>
           </div>

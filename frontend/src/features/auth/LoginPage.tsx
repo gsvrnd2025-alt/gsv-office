@@ -195,8 +195,42 @@ export default function LoginPage() {
                     onFocus={e => { e.target.style.borderColor = '#6366f1'; e.target.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.2)'; }}
                     onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; e.target.style.boxShadow = 'none'; }}
                   />
-                  <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', display: 'flex', padding: 0 }}>
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    title={showPassword ? "Hide password" : "Show password"}
+                    style={{
+                      position: 'absolute',
+                      right: '8px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: showPassword ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'rgba(99, 102, 241, 0.25)',
+                      border: '1px solid rgba(99, 102, 241, 0.6)',
+                      borderRadius: '8px',
+                      color: showPassword ? '#ffffff' : '#818cf8',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '6px 8px',
+                      transition: 'all 0.2s ease',
+                      boxShadow: showPassword ? '0 0 12px rgba(99, 102, 241, 0.6)' : '0 2px 6px rgba(0, 0, 0, 0.25)',
+                      zIndex: 3
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.background = 'linear-gradient(135deg, #6366f1, #8b5cf6)';
+                      e.currentTarget.style.color = '#ffffff';
+                      e.currentTarget.style.transform = 'translateY(-50%) scale(1.08)';
+                      e.currentTarget.style.boxShadow = '0 0 14px rgba(99, 102, 241, 0.8)';
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.background = showPassword ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'rgba(99, 102, 241, 0.25)';
+                      e.currentTarget.style.color = showPassword ? '#ffffff' : '#818cf8';
+                      e.currentTarget.style.transform = 'translateY(-50%) scale(1)';
+                      e.currentTarget.style.boxShadow = showPassword ? '0 0 12px rgba(99, 102, 241, 0.6)' : '0 2px 6px rgba(0, 0, 0, 0.25)';
+                    }}
+                  >
+                    {showPassword ? <EyeOff size={16} strokeWidth={2.2} /> : <Eye size={16} strokeWidth={2.2} />}
                   </button>
                 </div>
               </div>
@@ -379,8 +413,42 @@ export default function LoginPage() {
                       outline: 'none', boxSizing: 'border-box',
                     }}
                   />
-                  <button type="button" onClick={() => setShowNewPassword(!showNewPassword)} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', display: 'flex', padding: 0 }}>
-                    {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    title={showNewPassword ? "Hide password" : "Show password"}
+                    style={{
+                      position: 'absolute',
+                      right: '8px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: showNewPassword ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'rgba(99, 102, 241, 0.25)',
+                      border: '1px solid rgba(99, 102, 241, 0.6)',
+                      borderRadius: '8px',
+                      color: showNewPassword ? '#ffffff' : '#818cf8',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '6px 8px',
+                      transition: 'all 0.2s ease',
+                      boxShadow: showNewPassword ? '0 0 12px rgba(99, 102, 241, 0.6)' : '0 2px 6px rgba(0, 0, 0, 0.25)',
+                      zIndex: 3
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.background = 'linear-gradient(135deg, #6366f1, #8b5cf6)';
+                      e.currentTarget.style.color = '#ffffff';
+                      e.currentTarget.style.transform = 'translateY(-50%) scale(1.08)';
+                      e.currentTarget.style.boxShadow = '0 0 14px rgba(99, 102, 241, 0.8)';
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.background = showNewPassword ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'rgba(99, 102, 241, 0.25)';
+                      e.currentTarget.style.color = showNewPassword ? '#ffffff' : '#818cf8';
+                      e.currentTarget.style.transform = 'translateY(-50%) scale(1)';
+                      e.currentTarget.style.boxShadow = showNewPassword ? '0 0 12px rgba(99, 102, 241, 0.6)' : '0 2px 6px rgba(0, 0, 0, 0.25)';
+                    }}
+                  >
+                    {showNewPassword ? <EyeOff size={16} strokeWidth={2.2} /> : <Eye size={16} strokeWidth={2.2} />}
                   </button>
                 </div>
               </div>
