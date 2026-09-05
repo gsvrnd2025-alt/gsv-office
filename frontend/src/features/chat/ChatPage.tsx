@@ -3451,6 +3451,14 @@ export default function ChatPage() {
                       type="button"
                       className="btn btn-ghost btn-xs"
                       style={{ fontSize: '10px', padding: '2px 6px', border: '1px solid var(--border-color)' }}
+                      onClick={() => setSmbForm({ ...smbForm, path: '\\\\192.168.0.177\\GSVR_Movies\\RnD Projects', name: 'RnD Projects' })}
+                    >
+                      📁 RnD Projects
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-xs"
+                      style={{ fontSize: '10px', padding: '2px 6px', border: '1px solid var(--border-color)' }}
                       onClick={() => setSmbForm({ ...smbForm, path: '\\\\192.168.0.177\\apps', name: 'apps' })}
                     >
                       📁 apps
