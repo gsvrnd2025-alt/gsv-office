@@ -111,6 +111,9 @@ function runRemoteDeployment() {
     `midclt call app.stop "gsv-office" || true`,
     `midclt call app.start "gsv-office"`,
     `sleep 10`,
+    `docker cp ${REMOTE_APP_DIR}/frontend/dist/. gsv_nginx:/usr/share/nginx/html/ || true`,
+    `docker cp ${REMOTE_APP_DIR}/backend/dist/. gsv_api:/app/dist/ || true`,
+    `docker exec gsv_nginx nginx -s reload || true`,
     `midclt call app.query`
   ].join(' && ');
   
