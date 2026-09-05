@@ -6,7 +6,6 @@ import { Repository, Like, FindOptionsWhere } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Cron, CronExpression } from '@nestjs/schedule';
 import { User } from './user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/create-user.dto';
@@ -21,28 +20,6 @@ export class UsersService implements OnApplicationBootstrap {
 
   async onApplicationBootstrap() {
     try {
-      // Ensure internship_tables exists
-      await this.usersRepo.query(`
-        CREATE TABLE IF NOT EXISTS internship_tables (
-          table_name VARCHAR(100) NOT NULL,
-          record_id VARCHAR(255) NOT NULL,
-          data JSONB NOT NULL DEFAULT '{}',
-          updated_at TIMESTAMPTZ DEFAULT NOW(),
-          is_synced BOOLEAN DEFAULT false,
-          PRIMARY KEY (table_name, record_id)
-        );
-        CREATE INDEX IF NOT EXISTS idx_internship_tables_name ON internship_tables(table_name);
-      `);
-      console.log('[UsersService] Verified internship_tables exists.');
-
-      // Reset all users' online status to false on application bootstrap
-      await this.usersRepo.createQueryBuilder()
-        .update(User)
-        .set({ isOnline: false })
-        .where('is_online = :isOnline', { isOnline: true })
-        .execute();
-      console.log('[UsersService] Reset all users online status to offline on bootstrap.');
-
       const count = await this.usersRepo.count();
       if (count <= 1) {
         console.log('[UsersService] Only default user found. Automatically triggering Google Sheets sync...');
@@ -292,26 +269,14 @@ export class UsersService implements OnApplicationBootstrap {
       const roles = await this.usersRepo.query(`SELECT id, name, description, color, level, is_system AS "isSystem" FROM roles WHERE deleted_at IS NULL`);
       const settings = await this.usersRepo.query(`SELECT key, value, category, description FROM system_settings`);
 
-      // 2. Fetch sheet sync settings (with fallback)
-      let deploymentId = '';
+      // 2. Fetch sheet sync settings
       const deployResult = await this.usersRepo.query(`SELECT value FROM system_settings WHERE key = 'google_sheets_deployment_id'`);
-      if (deployResult.length > 0 && deployResult[0].value) {
-        deploymentId = deployResult[0].value;
-      } else {
-        const altDeployResult = await this.usersRepo.query(`SELECT value FROM system_settings WHERE key = 'google_appscript_deployment_id'`);
-        if (altDeployResult.length > 0) deploymentId = altDeployResult[0].value;
-      }
+      const deploymentId = deployResult.length > 0 && deployResult[0].value ? deployResult[0].value : '';
       
-      let spreadsheetUrl = '';
       const sheetUrlResult = await this.usersRepo.query(`SELECT value FROM system_settings WHERE key = 'google_sheets_spreadsheet_url'`);
-      if (sheetUrlResult.length > 0 && sheetUrlResult[0].value) {
-        spreadsheetUrl = sheetUrlResult[0].value;
-      } else {
-        const altSheetUrlResult = await this.usersRepo.query(`SELECT value FROM system_settings WHERE key = 'google_sheet_link'`);
-        if (altSheetUrlResult.length > 0) spreadsheetUrl = altSheetUrlResult[0].value;
-      }
+      const spreadsheetUrl = sheetUrlResult.length > 0 && sheetUrlResult[0].value ? sheetUrlResult[0].value : '';
 
-      let syncUrl = 'https://script.google.com/macros/s/AKfycbxvPlPHaajzeUdf8JqzPBe_5n7vswC18RPv1N9rwprjf1w6k-4slmE2aCzjDgDRsoIGDw/exec';
+      let syncUrl = 'https://script.google.com/macros/s/AKfycbw6pAarz91qhP5HfTgnustbqF8ftTEpRV0Y03AuwaLRfzoILd3HIeVez0AqerATPyE8/exec';
       if (deploymentId && deploymentId.trim() !== '') {
         syncUrl = `https://script.google.com/macros/s/${deploymentId.trim()}/exec`;
       }
@@ -334,26 +299,7 @@ export class UsersService implements OnApplicationBootstrap {
         throw new BadRequestException(`Google Sheets endpoint returned status ${response.status}`);
       }
 
-      const responseText = await response.text();
-      let result: any;
-      try {
-        result = JSON.parse(responseText);
-      } catch (e) {
-        let errorMsg = 'Google Sheets Synchronization failed: Unexpected response format from Google Apps Script (not valid JSON).';
-        if (responseText.includes('Script function not found: doPost')) {
-          errorMsg = 'Google Sheets Synchronization failed: The Apps Script Web App deployment does not contain the doPost function. Please update your Web App deployment to the latest version in the Google Apps Script Editor.';
-        } else if (responseText.includes('You need permission') || responseText.includes('You need access') || responseText.includes('requesting_access')) {
-          errorMsg = 'Google Sheets Synchronization failed: Access denied. Please ensure the Apps Script Web App is deployed with "Execute as: Me" and "Who has access: Anyone".';
-        } else if (responseText.includes('unable to open the file') || responseText.includes('Sorry, unable to open')) {
-          errorMsg = 'Google Sheets Synchronization failed: Unable to open the Spreadsheet. Please check your Google Sheet link/permissions and ensure the Apps Script has access to it.';
-        } else {
-          const titleMatch = responseText.match(/<title>([\s\S]*?)<\/title>/i);
-          const title = titleMatch ? titleMatch[1].trim() : 'Error';
-          errorMsg += ` [Page Title: "${title}"] Preview: ${responseText.substring(0, 100).replace(/\s+/g, ' ')}...`;
-        }
-        throw new BadRequestException(errorMsg);
-      }
-
+      const result = await response.json();
       if (!result.success) {
         throw new BadRequestException(result.message || 'Sync failed on Apps Script');
       }
@@ -463,11 +409,7 @@ export class UsersService implements OnApplicationBootstrap {
 
       return { success: true, message: 'Google Sheets synchronization completed successfully' };
     } catch (err: any) {
-      const msg = err.message?.startsWith('Google Sheets Synchronization failed:')
-        ? err.message
-        : `Google Sheets Synchronization failed: ${err.message}`;
-      console.warn(`[UsersService] Google Sheets sync failed: ${msg}. Bypassing sync, operating in local-only database mode.`);
-      return { success: true, message: 'Google Sheets synchronization bypassed (Local Database Mode Active)' };
+      throw new BadRequestException(`Google Sheets Synchronization failed: ${err.message}`);
     }
   }
 
@@ -498,51 +440,6 @@ export class UsersService implements OnApplicationBootstrap {
       }
     } catch (err) {
       console.error(`[UsersService] Failed to create private folder for user ${user.loginId}:`, err);
-    }
-  }
-
-  @Cron(CronExpression.EVERY_MINUTE)
-  async handleAutoSync() {
-    try {
-      // 1. Check if sync is enabled
-      const syncEnabledResult = await this.usersRepo.query(
-        `SELECT value FROM system_settings WHERE key = 'google_sheets_sync_enabled'`
-      );
-      const isEnabled = syncEnabledResult.length > 0 ? syncEnabledResult[0].value === 'true' : true;
-      if (!isEnabled) return;
-
-      // 2. Read sync interval in minutes
-      const intervalResult = await this.usersRepo.query(
-        `SELECT value FROM system_settings WHERE key = 'google_sheets_sync_interval_minutes'`
-      );
-      const intervalMinutes = intervalResult.length > 0 ? parseInt(intervalResult[0].value, 10) || 60 : 60;
-
-      // 3. Read last sync timestamp
-      const lastSyncResult = await this.usersRepo.query(
-        `SELECT value FROM system_settings WHERE key = 'google_sheets_last_sync'`
-      );
-      const lastSyncStr = lastSyncResult.length > 0 ? lastSyncResult[0].value : '';
-
-      const lastSync = lastSyncStr ? new Date(lastSyncStr) : new Date(0);
-      const now = new Date();
-      const diffMs = now.getTime() - lastSync.getTime();
-      const diffMins = diffMs / (1000 * 60);
-
-      if (diffMins >= intervalMinutes) {
-        console.log(`[UsersService] Triggering auto-sync to Google Sheets (Interval: ${intervalMinutes}m)...`);
-        await this.syncSheets();
-        
-        // Update last sync timestamp in database
-        const timestamp = new Date().toISOString();
-        await this.usersRepo.query(
-          `INSERT INTO system_settings (key, value, category, description, updated_at)
-           VALUES ('google_sheets_last_sync', $1, 'system', 'Timestamp of last Google Sheets sync', NOW())
-           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-          [timestamp]
-        );
-      }
-    } catch (err) {
-      console.error('[UsersService] Error in automatic Google Sheets sync:', err);
     }
   }
 }

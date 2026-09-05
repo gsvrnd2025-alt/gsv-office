@@ -12,15 +12,7 @@ export default function ServerPage() {
   const [sheetLink, setSheetLink] = useState('');
   const [sheetId, setSheetId] = useState('');
   const [appscriptId, setAppscriptId] = useState('');
-  const [syncEnabled, setSyncEnabled] = useState(true);
-  const [syncInterval, setSyncInterval] = useState(60);
   const [savingSyncSettings, setSavingSyncSettings] = useState(false);
-
-  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
-  const [countdownText, setCountdownText] = useState<string>('—');
-  const [relativeSyncTime, setRelativeSyncTime] = useState<string>('Never');
-  const [isSyncingNow, setIsSyncingNow] = useState(false);
-  const [isWipingNow, setIsWipingNow] = useState(false);
 
   const { data: info, isLoading } = useQuery({
     queryKey: ['server-info'],
@@ -47,109 +39,11 @@ export default function ServerPage() {
 
   useEffect(() => {
     if (settings && settings.length > 0) {
-      setSheetLink(settings.find((s: any) => s.key === 'google_sheet_link')?.value || settings.find((s: any) => s.key === 'google_sheets_spreadsheet_url')?.value || '');
+      setSheetLink(settings.find((s: any) => s.key === 'google_sheet_link')?.value || '');
       setSheetId(settings.find((s: any) => s.key === 'google_sheet_id')?.value || '');
-      setAppscriptId(settings.find((s: any) => s.key === 'google_appscript_deployment_id')?.value || settings.find((s: any) => s.key === 'google_sheets_deployment_id')?.value || '');
-      
-      const enabledVal = settings.find((s: any) => s.key === 'google_sheets_sync_enabled')?.value;
-      setSyncEnabled(enabledVal === undefined ? true : enabledVal === 'true');
-      
-      const intervalVal = settings.find((s: any) => s.key === 'google_sheets_sync_interval_minutes')?.value;
-      setSyncInterval(intervalVal ? parseInt(intervalVal, 10) || 60 : 60);
-
-      const lastSyncVal = settings.find((s: any) => s.key === 'google_sheets_last_sync')?.value;
-      setLastSyncTime(lastSyncVal || null);
+      setAppscriptId(settings.find((s: any) => s.key === 'google_appscript_deployment_id')?.value || '');
     }
   }, [settings]);
-
-  useEffect(() => {
-    const updateTimes = () => {
-      if (!lastSyncTime) {
-        setRelativeSyncTime('Never');
-        setCountdownText('—');
-        return;
-      }
-
-      const now = Date.now();
-      const lastSync = new Date(lastSyncTime).getTime();
-      
-      // Calculate relative time
-      const diffMs = now - lastSync;
-      const diffSec = Math.floor(diffMs / 1000);
-      const diffMin = Math.floor(diffSec / 60);
-      const diffHr = Math.floor(diffMin / 60);
-
-      if (diffSec < 60) {
-        setRelativeSyncTime('Just now');
-      } else if (diffMin < 60) {
-        setRelativeSyncTime(`${diffMin} minute${diffMin !== 1 ? 's' : ''} ago`);
-      } else if (diffHr < 24) {
-        setRelativeSyncTime(`${diffHr} hour${diffHr !== 1 ? 's' : ''} ago`);
-      } else {
-        setRelativeSyncTime(new Date(lastSyncTime).toLocaleString('en-IN'));
-      }
-
-      // Calculate countdown to next sync
-      if (!syncEnabled) {
-        setCountdownText('Disabled');
-        return;
-      }
-
-      const nextSync = lastSync + syncInterval * 60 * 1000;
-      const timeLeftMs = nextSync - now;
-      if (timeLeftMs <= 0) {
-        setCountdownText('Syncing soon...');
-      } else {
-        const totalSecLeft = Math.floor(timeLeftMs / 1000);
-        const minsLeft = Math.floor(totalSecLeft / 60);
-        const secsLeft = totalSecLeft % 60;
-        setCountdownText(`Next sync in ${minsLeft}:${secsLeft.toString().padStart(2, '0')}`);
-      }
-    };
-
-    updateTimes();
-    const interval = setInterval(updateTimes, 1000);
-    return () => clearInterval(interval);
-  }, [lastSyncTime, syncInterval, syncEnabled]);
-
-  const handleManualSync = async () => {
-    setIsSyncingNow(true);
-    const toastId = toast.loading('Running manual synchronization with Google Sheets...');
-    try {
-      const res = await serverApi.syncGoogleSheets();
-      if (res.data?.status === 'success' || res.data?.success) {
-        toast.success(res.data?.message || 'Google Sheets sync completed successfully!', { id: toastId });
-      } else {
-        toast.error(res.data?.message || 'Sync failed.', { id: toastId });
-      }
-      refetchSettings();
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || err.message || 'Failed to sync with Google Sheets', { id: toastId });
-    } finally {
-      setIsSyncingNow(false);
-    }
-  };
-
-  const handleWipeAndReload = async () => {
-    if (!window.confirm('WARNING: This will delete all local copies of internship tables (Registrations, Tasks, Notices, Attendance, etc.) and perform a clean reload from the Google Sheet. This can take several seconds. Are you sure you want to proceed?')) {
-      return;
-    }
-    setIsWipingNow(true);
-    const toastId = toast.loading('Wiping local data and reloading from Google Sheets...');
-    try {
-      const res = await serverApi.wipeAndReload();
-      if (res.data?.success || res.data?.status === 'success') {
-        toast.success(res.data?.message || 'Data wiped and reloaded successfully!', { id: toastId });
-      } else {
-        toast.error(res.data?.message || 'Wipe & reload failed.', { id: toastId });
-      }
-      refetchSettings();
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || err.message || 'Failed to wipe and reload data', { id: toastId });
-    } finally {
-      setIsWipingNow(false);
-    }
-  };
 
   const handleSaveSyncSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -158,26 +52,12 @@ export default function ServerPage() {
       await serverApi.updateSetting('google_sheet_link', sheetLink);
       await serverApi.updateSetting('google_sheet_id', sheetId);
       await serverApi.updateSetting('google_appscript_deployment_id', appscriptId);
-      await serverApi.updateSetting('google_sheets_spreadsheet_url', sheetLink);
-      await serverApi.updateSetting('google_sheets_deployment_id', appscriptId);
-      await serverApi.updateSetting('google_sheets_sync_enabled', String(syncEnabled));
-      await serverApi.updateSetting('google_sheets_sync_interval_minutes', String(syncInterval));
       if (appscriptId.trim()) {
         const syncUrl = `https://script.google.com/macros/s/${appscriptId.trim()}/exec`;
         await serverApi.updateSetting('google_sheets_sync_url', syncUrl);
       }
       toast.success('Google Sheet settings saved successfully!');
       refetchSettings();
-      // Trigger an immediate sync from the new sheet to populate the database
-      toast.promise(
-        serverApi.syncGoogleSheets(),
-        {
-          loading: 'Initializing sync with the new spreadsheet...',
-          success: 'Sync completed! Data loaded from the new spreadsheet.',
-          error: 'Sync failed. Please check your spreadsheet ID and deployment settings.'
-        },
-        { id: 'settings-sync-toast' }
-      );
     } catch (err) {
       toast.error('Failed to save Google Sheet configurations');
     } finally {
@@ -287,59 +167,6 @@ export default function ServerPage() {
                 <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', margin: '2px 0 0 0' }}>Configure company spreadsheet credentials for database mapping and automated syncs</p>
               </div>
             </div>
-
-            {/* Sync Status Info Bar */}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              background: 'rgba(255,255,255,0.03)',
-              padding: '12px 20px',
-              borderBottom: '1px solid rgba(255,255,255,0.06)',
-              fontSize: '13px',
-              flexWrap: 'wrap',
-              gap: '12px'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                <div>
-                  <span style={{ color: 'var(--text-tertiary)' }}>Last Sync:</span>{' '}
-                  <span style={{ fontWeight: 600, color: 'var(--brand-success)' }}>{relativeSyncTime}</span>
-                </div>
-                <div>
-                  <span style={{ color: 'var(--text-tertiary)' }}>Auto-Sync Status:</span>{' '}
-                  <span style={{
-                    fontWeight: 600,
-                    color: syncEnabled ? 'var(--brand-info)' : 'var(--text-tertiary)'
-                  }}>
-                    {syncEnabled ? countdownText : 'Disabled'}
-                  </span>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={handleManualSync}
-                  disabled={isSyncingNow}
-                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                >
-                  <RefreshCw size={13} className={isSyncingNow ? 'spin' : ''} />
-                  {isSyncingNow ? 'Syncing...' : 'Manual Sync Now'}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-danger btn-sm"
-                  onClick={handleWipeAndReload}
-                  disabled={isWipingNow}
-                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                >
-                  <ShieldAlert size={13} />
-                  {isWipingNow ? 'Wiping...' : 'Wipe & Reload'}
-                </button>
-              </div>
-            </div>
-
             <form onSubmit={handleSaveSyncSettings}>
               <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
@@ -367,63 +194,15 @@ export default function ServerPage() {
                 <div className="form-group" style={{ maxWidth: '100%' }}>
                   <label className="form-label" style={{ fontWeight: 600 }}>Google Apps Script Deployment ID</label>
                   <input
-                     type="text"
-                     className="form-control"
-                     placeholder="e.g. AKfycbw6pAarz91qhP5HfTgn..."
-                     value={appscriptId}
-                     onChange={(e) => setAppscriptId(e.target.value)}
+                    type="text"
+                    className="form-control"
+                    placeholder="e.g. AKfycbw6pAarz91qhP5HfTgn..."
+                    value={appscriptId}
+                    onChange={(e) => setAppscriptId(e.target.value)}
                   />
                   <small style={{ color: 'var(--text-tertiary)', fontSize: '10px', marginTop: '4px', display: 'block' }}>
                     Deployment ID will be mapped automatically to form the endpoint URL: <code>https://script.google.com/macros/s/&#123;Deployment_ID&#125;/exec</code>
                   </small>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '8px' }}>
-                  <div className="form-group" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                    <label className="form-label" style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', margin: 0 }}>
-                      <input
-                        type="checkbox"
-                        checked={syncEnabled}
-                        onChange={(e) => setSyncEnabled(e.target.checked)}
-                        style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                      />
-                      Enable Automatic Syncing
-                    </label>
-                    <small style={{ color: 'var(--text-tertiary)', fontSize: '10px', display: 'block', marginTop: '4px' }}>
-                      Pushes and pulls data between TrueNAS and Google Sheets in the background
-                    </small>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label" style={{ fontWeight: 600 }}>Sync Interval (Minutes)</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <button
-                        type="button"
-                        className="btn btn-secondary"
-                        onClick={() => setSyncInterval(prev => Math.max(1, prev - 1))}
-                        style={{ padding: '0 12px', height: '38px', fontSize: '16px', fontWeight: 'bold' }}
-                      >
-                        -
-                      </button>
-                      <input
-                        type="number"
-                        className="form-control"
-                        min="1"
-                        value={syncInterval}
-                        onChange={(e) => setSyncInterval(parseInt(e.target.value, 10) || 1)}
-                        style={{ textAlign: 'center', width: '80px' }}
-                      />
-                      <button
-                        type="button"
-                        className="btn btn-secondary"
-                        onClick={() => setSyncInterval(prev => prev + 1)}
-                        style={{ padding: '0 12px', height: '38px', fontSize: '16px', fontWeight: 'bold' }}
-                      >
-                        +
-                      </button>
-                    </div>
-                    <small style={{ color: 'var(--text-tertiary)', fontSize: '10px', display: 'block', marginTop: '4px' }}>
-                      Specify how frequently (in minutes) the server should run the background sync
-                    </small>
-                  </div>
                 </div>
               </div>
               <div className="card-footer" style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', padding: '12px 20px' }}>

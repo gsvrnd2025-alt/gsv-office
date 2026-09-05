@@ -23,5 +23,5 @@ export default registerAs('storage', () => ({
     mountPath: process.env.SMB_MOUNT_PATH || '/mnt/smb',
   },
   uploadPath: process.env.UPLOAD_PATH || '/app/uploads',
-  maxFileSizeMB: parseInt(process.env.MAX_FILE_SIZE_MB || '500', 10),
+  maxFileSizeMB: parseInt(process.env.MAX_FILE_SIZE_MB || '5120', 10),
 }));

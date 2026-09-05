@@ -16,24 +16,6 @@ const path = require('path');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
-const urlModule = require('url');
-
-function isWebContentsValid(win) {
-  return win && typeof win.isDestroyed === 'function' && !win.isDestroyed() && win.webContents && typeof win.webContents.isDestroyed === 'function' && !win.webContents.isDestroyed();
-}
-
-function getCallPopupDataUrl() {
-  try {
-    const htmlPath = path.join(__dirname, 'call-popup.html');
-    if (fs.existsSync(htmlPath)) {
-      const content = fs.readFileSync(htmlPath, 'utf8');
-      return 'data:text/html;charset=utf-8,' + encodeURIComponent(content);
-    }
-  } catch (e) {
-    console.error('Failed to read call-popup.html:', e);
-  }
-  return urlModule.pathToFileURL(path.join(__dirname, 'call-popup.html')).href;
-}
 
 // ─── Prevent second instance ─────────────────────────────────────────────────
 const gotLock = app.requestSingleInstanceLock();
@@ -53,7 +35,7 @@ function loadConfig() {
     }
   } catch (e) {}
   return {
-    serverUrl: 'http://192.168.0.177',
+    serverUrl: 'http://192.168.0.177:8080',
     autoStart: true,
     openOnStart: false,
     minimizeToTray: true,
@@ -71,80 +53,30 @@ function saveConfig(config) {
 
 let config = loadConfig();
 
-// ─── Treat Server URL as Secure Origin ────────────────────────────────────────
-if (config.serverUrl) {
-  try {
-    const origin = new URL(config.serverUrl).origin;
-    app.commandLine.appendSwitch('unsafely-treat-insecure-origin-as-secure', origin);
-  } catch (e) {
-    console.error('Failed to append secure origin switch:', e);
-  }
-}
-
-// ─── Protocol Deep Linking & Device Tracking ─────────────────────────────────
-if (process.defaultApp) {
-  if (process.argv.length >= 2) {
-    app.setAsDefaultProtocolClient('gsvoffice', process.execPath, [path.resolve(process.argv[1])]);
-  }
-} else {
-  app.setAsDefaultProtocolClient('gsvoffice');
-}
-
-const deviceIdPath = path.join(userDataPath, 'device_id.txt');
-let persistentDeviceId = null;
-try {
-  if (fs.existsSync(deviceIdPath)) {
-    persistentDeviceId = fs.readFileSync(deviceIdPath, 'utf8').trim();
-  } else {
-    const { randomUUID } = require('crypto');
-    persistentDeviceId = randomUUID();
-    fs.writeFileSync(deviceIdPath, persistentDeviceId);
-  }
-} catch (e) {
-  persistentDeviceId = 'unknown-device';
-}
-
-
 // ─── App State ────────────────────────────────────────────────────────────────
 let mainWindow = null;
 let tray = null;
 let settingsWindow = null;
 let isServerOnline = false;
 let checkInterval = null;
-let selectedSourceId = null; // Stored source ID for WebRTC capture selection
 
 // ─── Get asset path ──────────────────────────────────────────────────────────
 function assetPath(name) {
   return path.join(__dirname, '..', 'assets', name);
 }
 
-// ─── Socket Status (from renderer) ────────────────────────────────────────────
-let _offlineNotifShown = false;
-ipcMain.on('socket-status', (event, online) => {
-  updateTrayStatus(online);
-  
-  // Show the "Cannot connect" notification + settings window only ONCE per launch
-  // and only when the server URL appears to be an unconfigured default (no port override)
-  if (!online && !_offlineNotifShown) {
-    _offlineNotifShown = true;
-    new Notification({
-      title: 'GSV Office – Server Offline',
-      body: 'Cannot connect to ' + config.serverUrl + '. Please check the Server IP in Settings.'
-    }).show();
-    openSettingsWindow();
-  }
-});
-
-// ─── Server health check function ─────────────────────────────────────────────
+// ─── Server health check ──────────────────────────────────────────────────────
 function checkServer(callback) {
-  const http = require('http');
-  const https = require('https');
-  const url = config.serverUrl || 'http://localhost:3000';
-  const healthUrl = url.replace(/\/$/, '') + '/api/health';
-  const lib = healthUrl.startsWith('https') ? https : http;
   try {
-    const req = lib.get(healthUrl, { timeout: 5000 }, (res) => {
-      callback(res.statusCode >= 200 && res.statusCode < 400);
+    const url = new URL(config.serverUrl + '/api/health');
+    const lib = url.protocol === 'https:' ? https : http;
+    const req = lib.get({
+      hostname: url.hostname,
+      port: url.port || (url.protocol === 'https:' ? 443 : 80),
+      path: url.pathname,
+      timeout: 4000
+    }, (res) => {
+      callback(res.statusCode === 200);
     });
     req.on('error', () => callback(false));
     req.on('timeout', () => { req.destroy(); callback(false); });
@@ -153,166 +85,8 @@ function checkServer(callback) {
   }
 }
 
-// ─── Native Notifications & Popups ──────────────────────────────────────────────
-let activePopup = null;
-
-function createPopup(type, payload) {
-  if (activePopup) {
-    activePopup.close();
-  }
-  
-  const { screen } = require('electron');
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const { width, height } = primaryDisplay.workAreaSize;
-  
-  activePopup = new BrowserWindow({
-    width: 350,
-    height: 85,
-    x: width - 370,
-    y: 20,
-    frame: false,
-    transparent: true,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    resizable: false,
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false
-    }
-  });
-
-  // Load call-popup.html using data URI to guarantee text/html MIME parsing
-  activePopup.loadURL(getCallPopupDataUrl());
-  
-  activePopup.webContents.once('did-finish-load', () => {
-    if (isWebContentsValid(activePopup)) {
-      activePopup.webContents.send('popup-data', { type, payload });
-    }
-  });
-
-  activePopup.on('closed', () => {
-    activePopup = null;
-  });
-}
-
-ipcMain.on('incoming-call', (event, payload) => {
-  createPopup('call', payload);
-});
-
-ipcMain.on('incoming-remote-desktop', (event, payload) => {
-  createPopup('remote-desktop', payload);
-});
-
-ipcMain.on('popup-action', (event, { action, type, payload }) => {
-  if (activePopup) {
-    activePopup.close();
-    activePopup = null;
-  }
-  if (callPopupWindow) {
-    callPopupWindow.close();
-    callPopupWindow = null;
-  }
-  
-  // Forward the action to the renderer
-  if (isWebContentsValid(mainWindow)) {
-    mainWindow.webContents.send(`popup-response`, { action, type, payload });
-  }
-  
-  if (action === 'accept') {
-    openMainWindow();
-  }
-});
-
-ipcMain.on('incoming-message', (event, payload) => {
-  const notification = new Notification({
-    title: `New message from ${payload.senderName || 'GSV Office'}`,
-    body: payload.text,
-    icon: assetPath('icon.png'),
-    hasReply: true,
-    replyPlaceholder: 'Type your reply...'
-  });
-
-  notification.on('click', () => {
-    openMainWindow();
-    if (isWebContentsValid(mainWindow)) {
-      mainWindow.webContents.send('notification-click', payload);
-    }
-  });
-
-  notification.on('reply', (e, replyText) => {
-    if (isWebContentsValid(mainWindow)) {
-      mainWindow.webContents.send('notification-reply', { ...payload, replyText });
-    }
-  });
-
-  notification.show();
-});
-
-// ─── Auto-Updater ─────────────────────────────────────────────────────────────
-const { autoUpdater } = require('electron-updater');
-
-// Configure autoUpdater
-autoUpdater.autoDownload = false;
-autoUpdater.autoInstallOnAppQuit = true;
-
-let updateCheckInProgress = false;
-
-autoUpdater.on('update-available', (info) => {
-  dialog.showMessageBox({
-    type: 'info',
-    title: 'Update Available',
-    message: `A new version of GSV Office is available (${info.version}).`,
-    detail: 'Would you like to download it now?',
-    buttons: ['Download Update', 'Later']
-  }).then(({ response }) => {
-    if (response === 0) {
-      autoUpdater.downloadUpdate();
-    }
-  });
-});
-
-autoUpdater.on('update-downloaded', () => {
-  dialog.showMessageBox({
-    type: 'info',
-    title: 'Update Ready',
-    message: 'The update has been downloaded.',
-    detail: 'The app will restart and install the update now.',
-    buttons: ['Restart Now', 'Later']
-  }).then(({ response }) => {
-    if (response === 0) {
-      autoUpdater.quitAndInstall();
-    }
-  });
-});
-
-autoUpdater.on('error', (err) => {
-  console.error('AutoUpdater Error:', err);
-  updateCheckInProgress = false;
-});
-
-function checkForUpdates() {
-  autoUpdater.checkForUpdates().catch(e => console.error('Check failed:', e));
-}
-
-ipcMain.handle('check-for-updates', async () => {
-  if (updateCheckInProgress) return { success: false, message: 'Check already in progress.' };
-  updateCheckInProgress = true;
-  try {
-    const result = await autoUpdater.checkForUpdates();
-    updateCheckInProgress = false;
-    if (!result || !result.updateInfo) {
-      return { success: true, message: 'You are on the latest version.' };
-    }
-    return { success: true, message: 'Update check complete.' };
-  } catch (err) {
-    updateCheckInProgress = false;
-    return { success: false, message: 'Failed to check for updates. Make sure GitHub releases are published.' };
-  }
-});
-
 // ─── Update tray icon based on server status ──────────────────────────────────
 function updateTrayStatus(online) {
-  online = true; // Always show online as requested
   isServerOnline = online;
   if (!tray) return;
   
@@ -353,7 +127,7 @@ function updateTrayMenu() {
     {
       label: '🖥️  Open GSV Office',
       click: () => openMainWindow(),
-      enabled: true
+      enabled: isServerOnline
     },
     {
       label: '🌐 Open in Browser',
@@ -384,7 +158,7 @@ function updateTrayMenu() {
 }
 
 // ─── Create main app window ───────────────────────────────────────────────────
-function createMainWindow(showWindow = true) {
+function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: config.windowWidth || 1280,
     height: config.windowHeight || 800,
@@ -397,32 +171,19 @@ function createMainWindow(showWindow = true) {
       contextIsolation: true,
       webSecurity: true,
       allowRunningInsecureContent: false,
-      preload: path.join(__dirname, 'preload.js'),
-      backgroundThrottling: false
+      preload: path.join(__dirname, 'preload.js')
     },
     show: false,
     backgroundColor: '#0f172a',
     autoHideMenuBar: true
   });
 
-  // Load the GSV Office URL with retry mechanism
-  const loadWithRetry = () => {
-    if (!mainWindow) return;
-    mainWindow.loadURL(config.serverUrl).catch(err => {
-      console.error('Failed to load url, retrying in 5 seconds...', err);
-      setTimeout(() => {
-        if (mainWindow) loadWithRetry();
-      }, 5000);
-    });
-  };
-  
-  loadWithRetry();
+  // Load the GSV Office URL
+  mainWindow.loadURL(config.serverUrl);
 
   mainWindow.once('ready-to-show', () => {
-    if (showWindow) {
-      mainWindow.show();
-      mainWindow.focus();
-    }
+    mainWindow.show();
+    mainWindow.focus();
   });
 
   // Save window size on resize
@@ -472,71 +233,40 @@ function createMainWindow(showWindow = true) {
     } catch (e) {}
   });
 
-  // Handle frame navigation (like link clicks inside a PDF iframe)
-  mainWindow.webContents.on('will-frame-navigate', (event) => {
-    try {
-      const url = event.url;
-      const targetUrl = new URL(url);
-      const serverUrl = new URL(config.serverUrl);
-      if (targetUrl.hostname !== serverUrl.hostname) {
-        event.preventDefault();
-        shell.openExternal(url);
-      }
-    } catch (e) {}
-  });
-
-  // Add right-click context menu (Cut, Copy, Paste, Select All)
-  mainWindow.webContents.on('context-menu', (event, params) => {
-    const contextMenu = Menu.buildFromTemplate([
-      { role: 'cut', label: 'Cut' },
-      { role: 'copy', label: 'Copy' },
-      { role: 'paste', label: 'Paste' },
-      { type: 'separator' },
-      { role: 'selectAll', label: 'Select All' }
-    ]);
-    contextMenu.popup({ window: mainWindow });
-  });
-
   // Handle new windows
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
   });
-
-  // Enable getDisplayMedia support in Electron
-  mainWindow.webContents.session.setDisplayMediaRequestHandler((request, callback) => {
-    const { desktopCapturer } = require('electron');
-    desktopCapturer.getSources({ types: ['screen', 'window'] }).then((sources) => {
-      let selectedSource = null;
-      if (selectedSourceId) {
-        selectedSource = sources.find(s => s.id === selectedSourceId);
-      }
-      if (!selectedSource && sources.length > 0) {
-        selectedSource = sources[0]; // fallback
-      }
-
-      if (selectedSource) {
-        console.log('Serving media stream capture for source:', selectedSource.id, selectedSource.name);
-        callback({ video: selectedSource, audio: 'loopback' });
-      } else {
-        console.warn('No media capture source found.');
-        callback({});
-      }
-    }).catch(err => {
-      console.error('Error in DisplayMediaRequest handler:', err);
-      callback({});
-    });
-  });
 }
 
 // ─── Open or focus main window ────────────────────────────────────────────────
 function openMainWindow() {
+  if (!isServerOnline) {
+    dialog.showMessageBox({
+      type: 'warning',
+      title: 'GSV Office',
+      message: 'Server is offline',
+      detail: `Cannot connect to:\n${config.serverUrl}\n\nPlease check your network or server status.`,
+      buttons: ['Open Anyway', 'Cancel']
+    }).then(({ response }) => {
+      if (response === 0) {
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+        } else {
+          createMainWindow();
+        }
+      }
+    });
+    return;
+  }
+
   if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show();
     mainWindow.focus();
   } else {
-    createMainWindow(true);
+    createMainWindow();
   }
 }
 
@@ -565,17 +295,7 @@ function openSettingsWindow() {
     show: false
   });
 
-  const settingsHtmlUrl = urlModule.pathToFileURL(path.join(__dirname, 'settings.html')).href;
-  settingsWindow.loadURL(settingsHtmlUrl);
-  
-  settingsWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
-    console.error(`[Settings Window] Failed to load: ${errorDescription} (${errorCode})`);
-  });
-
-  settingsWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
-    console.log(`[Settings Console] ${message} (Line: ${line})`);
-  });
-
+  settingsWindow.loadFile(path.join(__dirname, 'settings.html'));
   settingsWindow.once('ready-to-show', () => settingsWindow.show());
   settingsWindow.on('closed', () => { settingsWindow = null; });
 }
@@ -604,8 +324,6 @@ using System.Runtime.InteropServices;
 public class Win32Input {
     [DllImport("user32.dll")]
     public static extern void mouse_event(int flags, int dx, int dy, int data, int extraInfo);
-    [DllImport("user32.dll")]
-    public static extern bool SetCursorPos(int x, int y);
 }
 "@
 if (-not ([System.Management.Automation.PSTypeName]"Win32Input").Type) {
@@ -662,20 +380,6 @@ function mapKeyToSendKeys(key) {
 }
 
 // ─── IPC Handlers ────────────────────────────────────────────────────────────
-ipcMain.handle('select-source', async (event, sourceId) => {
-  selectedSourceId = sourceId;
-  console.log('Electron target capture source selected:', selectedSourceId);
-  return { success: true };
-});
-
-ipcMain.handle('minimize-window', async () => {
-  if (mainWindow) {
-    mainWindow.minimize();
-    return { success: true };
-  }
-  return { success: false };
-});
-
 ipcMain.handle('remote-input', async (event, payload) => {
   if (process.platform !== 'win32') return { success: false, reason: 'Not Windows' };
   
@@ -685,31 +389,12 @@ ipcMain.handle('remote-input', async (event, payload) => {
     const { width, height } = primaryDisplay.bounds;
     
     if (payload.type === 'mouse') {
-      const fractionX = payload.fractionX !== undefined ? payload.fractionX : (payload.x / 1920);
-      const fractionY = payload.fractionY !== undefined ? payload.fractionY : (payload.y / 1080);
-
-      const nativeX = Math.round(fractionX * width);
-      const nativeY = Math.round(fractionY * height);
+      const nativeX = Math.round((payload.x / 1920) * width);
+      const nativeY = Math.round((payload.y / 1080) * height);
       
-      let cmd = `[Win32Input]::SetCursorPos(${nativeX}, ${nativeY})`;
-      
-      if (payload.action === 'move') {
-        // Just move the cursor, no click
-      } else if (payload.action === 'leftdown') {
-        cmd += `\n[Win32Input]::mouse_event(0x0002, 0, 0, 0, 0)`;
-      } else if (payload.action === 'leftup') {
-        cmd += `\n[Win32Input]::mouse_event(0x0004, 0, 0, 0, 0)`;
-      } else if (payload.action === 'rightdown') {
-        cmd += `\n[Win32Input]::mouse_event(0x0008, 0, 0, 0, 0)`;
-      } else if (payload.action === 'rightup') {
-        cmd += `\n[Win32Input]::mouse_event(0x0010, 0, 0, 0, 0)`;
-      } else if (payload.action === 'rightclick') {
-        cmd += `\n[Win32Input]::mouse_event(0x0008, 0, 0, 0, 0)\n[Win32Input]::mouse_event(0x0010, 0, 0, 0, 0)`;
-      } else {
-        // Fallback for older clients: move + click
-        cmd += `\n[Win32Input]::mouse_event(0x0002, 0, 0, 0, 0)\n[Win32Input]::mouse_event(0x0004, 0, 0, 0, 0)`;
-      }
-      
+      const cmd = `[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${nativeX}, ${nativeY})
+[Win32Input]::mouse_event(0x0002, 0, 0, 0, 0)
+[Win32Input]::mouse_event(0x0004, 0, 0, 0, 0)`;
       runPSCommand(cmd);
       return { success: true };
     } 
@@ -729,43 +414,7 @@ ipcMain.handle('remote-input', async (event, payload) => {
   return { success: false };
 });
 
-ipcMain.handle('get-sources', async () => {
-  const { desktopCapturer } = require('electron');
-  try {
-    const sources = await desktopCapturer.getSources({
-      types: ['screen', 'window'],
-      thumbnailSize: { width: 300, height: 200 },
-      fetchWindowIcons: true
-    });
-    
-    return sources.map(source => ({
-      id: source.id,
-      name: source.name,
-      thumbnail: source.thumbnail.toDataURL(),
-      appIcon: source.appIcon ? source.appIcon.toDataURL() : null
-    }));
-  } catch (err) {
-    console.error('Failed to get sources in main process:', err);
-    return [];
-  }
-});
-
 ipcMain.handle('get-config', () => config);
-
-ipcMain.handle('open-settings', () => {
-  openSettingsWindow();
-  return { success: true };
-});
-
-ipcMain.handle('show-and-focus', () => {
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
-    return { success: true };
-  }
-  return { success: false };
-});
 
 ipcMain.handle('save-config', (event, newConfig) => {
   const oldUrl = config.serverUrl;
@@ -779,23 +428,9 @@ ipcMain.handle('save-config', (event, newConfig) => {
     args: ['--hidden']
   });
 
-  // Reload main window or relaunch if URL changed
-  if (newConfig.serverUrl && newConfig.serverUrl !== oldUrl) {
-    dialog.showMessageBox({
-      type: 'question',
-      buttons: ['Restart Now', 'Later'],
-      defaultId: 0,
-      title: 'GSV Office — Restart Required',
-      message: 'The server URL has been updated. The application needs to restart to apply secure context policies and re-initialize connections.',
-      detail: 'If you choose "Later", changes will apply on the next launch.'
-    }).then(({ response }) => {
-      if (response === 0) {
-        app.relaunch();
-        app.exit(0);
-      } else if (mainWindow) {
-        mainWindow.loadURL(config.serverUrl);
-      }
-    });
+  // Reload main window if URL changed
+  if (mainWindow && newConfig.serverUrl && newConfig.serverUrl !== oldUrl) {
+    mainWindow.loadURL(config.serverUrl);
   }
 
   updateTrayMenu();
@@ -823,453 +458,13 @@ ipcMain.handle('test-connection', async (event, url) => {
 
 ipcMain.handle('get-version', () => app.getVersion());
 
-ipcMain.handle('get-device-id', () => persistentDeviceId);
-
-let callPopupWindow = null;
-
-ipcMain.handle('show-incoming-call-popup', async (event, data) => {
-  if (callPopupWindow) {
-    callPopupWindow.close();
-  }
-
-  const { screen } = require('electron');
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const { width, height } = primaryDisplay.workAreaSize;
-
-  const popupWidth = 350;
-  const popupHeight = 85;
-
-  callPopupWindow = new BrowserWindow({
-    width: popupWidth,
-    height: popupHeight,
-    x: width - popupWidth - 20,
-    y: height - popupHeight - 20,
-    frame: false,
-    transparent: true,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    resizable: false,
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false
-    }
-  });
-
-  callPopupWindow.loadURL(getCallPopupDataUrl());
-
-  callPopupWindow.webContents.once('did-finish-load', () => {
-    if (isWebContentsValid(callPopupWindow)) {
-      callPopupWindow.webContents.send('call-data', data);
-      callPopupWindow.showInactive();
-    }
-  });
-
-  callPopupWindow.on('closed', () => {
-    callPopupWindow = null;
-  });
-
-  return { success: true };
-});
-
-ipcMain.handle('close-incoming-call-popup', async () => {
-  if (callPopupWindow) {
-    callPopupWindow.close();
-    callPopupWindow = null;
-  }
-  return { success: true };
-});
-
-function downloadFile(urlStr, destPath, token = null, redirectCount = 0) {
-  return new Promise((resolve, reject) => {
-    if (redirectCount > 5) {
-      reject(new Error('Too many redirects'));
-      return;
-    }
-    
-    try {
-      const url = new URL(urlStr);
-      const lib = url.protocol === 'https:' ? require('https') : require('http');
-      
-      const options = {
-        hostname: url.hostname,
-        port: url.port || (url.protocol === 'https:' ? 443 : 80),
-        path: url.pathname + url.search,
-        headers: {},
-        rejectUnauthorized: false
-      };
-      
-      if (token) {
-        options.headers['Authorization'] = `Bearer ${token}`;
-      }
-      
-      const req = lib.get(options, (res) => {
-        if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
-          let redirectUrl = res.headers.location;
-          if (!redirectUrl.startsWith('http')) {
-            redirectUrl = new URL(redirectUrl, urlStr).toString();
-          }
-          downloadFile(redirectUrl, destPath, token, redirectCount + 1).then(resolve).catch(reject);
-          return;
-        }
-        
-        if (res.statusCode !== 200) {
-          reject(new Error(`Server returned status code ${res.statusCode}`));
-          return;
-        }
-        
-        const fileStream = fs.createWriteStream(destPath);
-        res.pipe(fileStream);
-        
-        fileStream.on('finish', () => {
-          fileStream.close();
-          resolve();
-        });
-        
-        fileStream.on('error', (err) => {
-          fs.unlink(destPath, () => {});
-          reject(err);
-        });
-      });
-      
-      req.on('error', (err) => {
-        fs.unlink(destPath, () => {});
-        reject(err);
-      });
-    } catch (err) {
-      reject(err);
-    }
-  });
-}
-
-function setClipboardFilesWindows(filePaths) {
-  const { exec } = require('child_process');
-  return new Promise((resolve, reject) => {
-    const pathsArray = filePaths.map(p => `'${p.replace(/'/g, "''")}'`).join(', ');
-    const cmd = `powershell -NoProfile -Command "Set-Clipboard -Path ${pathsArray}"`;
-    exec(cmd, (err, stdout, stderr) => {
-      if (err) {
-        console.error('[setClipboardFilesWindows] PowerShell Set-Clipboard failed:', err, stderr);
-        reject(err);
-      } else {
-        resolve();
-      }
-    });
-  });
-}
-
-ipcMain.handle('copy-folder-to-clipboard', async (event, { folderId, folderName, serverUrl, token }) => {
-  const { exec } = require('child_process');
-  
-  try {
-    const tempDir = path.join(app.getPath('temp'), 'GSVOfficeClipboard');
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-    
-    const destPath = path.join(tempDir, folderName);
-    if (fs.existsSync(destPath)) {
-      fs.rmSync(destPath, { recursive: true, force: true });
-    }
-    
-    const zipPath = path.join(tempDir, `gsv_folder_${folderId}.zip`);
-    if (fs.existsSync(zipPath)) {
-      fs.unlinkSync(zipPath);
-    }
-    
-    const url = `${serverUrl}/api/files/folders/${folderId}/download`;
-    await downloadFile(url, zipPath, token);
-    
-    await new Promise((resolve, reject) => {
-      const cmd = `powershell -NoProfile -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${tempDir}' -Force"`;
-      exec(cmd, (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
-    
-    try { fs.unlinkSync(zipPath); } catch (e) {}
-    
-    if (process.platform === 'win32') {
-      await setClipboardFilesWindows([destPath]);
-    } else {
-      const { clipboard } = require('electron');
-      clipboard.write({
-        filenames: [destPath]
-      });
-    }
-    
-    new Notification({
-      title: 'GSV Office',
-      body: `Folder "${folderName}" copied to clipboard! You can paste it anywhere on your PC.`,
-      icon: assetPath('icon.ico')
-    }).show();
-    
-    return { success: true, path: destPath };
-  } catch (err) {
-    console.error('Failed to copy folder to clipboard:', err);
-    return { success: false, reason: err.message };
-  }
-});
-
-ipcMain.handle('copy-file-to-clipboard', async (event, { fileUrl, fileName, token }) => {
-  try {
-    const tempDir = path.join(app.getPath('temp'), 'GSVOfficeClipboard');
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-    
-    const destPath = path.join(tempDir, fileName);
-    await downloadFile(fileUrl, destPath, token);
-    
-    if (process.platform === 'win32') {
-      await setClipboardFilesWindows([destPath]);
-    } else {
-      const { clipboard, nativeImage } = require('electron');
-      const ext = path.extname(fileName).toLowerCase();
-      const isImg = ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp'].includes(ext);
-      const isTxt = ['.txt', '.md', '.json', '.js', '.ts', '.css', '.html', '.xml'].includes(ext);
-
-      const writeData = {
-        filenames: [destPath]
-      };
-
-      if (isImg) {
-        writeData.image = nativeImage.createFromPath(destPath);
-      } else if (isTxt) {
-        try {
-          writeData.text = fs.readFileSync(destPath, 'utf8');
-        } catch (e) {}
-      }
-
-      clipboard.write(writeData);
-    }
-    
-    new Notification({
-      title: 'GSV Office',
-      body: `"${fileName}" copied to clipboard! You can paste it anywhere on your PC.`,
-      icon: assetPath('icon.ico')
-    }).show();
-    
-    return { success: true, path: destPath };
-  } catch (err) {
-    console.error('Failed to copy file to clipboard:', err);
-    return { success: false, reason: err.message };
-  }
-});
-
-function uploadFile(urlStr, filePath, fileName, token = null) {
-  return new Promise((resolve, reject) => {
-    try {
-      const url = new URL(urlStr);
-      const lib = url.protocol === 'https:' ? require('https') : require('http');
-      
-      const boundary = '----WebKitFormBoundaryGSVOffice' + Math.random().toString(36).substring(2);
-      
-      const fileStream = fs.createReadStream(filePath);
-      const stats = fs.statSync(filePath);
-      
-      const header = `--${boundary}\r\n` +
-                     `Content-Disposition: form-data; name="files"; filename="${fileName}"\r\n` +
-                     `Content-Type: application/zip\r\n\r\n`;
-      const footer = `\r\n--${boundary}--\r\n`;
-      
-      const contentLength = Buffer.byteLength(header) + stats.size + Buffer.byteLength(footer);
-      
-      const options = {
-        method: 'POST',
-        hostname: url.hostname,
-        port: url.port || (url.protocol === 'https:' ? 443 : 80),
-        path: url.pathname + url.search,
-        headers: {
-          'Content-Type': `multipart/form-data; boundary=${boundary}`,
-          'Content-Length': contentLength
-        },
-        rejectUnauthorized: false
-      };
-      
-      if (token) {
-        options.headers['Authorization'] = `Bearer ${token}`;
-      }
-      
-      const req = lib.request(options, (res) => {
-        let responseData = '';
-        res.on('data', (chunk) => {
-          responseData += chunk;
-        });
-        res.on('end', () => {
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            try {
-              resolve(JSON.parse(responseData));
-            } catch (e) {
-              resolve(responseData);
-            }
-          } else {
-            reject(new Error(`Server returned status code ${res.statusCode}: ${responseData}`));
-          }
-        });
-      });
-      
-      req.on('error', (err) => {
-        reject(err);
-      });
-      
-      req.write(header);
-      
-      fileStream.pipe(req, { end: false });
-      fileStream.on('end', () => {
-        req.write(footer);
-        req.end();
-      });
-      fileStream.on('error', (err) => {
-        req.destroy();
-        reject(err);
-      });
-    } catch (err) {
-      reject(err);
-    }
-  });
-}
-
-ipcMain.handle('zip-and-upload-folder', async (event, { folderPath, serverUrl, token }) => {
-  const { exec } = require('child_process');
-  try {
-    const tempDir = path.join(app.getPath('temp'), 'GSVOfficeZips');
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-    
-    const folderName = path.basename(folderPath);
-    const tempZipPath = path.join(tempDir, `${folderName}_${Date.now()}.zip`);
-    
-    await new Promise((resolve, reject) => {
-      const escapedFolder = folderPath.replace(/'/g, "''");
-      const escapedZip = tempZipPath.replace(/'/g, "''");
-      const cmd = `powershell -NoProfile -Command "Compress-Archive -Path '${escapedFolder}' -DestinationPath '${escapedZip}' -Force"`;
-      exec(cmd, (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
-    
-    const uploadUrl = `${serverUrl}/api/files/upload`;
-    const res = await uploadFile(uploadUrl, tempZipPath, `${folderName}.zip`, token);
-    
-    fs.unlink(tempZipPath, () => {});
-    
-    return { success: true, data: res.data || res };
-  } catch (err) {
-    console.error('Failed to zip and upload folder:', err);
-    return { success: false, reason: err.message };
-  }
-});
-
-ipcMain.on('call-action-response', (event, response) => {
-  if (callPopupWindow) {
-    callPopupWindow.close();
-    callPopupWindow = null;
-  }
-  if (activePopup) {
-    activePopup.close();
-    activePopup = null;
-  }
-  
-  let action = 'reject';
-  let type = 'audio';
-  if (typeof response === 'object' && response !== null) {
-    action = response.action || 'reject';
-    type = response.type || 'audio';
-  } else if (typeof response === 'string') {
-    action = response;
-  }
-  
-  if (isWebContentsValid(mainWindow)) {
-    const eventName = type === 'remote-desktop' ? 'gsv-remote-action' : 'gsv-call-action';
-    mainWindow.webContents.executeJavaScript(`
-      window.dispatchEvent(new CustomEvent('${eventName}', { detail: '${action}' }));
-    `).catch(err => console.error(err));
-  }
-  if (action === 'accept') {
-    openMainWindow();
-  }
-});
-
-ipcMain.handle('download-and-install-update', async (event, { exeUrl }) => {
-  const { exec } = require('child_process');
-  const tempPath = path.join(app.getPath('temp'), 'GSVOffice-Update.exe');
-  
-  if (fs.existsSync(tempPath)) {
-    try { fs.unlinkSync(tempPath); } catch(e) {}
-  }
-  
-  return new Promise(async (resolve) => {
-    try {
-      await downloadFile(exeUrl, tempPath);
-      exec(`"${tempPath}"`, (error) => {
-        if (error) {
-          console.error('Installer execution failed:', error);
-        }
-      });
-      resolve({ success: true });
-      setTimeout(() => {
-        app.quit();
-      }, 1000);
-    } catch (err) {
-      console.error('Download update failed:', err);
-      resolve({ success: false, error: err.message });
-    }
-  });
-});
-
-// ─── Deep Link Handling Helper ────────────────────────────────────────────────
-function handleDeepLink(url) {
-  if (!url || !url.startsWith('gsvoffice://')) return;
-  openMainWindow();
-  
-  // Pass the deep link to the frontend if it's ready
-  if (isWebContentsValid(mainWindow)) {
-    // We send it via executeJavaScript as a custom event
-    mainWindow.webContents.executeJavaScript(`
-      window.dispatchEvent(new CustomEvent('gsv-deep-link', { detail: '${url}' }));
-    `).catch(err => console.error('Failed to dispatch deep link event', err));
-  }
-}
-
-// macOS Protocol Handler
-app.on('open-url', (event, url) => {
-  event.preventDefault();
-  handleDeepLink(url);
-});
-
 // ─── Second instance focus ────────────────────────────────────────────────────
-app.on('second-instance', (event, commandLine, workingDirectory) => {
+app.on('second-instance', () => {
   openMainWindow();
-  // Handle Windows deep links
-  const url = commandLine.find(arg => arg.startsWith('gsvoffice://'));
-  if (url) {
-    handleDeepLink(url);
-  }
 });
 
 // ─── App Ready ────────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
-  // Setup application menu to enable standard keyboard shortcuts (Ctrl+C, Ctrl+V, etc.)
-  const template = [
-    {
-      label: 'Edit',
-      submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
-        { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' }
-      ]
-    }
-  ];
-  const menu = Menu.buildFromTemplate(template);
-  Menu.setApplicationMenu(menu);
-
   // Create tray - try different icon formats
   const iconCandidates = ['icon-tray.png', 'icon.png', 'icon.ico'].map(assetPath);
   let trayImage = nativeImage.createEmpty();
@@ -1302,28 +497,21 @@ app.whenReady().then(() => {
     args: ['--hidden']
   });
 
-  // Socket status is now handled via IPC.
-  // We'll initially set to false (red) until renderer reports true.
-  updateTrayStatus(false);
+  // Start health check loop
+  const startHealthChecks = () => {
+    checkServer(online => updateTrayStatus(online));
+    checkInterval = setInterval(() => {
+      checkServer(online => updateTrayStatus(online));
+    }, 30000); // every 30 seconds
+  };
 
-  // Start update check loop
-  checkForUpdates();
-  setInterval(checkForUpdates, 4 * 60 * 60 * 1000); // every 4 hours
-
-  // Create window hidden immediately so it starts trying to load WebSockets
-  createMainWindow(false);
+  startHealthChecks();
 
   // Auto-open on start (if not launched with --hidden)
   const hiddenArg = process.argv.includes('--hidden');
   if (config.openOnStart && !hiddenArg) {
     // Wait a bit for server check
     setTimeout(() => openMainWindow(), 2000);
-  }
-
-  // Handle Windows deep links if app started with one (first instance)
-  const url = process.argv.find(arg => arg.startsWith('gsvoffice://'));
-  if (url) {
-    setTimeout(() => handleDeepLink(url), 3000);
   }
 });
 

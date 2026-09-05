@@ -22,10 +22,6 @@ body {
   width: 100vw;
   overflow: hidden;
   transition: background var(--transition-normal), color var(--transition-normal);
-  padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
-  padding-left: env(safe-area-inset-left);
-  padding-right: env(safe-area-inset-right);
 }
 
 #root { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
@@ -428,24 +424,6 @@ tbody tr:last-child td { border-bottom: none; }
 /* ── Grid Layouts ─────────────────────────────────────────────────── */
 .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--space-3); }
 .cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--space-4); }
-.remote-controls-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-6);
-  width: 100%;
-}
-
-@media (max-width: 1200px) {
-  .remote-controls-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (max-width: 768px) {
-  .remote-controls-grid {
-    grid-template-columns: 1fr;
-  }
-}
 
 /* ── Progress Bar ────────────────────────────────────────────────── */
 .progress { background: var(--bg-tertiary); border-radius: var(--radius-full); height: 8px; overflow: hidden; }
@@ -498,16 +476,4 @@ tbody tr:last-child td { border-bottom: none; }
   .cards-grid { grid-template-columns: 1fr; }
   .page-header { flex-direction: column; align-items: flex-start; }
   .modal { border-radius: var(--radius-xl); }
-}
-
-/* ── Prevent Chrome / Edge autofill light blue background override ──── */
-input:-webkit-autofill,
-input:-webkit-autofill:hover,
-input:-webkit-autofill:focus,
-input:-webkit-autofill:active {
-  -webkit-text-fill-color: #ffffff !important;
-  -webkit-box-shadow: 0 0 0px 1000px rgba(30, 27, 75, 0.95) inset !important;
-  box-shadow: 0 0 0px 1000px rgba(30, 27, 75, 0.95) inset !important;
-  transition: background-color 50000s ease-in-out 0s !important;
-  border-color: rgba(99, 102, 241, 0.5) !important;
 }

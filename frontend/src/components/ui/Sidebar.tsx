@@ -1,10 +1,9 @@
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard, MessageSquare, FolderOpen, Ticket, Mail, Users,
   Shield, Receipt, Package, ShoppingCart, BarChart3, Puzzle, Server,
-  ChevronLeft, ChevronRight, LogOut, Settings, Inbox, HardDrive, Laptop, Monitor, Download,
-  GraduationCap
+  ChevronLeft, ChevronRight, LogOut, Settings, Inbox, HardDrive, Laptop, Monitor, Download
 } from 'lucide-react';
 import { useAuthStore } from '../../store/auth.store';
 import { authApi, usersApi } from '../../api';
@@ -31,8 +30,6 @@ const navItems: NavItem[] = [
   { to: '/tickets', icon: Ticket, label: 'Helpdesk', section: 'main', module: 'tickets', action: 'read' },
   { to: '/email', icon: Mail, label: 'Email', section: 'main', module: 'email', action: 'read' },
   { to: '/downloads', icon: Download, label: 'Downloads & App', section: 'main' },
-  { to: '/internship-student', icon: GraduationCap, label: 'Student Portal', section: 'internship' },
-  { to: '/internship-admin', icon: Shield, label: 'Internship Admin', section: 'internship', module: 'users', action: 'update' },
   { to: '/users', icon: Users, label: 'Users', section: 'admin', module: 'users', action: 'read' },
   { to: '/roles', icon: Shield, label: 'Roles & Access', section: 'admin', module: 'roles', action: 'read' },
   { to: '/requests', icon: Inbox, label: 'Requests', section: 'admin', module: 'users', action: 'update' },
@@ -47,7 +44,6 @@ const navItems: NavItem[] = [
 
 const sections: { key: string; label: string }[] = [
   { key: 'main', label: 'Workspace' },
-  { key: 'internship', label: 'Internship Portal' },
   { key: 'admin', label: 'Administration' },
   { key: 'business', label: 'Business' },
   { key: 'system', label: 'System' },
@@ -81,12 +77,10 @@ interface SidebarProps {
   mobileOpen: boolean;
   onToggle: () => void;
   onMobileClose: () => void;
-  hiddenCompletely?: boolean;
 }
 
-export function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose, hiddenCompletely }: SidebarProps) {
+export function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose }: SidebarProps) {
   const { user, logout } = useAuthStore();
-  const location = useLocation();
 
   const { data: pendingUsers } = useQuery({
     queryKey: ['users', '', 'pending', 1],
@@ -105,15 +99,12 @@ export function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose, hidden
   const initials = user?.fullName?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'U';
 
   return (
-    <aside 
-      className={`${styles.sidebar} ${collapsed ? styles.collapsed : ''} ${mobileOpen ? styles.mobileOpen : ''}`}
-      style={hiddenCompletely ? { transform: 'translateX(-100%)', width: 0, borderRight: 'none', transition: 'width 0.25s, transform 0.25s' } : undefined}
-    >
+    <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ''} ${mobileOpen ? styles.mobileOpen : ''}`}>
       {/* Logo */}
       <div className={styles.logo}>
         {!collapsed && (
           <div className={styles.logoIcon}>
-            <img src={logoImg} alt="GSV Logo" style={{ width: '48px', height: '48px', objectFit: 'contain', marginLeft: '-8px' }} />
+            <img src={logoImg} alt="GSV Logo" style={{ width: '32px', height: '32px', objectFit: 'contain' }} />
           </div>
         )}
         {!collapsed && <span className={styles.logoText}>GSV Office</span>}
@@ -124,78 +115,41 @@ export function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose, hidden
 
       {/* Navigation */}
       <nav className={styles.nav}>
-        {sections
-          .filter(section => {
-            if (user?.role?.name === 'Student') {
-              return section.key === 'internship' || section.key === 'main';
+        {sections.map(section => {
+          const items = navItems.filter(i => i.section === section.key).map(item => {
+            if (item.to === '/requests') {
+              return { ...item, badge: pendingCount > 0 ? pendingCount : undefined };
             }
-            return true;
-          })
-          .map(section => {
-            const items = navItems
-              .filter(i => i.section === section.key)
-              .filter(i => {
-                if (user?.role?.name === 'Student') {
-                  return i.to === '/internship-student' || i.to === '/downloads';
-                }
-                // Hide student portal for administrators/non-students
-                if (i.to === '/internship-student') return false;
-                
-                // Hide Remote Desktop entirely on web browser, only show in desktop app
-                if (i.to === '/remote-desktop') {
-                  const isDesktop = !!(window as any).gsvDesktop;
-                  if (!isDesktop) return false;
-                }
-                
-                return true;
-              })
-              .map(item => {
-                if (item.to === '/requests') {
-                  return { ...item, badge: pendingCount > 0 ? pendingCount : undefined };
-                }
-                return item;
-              });
-
-            if (items.length === 0) return null;
-
-            return (
-              <div key={section.key} className={styles.navSection}>
-                {!collapsed && <span className={styles.sectionLabel}>{section.label}</span>}
-                {items.map(item => {
-                  const isLocked = item.module && item.action && !hasPermission(user, item.module, item.action);
-                  return (
-                    <NavLink
-                      key={item.to}
-                      to={item.to}
-                      className={({ isActive }) => `${styles.navItem} ${isActive ? styles.active : ''}`}
-                      onClick={(e) => {
-                        if (item.to === '/internship-admin') {
-                          e.preventDefault();
-                          window.open('/internship/admin.html', '_blank');
-                        } else if (item.to === '/internship-student') {
-                          e.preventDefault();
-                          window.location.href = `/internship/student.html?regno=${user?.loginId}`;
-                        } else {
-                          onMobileClose();
-                        }
-                      }}
-                      title={collapsed ? item.label + (isLocked ? ' (Locked)' : '') : undefined}
-                      style={isLocked ? { opacity: 0.65 } : undefined}
-                    >
-                      <span className={styles.navIcon}><item.icon size={18} /></span>
-                      {!collapsed && <span className={styles.navLabel} style={isLocked ? { color: 'var(--text-secondary)' } : undefined}>{item.label}</span>}
-                      {!collapsed && isLocked && (
-                        <span style={{ fontSize: '11px', marginLeft: 'auto', opacity: 0.7 }} title="Access Locked">
-                          🔒
-                        </span>
-                      )}
-                      {!collapsed && item.badge ? <span className={styles.badge}>{item.badge}</span> : null}
-                    </NavLink>
-                  );
-                })}
-              </div>
-            );
-          })}
+            return item;
+          });
+          return (
+            <div key={section.key} className={styles.navSection}>
+              {!collapsed && <span className={section.key === 'main' ? styles.sectionLabel : styles.sectionLabel}>{section.label}</span>}
+              {items.map(item => {
+                const isLocked = item.module && item.action && !hasPermission(user, item.module, item.action);
+                return (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    className={({ isActive }) => `${styles.navItem} ${isActive ? styles.active : ''}`}
+                    onClick={onMobileClose}
+                    title={collapsed ? item.label + (isLocked ? ' (Locked)' : '') : undefined}
+                    style={isLocked ? { opacity: 0.65 } : undefined}
+                  >
+                    <span className={styles.navIcon}><item.icon size={18} /></span>
+                    {!collapsed && <span className={styles.navLabel} style={isLocked ? { color: 'var(--text-secondary)' } : undefined}>{item.label}</span>}
+                    {!collapsed && isLocked && (
+                      <span style={{ fontSize: '11px', marginLeft: 'auto', opacity: 0.7 }} title="Access Locked">
+                        🔒
+                      </span>
+                    )}
+                    {!collapsed && item.badge ? <span className={styles.badge}>{item.badge}</span> : null}
+                  </NavLink>
+                );
+              })}
+            </div>
+          );
+        })}
       </nav>
 
       {/* Bottom: User profile */}
@@ -217,17 +171,6 @@ export function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose, hidden
           )}
         </div>
         <div className={styles.userActions}>
-          <button 
-            className={styles.actionBtn} 
-            onClick={() => {
-              window.dispatchEvent(new CustomEvent('gsv-check-update-manual'));
-              onMobileClose();
-            }} 
-            title="Check for Updates"
-            style={{ border: 'none', background: 'transparent' }}
-          >
-            <Download size={16} />
-          </button>
           <NavLink to="/profile" className={styles.actionBtn} title="Settings" onClick={onMobileClose}>
             <Settings size={16} />
           </NavLink>

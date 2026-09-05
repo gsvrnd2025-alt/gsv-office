@@ -16,13 +16,10 @@ export default defineConfig({
       '@types': path.resolve(__dirname, './src/types'),
     },
   },
-  define: {
-    __APP_VERSION__: JSON.stringify(process.env.npm_package_version || '1.0.0'),
-  },
   server: {
     port: 5173,
     proxy: {
-      '/api': { target: 'http://localhost:3000', changeOrigin: true },
+      '/api': { target: 'http://localhost:3000', changeOrigin: true, rewrite: (path) => path.replace(/^\/api/, '') },
       '/socket.io': { target: 'http://localhost:3000', ws: true },
       '/uploads': { target: 'http://localhost:3000', changeOrigin: true },
     },

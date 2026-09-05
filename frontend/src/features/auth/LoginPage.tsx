@@ -38,11 +38,7 @@ export default function LoginPage() {
       
       login(user, accessToken);
       toast.success(`Welcome back, ${user.fullName.split(' ')[0]}! 🎉`);
-      if (user.role?.name === 'Student') {
-        window.location.replace(`/internship/student.html?regno=${user.loginId}`);
-      } else {
-        navigate('/dashboard');
-      }
+      navigate('/dashboard');
     } catch (err: any) {
       toast.error(err.response?.data?.message || err.message || 'Invalid credentials');
     } finally {
@@ -96,17 +92,9 @@ export default function LoginPage() {
 
   return (
     <div style={{ animation: 'slideUp 0.4s ease' }}>
+      {/* Logo */}
       <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-        <div 
-          onDoubleClick={() => {
-            if ((window as any).gsvDesktop && typeof (window as any).gsvDesktop.openSettings === 'function') {
-              (window as any).gsvDesktop.openSettings();
-              toast.success('Opening Desktop Client settings...');
-            }
-          }}
-          style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '64px', height: '64px', borderRadius: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', marginBottom: '16px', boxShadow: '0 8px 24px rgba(255,255,255,0.05)', overflow: 'hidden', cursor: (window as any).gsvDesktop ? 'pointer' : 'default' }}
-          title={(window as any).gsvDesktop ? 'Double click to open Settings' : undefined}
-        >
+        <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '64px', height: '64px', borderRadius: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', marginBottom: '16px', boxShadow: '0 8px 24px rgba(255,255,255,0.05)', overflow: 'hidden' }}>
           <img src={logoImg} alt="GSV Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
         </div>
         <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: '28px', fontWeight: 800, color: '#fff', marginBottom: '6px', letterSpacing: '-0.5px' }}>
@@ -195,38 +183,8 @@ export default function LoginPage() {
                     onFocus={e => { e.target.style.borderColor = '#6366f1'; e.target.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.2)'; }}
                     onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; e.target.style.boxShadow = 'none'; }}
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    title={showPassword ? "Hide password" : "Show password"}
-                    style={{
-                      position: 'absolute',
-                      right: '8px',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      background: showPassword ? 'linear-gradient(135deg, #ec4899, #8b5cf6)' : 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                      border: '1.5px solid #a5b4fc',
-                      borderRadius: '8px',
-                      color: '#ffffff',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      padding: '6px 10px',
-                      boxShadow: '0 2px 10px rgba(99, 102, 241, 0.6)',
-                      zIndex: 10,
-                      transition: 'all 0.2s ease',
-                    }}
-                    onMouseEnter={e => {
-                      e.currentTarget.style.transform = 'translateY(-50%) scale(1.08)';
-                      e.currentTarget.style.boxShadow = '0 0 14px rgba(99, 102, 241, 0.9)';
-                    }}
-                    onMouseLeave={e => {
-                      e.currentTarget.style.transform = 'translateY(-50%) scale(1)';
-                      e.currentTarget.style.boxShadow = '0 2px 10px rgba(99, 102, 241, 0.6)';
-                    }}
-                  >
-                    {showPassword ? <EyeOff size={16} strokeWidth={2.5} style={{ color: '#ffffff' }} /> : <Eye size={16} strokeWidth={2.5} style={{ color: '#ffffff' }} />}
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', display: 'flex', padding: 0 }}>
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
               </div>
@@ -409,38 +367,8 @@ export default function LoginPage() {
                       outline: 'none', boxSizing: 'border-box',
                     }}
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowNewPassword(!showNewPassword)}
-                    title={showNewPassword ? "Hide password" : "Show password"}
-                    style={{
-                      position: 'absolute',
-                      right: '8px',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      background: showNewPassword ? 'linear-gradient(135deg, #ec4899, #8b5cf6)' : 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                      border: '1.5px solid #a5b4fc',
-                      borderRadius: '8px',
-                      color: '#ffffff',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      padding: '6px 10px',
-                      boxShadow: '0 2px 10px rgba(99, 102, 241, 0.6)',
-                      zIndex: 10,
-                      transition: 'all 0.2s ease',
-                    }}
-                    onMouseEnter={e => {
-                      e.currentTarget.style.transform = 'translateY(-50%) scale(1.08)';
-                      e.currentTarget.style.boxShadow = '0 0 14px rgba(99, 102, 241, 0.9)';
-                    }}
-                    onMouseLeave={e => {
-                      e.currentTarget.style.transform = 'translateY(-50%) scale(1)';
-                      e.currentTarget.style.boxShadow = '0 2px 10px rgba(99, 102, 241, 0.6)';
-                    }}
-                  >
-                    {showNewPassword ? <EyeOff size={16} strokeWidth={2.5} style={{ color: '#ffffff' }} /> : <Eye size={16} strokeWidth={2.5} style={{ color: '#ffffff' }} />}
+                  <button type="button" onClick={() => setShowNewPassword(!showNewPassword)} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', display: 'flex', padding: 0 }}>
+                    {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
               </div>
@@ -498,12 +426,6 @@ export default function LoginPage() {
               <Link to="/register" style={{ color: '#6366f1', textDecoration: 'none', fontWeight: 600 }}>
                 Create Account
               </Link>
-            </p>
-            <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px', marginTop: '10px' }}>
-              Are you an intern?{' '}
-              <a href="/internship/index.html" style={{ color: '#8b5cf6', textDecoration: 'none', fontWeight: 600 }}>
-                Internship Student Portal
-              </a>
             </p>
           </div>
         )}

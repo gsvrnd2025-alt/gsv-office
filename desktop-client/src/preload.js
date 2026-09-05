@@ -5,25 +5,5 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('gsvDesktop', {
   isDesktop: true,
   platform: process.platform,
-  remoteInput: (event) => ipcRenderer.invoke('remote-input', event),
-  getSources: () => ipcRenderer.invoke('get-sources'),
-  selectSource: (sourceId) => ipcRenderer.invoke('select-source', sourceId),
-  openSettings: () => ipcRenderer.invoke('open-settings'),
-  minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
-  showAndFocus: () => ipcRenderer.invoke('show-and-focus'),
-  getDeviceId: () => ipcRenderer.invoke('get-device-id'),
-  showIncomingCallPopup: (data) => ipcRenderer.invoke('show-incoming-call-popup', data),
-  closeIncomingCallPopup: () => ipcRenderer.invoke('close-incoming-call-popup'),
-  copyFolderToClipboard: (payload) => ipcRenderer.invoke('copy-folder-to-clipboard', payload),
-  copyFileToClipboard: (payload) => ipcRenderer.invoke('copy-file-to-clipboard', payload),
-  zipAndUploadFolder: (payload) => ipcRenderer.invoke('zip-and-upload-folder', payload),
-  downloadAndInstallUpdate: (payload) => ipcRenderer.invoke('download-and-install-update', payload),
-  updateSocketStatus: (online) => ipcRenderer.send('socket-status', online),
-  showNotification: (payload) => ipcRenderer.send('incoming-message', payload),
-  onNotificationReply: (callback) => {
-    ipcRenderer.on('notification-reply', (event, data) => callback(data));
-  },
-  onNotificationClick: (callback) => {
-    ipcRenderer.on('notification-click', (event, data) => callback(data));
-  }
+  remoteInput: (event) => ipcRenderer.invoke('remote-input', event)
 });

@@ -60,10 +60,9 @@ import mailConfig from './config/mail.config';
         logging: config.get<boolean>('database.logging'),
         autoLoadEntities: true,
         extra: {
-          max: 100,
+          max: 20,
           idleTimeoutMillis: 30000,
-          connectionTimeoutMillis: 10000,
-          statement_timeout: 15000,
+          connectionTimeoutMillis: 2000,
         },
       }),
       inject: [ConfigService],
@@ -75,8 +74,8 @@ import mailConfig from './config/mail.config';
       useFactory: (config: ConfigService) => ({
         throttlers: [
           {
-            ttl: Number(config.get('RATE_LIMIT_TTL', 900)) * 1000,
-            limit: Number(config.get('RATE_LIMIT_MAX', 100)),
+            ttl: config.get<number>('RATE_LIMIT_TTL', 900) * 1000,
+            limit: config.get<number>('RATE_LIMIT_MAX', 100),
           },
         ],
       }),

@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useOutletContext } from 'react-router-dom';
 import { 
   FileEdit, Code2, Save, Play, Download, Cloud,
   ChevronRight, Laptop, FileCode, Type, Sun, Moon,
   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight,
   Sparkles, FileText, CheckCircle, Terminal, Plus, Trash2, 
   Search, Table, FileText as NoteIcon, AlignJustify, Heading1,
-  Heading2, Heading3, List, Image as ImageIcon, History, X, Menu
+  Heading2, Heading3, List, Image as ImageIcon, History, X
 } from 'lucide-react';
 import { filesApi, usersApi } from '../../api';
 import toast from 'react-hot-toast';
@@ -38,8 +37,6 @@ const quillModules = {
 };
 
 export default function EOfficePage() {
-  const { setMobileSidebarOpen } = useOutletContext<any>() || {};
-  const [zoomLevel, setZoomLevel] = useState(120); // Default to a larger 120% view
   const [activeTab, setActiveTab] = useState<'word' | 'excel' | 'note'>('word');
   const [activeWordTab, setActiveWordTab] = useState('Home');
   const [docTitle, setDocTitle] = useState('New Document');
@@ -371,7 +368,7 @@ export default function EOfficePage() {
   };
 
   // Export and Download As locally
-  const handleExportAs = (format: string) => {
+  const handleExportAs = (format: 'docx' | 'xlsx' | 'txt' | 'csv' | 'pdf') => {
     if (format === 'pdf') {
       const printWindow = window.open('', '_blank');
       if (!printWindow) {
@@ -427,132 +424,6 @@ export default function EOfficePage() {
       return;
     }
 
-    // PNG and JPEG exports (Render Text-to-Canvas)
-    if (format === 'png' || format === 'jpeg') {
-      let textToRender = '';
-      if (activeTab === 'word') {
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = wordContent;
-        textToRender = tempDiv.innerText || tempDiv.textContent || '';
-      } else if (activeTab === 'note') {
-        textToRender = noteContent;
-      } else {
-        textToRender = excelGrid.map((row, r) => 
-          row.map((val, c) => `${String.fromCharCode(65 + c)}${r + 1}: ${val}`).filter(v => !v.endsWith(': ')).join(' | ')
-        ).filter(r => r.length > 0).join('\n');
-      }
-
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        toast.error('Failed to create canvas context.');
-        return;
-      }
-
-      // Pre-measure to setup dynamic height and width
-      ctx.font = '14px Consolas, Monaco, monospace';
-      const lines = textToRender.split('\n');
-      let maxLineWidth = 0;
-      lines.forEach(line => {
-        const width = ctx.measureText(line).width;
-        if (width > maxLineWidth) {
-          maxLineWidth = width;
-        }
-      });
-
-      const minWidth = 800;
-      const width = Math.max(minWidth, Math.ceil(maxLineWidth + 120)); // padding + line numbers column
-      const headerHeight = 60;
-      const padding = 30;
-      const lineHeight = 22;
-      const height = headerHeight + padding * 2 + lines.length * lineHeight;
-
-      canvas.width = width;
-      canvas.height = height;
-
-      // 1. Draw Canvas Background (Deep Slate)
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(0, 0, width, height);
-
-      // 2. Draw Header Area
-      ctx.fillStyle = '#1e293b';
-      ctx.fillRect(0, 0, width, headerHeight);
-
-      // 3. Draw Header Border Line
-      ctx.strokeStyle = '#334155';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(0, headerHeight);
-      ctx.lineTo(width, headerHeight);
-      ctx.stroke();
-
-      // 4. Mac-style Window Controls
-      const dotRadius = 6;
-      const dotY = headerHeight / 2;
-      // Red
-      ctx.fillStyle = '#ff5f56';
-      ctx.beginPath();
-      ctx.arc(25, dotY, dotRadius, 0, Math.PI * 2);
-      ctx.fill();
-      // Yellow
-      ctx.fillStyle = '#ffbd2e';
-      ctx.beginPath();
-      ctx.arc(45, dotY, dotRadius, 0, Math.PI * 2);
-      ctx.fill();
-      // Green
-      ctx.fillStyle = '#27c93f';
-      ctx.beginPath();
-      ctx.arc(65, dotY, dotRadius, 0, Math.PI * 2);
-      ctx.fill();
-
-      // 5. Document Title
-      ctx.font = 'bold 13px "Segoe UI", Tahoma, Geneva, Verdana, sans-serif';
-      ctx.fillStyle = '#94a3b8';
-      ctx.textAlign = 'center';
-      ctx.fillText(`${docTitle} - E-Office`, width / 2, headerHeight / 2 + 5);
-
-      // 6. Draw vertical line separator between line numbers and content
-      ctx.strokeStyle = '#1e293b';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(55, headerHeight);
-      ctx.lineTo(55, height);
-      ctx.stroke();
-
-      // 7. Render Lines with Line Numbers
-      ctx.textAlign = 'left';
-      lines.forEach((line, index) => {
-        const y = headerHeight + padding + index * lineHeight + 14; // baseline adjustment
-        
-        // Line number
-        ctx.font = '12px Consolas, Monaco, monospace';
-        ctx.fillStyle = '#475569';
-        const lineNumStr = String(index + 1).padStart(2, '0');
-        ctx.fillText(lineNumStr, 25, y);
-
-        // Content text
-        ctx.font = '14px Consolas, Monaco, monospace';
-        ctx.fillStyle = '#cbd5e1';
-        ctx.fillText(line, 70, y);
-      });
-
-      const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
-      canvas.toBlob((blob) => {
-        if (!blob) {
-          toast.error('Failed to export as image.');
-          return;
-        }
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${docTitle}.${format}`;
-        link.click();
-        URL.revokeObjectURL(url);
-        toast.success(`Exported locally as ${format.toUpperCase()}`);
-      }, mimeType, 0.95);
-      return;
-    }
-
     let blob: Blob;
     let extension = format;
     
@@ -564,25 +435,10 @@ export default function EOfficePage() {
         row.map(val => `"${val.replace(/"/g, '""')}"`).join(',')
       ).join('\n');
       blob = new Blob(['\ufeff' + csvStr], { type: 'text/csv;charset=utf-8;' });
-    } else if (format === 'xlsx') {
+    } else {
       // JSON spreadsheet structure downloaded as xlsx file format
       const gridStr = JSON.stringify(excelGrid);
       blob = new Blob([gridStr], { type: 'application/json' });
-    } else {
-      // Code files (Python, JS, etc.) - extract raw text
-      let codeText = '';
-      if (activeTab === 'word') {
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = wordContent;
-        codeText = tempDiv.innerText || tempDiv.textContent || '';
-      } else if (activeTab === 'note') {
-        codeText = noteContent;
-      } else {
-        codeText = excelGrid.map(row => 
-          row.map(val => `"${val.replace(/"/g, '""')}"`).join(',')
-        ).join('\n');
-      }
-      blob = new Blob([codeText], { type: 'text/plain;charset=utf-8' });
     }
 
     const url = URL.createObjectURL(blob);
@@ -636,121 +492,68 @@ export default function EOfficePage() {
   };
 
   return (
-    <div className="page-enter" style={{ display: 'flex', flexDirection: 'column', height: '100vh', gap: '0', position: 'relative', overflow: 'hidden', background: 'var(--bg-secondary)' }}>
+    <div className="page-enter" style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '16px', position: 'relative' }}>
       
-      {/* Custom Workspace Topbar */}
-      <div style={{
-        height: '64px',
-        background: 'var(--topbar-bg, rgba(30, 41, 59, 0.8))',
-        borderBottom: '1px solid var(--border-color, rgba(255, 255, 255, 0.1))',
-        backdropFilter: 'blur(12px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '0 24px',
-        gap: '16px',
-        flexShrink: 0,
-        zIndex: 100
-      }}>
-        {/* Left: Hamburger menu toggle, logo/title, and title input */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {/* Hamburger Menu Toggle (for Mobile) */}
-          {setMobileSidebarOpen && (
-            <button 
-              className="btn btn-ghost btn-icon btn-sm mobile-menu-toggle"
-              onClick={() => setMobileSidebarOpen(true)}
-              style={{ 
-                width: '32px', 
-                height: '32px', 
-                display: 'inline-flex', 
-                alignItems: 'center', 
-                justifyContent: 'center',
-                border: 'none',
-                background: 'transparent',
-                cursor: 'pointer',
-                color: 'var(--text-secondary)'
-              }}
-              title="Open Navigation Menu"
-            >
-              <Menu size={20} />
-            </button>
-          )}
-          
-          <h2 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            🖥️ <span className="desktop-only-label">Workspace:</span>
-          </h2>
-          
-          <input 
-            type="text" 
-            value={docTitle} 
-            onChange={e => setDocTitle(e.target.value)} 
-            className="form-control" 
-            style={{ 
-              width: '180px', 
-              fontWeight: 600, 
-              height: '32px', 
-              background: 'var(--bg-secondary)', 
-              color: 'var(--text-primary)', 
-              border: '1px solid var(--border-color)', 
-              borderRadius: '6px',
-              fontSize: '13px' 
-            }}
-            title="Document Title"
-          />
+      {/* Upper header controls */}
+      <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
+        <div>
+          <h1 style={{ fontSize: '24px', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-primary)' }}>
+            🖥️ GSV Document Workspace
+          </h1>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
+            Unified Document suite (Word, Excel, Notepad) integrated with ZFS Cloud storage database
+          </p>
         </div>
-
-        {/* Right: Actions and Tabs */}
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          
-          {/* New Document Button */}
+        
+        {/* Upper Switch panel */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <button 
-            className="btn btn-primary btn-sm"
-            style={{ borderRadius: '8px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600 }}
+            className="btn btn-primary"
+            style={{ borderRadius: '8px', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600 }}
             onClick={() => setShowNewDocDialog(true)}
           >
-            <Plus size={14} /> <span className="desktop-only-label">New Document</span><span className="mobile-menu-toggle"><Plus size={14} /></span>
+            <Plus size={16} /> New Document
           </button>
           
-          {/* Share Button */}
           <button 
-            className="btn btn-outline-light text-primary btn-sm"
-            style={{ borderRadius: '8px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, border: '1px solid var(--border-color)' }}
+            className="btn btn-outline-light text-primary"
+            style={{ borderRadius: '8px', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, border: '1px solid var(--border-color)' }}
             onClick={handleShareClick}
           >
-            <Cloud size={14} /> <span className="desktop-only-label">Share via Chat</span><span className="mobile-menu-toggle"><Cloud size={14} /></span>
+            <Cloud size={16} /> Share via Team Chat
           </button>
           
-          {/* History Button */}
-          <button 
-            className="btn btn-outline-light text-white btn-sm desktop-only-btn"
-            style={{ borderRadius: '8px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', border: '1px solid var(--border-color)' }}
-            onClick={() => setShowHistoryDrawer(true)}
-          >
-            <History size={14} /> History ({workspaceFiles.length})
-          </button>
-
-          {/* Tab Selector */}
-          <div className="glass-panel" style={{ padding: '2px', display: 'flex', gap: '2px', borderRadius: '8px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+          <div className="dropdown dropdown-export">
             <button 
-              className={`btn btn-sm ${activeTab === 'word' ? 'btn-primary' : 'btn-ghost'}`}
-              style={{ borderRadius: '6px', padding: '4px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+              className="btn btn-outline-light text-white"
+              style={{ borderRadius: '8px', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', border: '1px solid var(--border-color)' }}
+              onClick={() => setShowHistoryDrawer(true)}
+            >
+              <History size={16} /> History ({workspaceFiles.length})
+            </button>
+          </div>
+
+          <div className="glass-panel" style={{ padding: '4px', display: 'flex', gap: '4px', borderRadius: '10px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+            <button 
+              className={`btn ${activeTab === 'word' ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ borderRadius: '8px', padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}
               onClick={() => setActiveTab('word')}
             >
-              <Type size={12} /> Word
+              <Type size={14} /> Word
             </button>
             <button 
-              className={`btn btn-sm ${activeTab === 'excel' ? 'btn-primary' : 'btn-ghost'}`}
-              style={{ borderRadius: '6px', padding: '4px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+              className={`btn ${activeTab === 'excel' ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ borderRadius: '8px', padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}
               onClick={() => setActiveTab('excel')}
             >
-              <Table size={12} /> Excel
+              <Table size={14} /> Excel
             </button>
             <button 
-              className={`btn btn-sm ${activeTab === 'note' ? 'btn-primary' : 'btn-ghost'}`}
-              style={{ borderRadius: '6px', padding: '4px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+              className={`btn ${activeTab === 'note' ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ borderRadius: '8px', padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}
               onClick={() => setActiveTab('note')}
             >
-              <NoteIcon size={12} /> Note
+              <NoteIcon size={14} /> Note
             </button>
           </div>
         </div>
@@ -761,7 +564,16 @@ export default function EOfficePage() {
         
         {/* Editor Toolbar */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 16px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-secondary)', flexWrap: 'wrap' }}>
+          <input 
+            type="text" 
+            value={docTitle} 
+            onChange={e => setDocTitle(e.target.value)} 
+            className="form-control" 
+            style={{ width: '180px', fontWeight: 600, height: '32px', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', fontSize: '13px' }}
+            title="Document Title"
+          />
           
+          <div style={{ width: '1px', height: '20px', background: 'var(--border-color)' }}></div>
           
           {activeTab === 'word' && (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
@@ -863,36 +675,15 @@ export default function EOfficePage() {
               </button>
               <div className="dropdown-export-menu" style={{
                 position: 'absolute', top: '34px', right: 0, background: '#1e293b', border: '1px solid rgba(255,255,255,0.15)',
-                borderRadius: '8px', width: '220px', zIndex: 100, fontSize: '12px', display: 'flex', flexDirection: 'column',
-                boxShadow: '0 10px 20px rgba(0,0,0,0.5)', maxHeight: '280px', overflowY: 'auto'
+                borderRadius: '8px', width: '200px', zIndex: 100, fontSize: '12px', display: 'flex', flexDirection: 'column',
+                boxShadow: '0 10px 20px rgba(0,0,0,0.5)', overflow: 'hidden'
               }}>
                 <ul className="list-unstyled m-0 p-0">
-                  <div style={{ padding: '6px 10px', fontSize: '10px', color: '#64748b', fontWeight: 'bold', borderBottom: '1px solid rgba(255,255,255,0.1)', background: '#151d2a' }}>OFFICE FORMATS</div>
                   <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('docx')}><Type size={14}/> MS Word (.docx)</button></li>
                   <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('xlsx')}><Table size={14}/> Excel Sheet (.xlsx)</button></li>
                   <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('pdf')}><FileEdit size={14}/> PDF Document (.pdf)</button></li>
                   <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('csv')}><AlignJustify size={14}/> CSV Data (.csv)</button></li>
                   <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('txt')}><FileCode size={14}/> Raw Text (.txt)</button></li>
-                  
-                  <div style={{ padding: '6px 10px', fontSize: '10px', color: '#64748b', fontWeight: 'bold', borderBottom: '1px solid rgba(255,255,255,0.1)', borderTop: '1px solid rgba(255,255,255,0.1)', background: '#151d2a' }}>IMAGE EXPORTS</div>
-                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('png')}><ImageIcon size={14}/> PNG Image (.png)</button></li>
-                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('jpeg')}><ImageIcon size={14}/> JPEG Image (.jpeg)</button></li>
-                  
-                  <div style={{ padding: '6px 10px', fontSize: '10px', color: '#64748b', fontWeight: 'bold', borderBottom: '1px solid rgba(255,255,255,0.1)', borderTop: '1px solid rgba(255,255,255,0.1)', background: '#151d2a' }}>DEVELOPER SCRIPTS</div>
-                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('py')}><Code2 size={14}/> Python (.py)</button></li>
-                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('js')}><Code2 size={14}/> JavaScript (.js)</button></li>
-                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('ts')}><Code2 size={14}/> TypeScript (.ts)</button></li>
-                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('cpp')}><Code2 size={14}/> C++ (.cpp)</button></li>
-                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('cs')}><Code2 size={14}/> C# (.cs)</button></li>
-                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('java')}><Code2 size={14}/> Java (.java)</button></li>
-                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('ino')}><Code2 size={14}/> Arduino (.ino)</button></li>
-                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('php')}><Code2 size={14}/> PHP Script (.php)</button></li>
-                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('mongodb')}><Code2 size={14}/> MongoDB (.mongodb)</button></li>
-                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('sql')}><Code2 size={14}/> SQL Query (.sql)</button></li>
-                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('sh')}><Code2 size={14}/> Shell Script (.sh)</button></li>
-                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('html')}><Code2 size={14}/> HTML File (.html)</button></li>
-                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('css')}><Code2 size={14}/> CSS Stylesheet (.css)</button></li>
-                  <li><button className="dropdown-item hover-export-item d-flex align-items-center gap-2 p-2 text-white" onClick={() => handleExportAs('json')}><Code2 size={14}/> JSON File (.json)</button></li>
                 </ul>
               </div>
             </div>
@@ -1065,11 +856,11 @@ export default function EOfficePage() {
                   display: flex;
                   justify-content: center;
                 }
-                 .ql-editor {
+                .ql-editor {
                   background-color: ${pageColor};
                   width: ${isLandscape ? '100%' : '95%'};
                   max-width: ${isLandscape ? '297mm' : '210mm'};
-                  min-height: ${isLandscape ? '210mm' : '297mm'};
+                  min-height: ${isLandscape ? '210mm' : '1122px'};
                   margin: 20px auto;
                   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
                   padding: ${pageMargin}; 
@@ -1080,23 +871,6 @@ export default function EOfficePage() {
                   column-gap: 40px;
                   position: relative;
                   border: ${hasBorder ? '4px double #1e293b' : 'none'};
-                  zoom: ${zoomLevel / 100};
-                }
-                @media (max-width: 768px) {
-                  .desktop-only-label {
-                    display: none !important;
-                  }
-                  .mobile-menu-toggle {
-                    display: inline-flex !important;
-                  }
-                  .desktop-only-btn {
-                    display: none !important;
-                  }
-                }
-                @media (min-width: 769px) {
-                  .mobile-menu-toggle {
-                    display: none !important;
-                  }
                 }
                 ${watermarkText ? `
                 .ql-editor::before {
@@ -1525,10 +1299,8 @@ export default function EOfficePage() {
                       <div className="ribbon-btn" onClick={() => setIsFullscreen(prev => !prev)} style={{ color: 'var(--brand-primary)', fontWeight: 600 }}>{isFullscreen ? '↩️ Exit Fullscreen' : '🔲 Fit into Screen'}</div>
                     </div>
                     <div className="ribbon-group">
-                      <button className="ribbon-btn" onClick={() => setZoomLevel(prev => Math.min(prev + 10, 200))}>➕ Zoom In</button>
-                      <button className="ribbon-btn" onClick={() => setZoomLevel(prev => Math.max(prev - 10, 50))}>➖ Zoom Out</button>
-                      <button className="ribbon-btn" onClick={() => setZoomLevel(100)}>💯 100% (Reset)</button>
-                      <span className="ribbon-btn" style={{ fontWeight: 'bold', color: 'var(--brand-primary)', cursor: 'default' }}>🔍 {zoomLevel}%</span>
+                      <div className="ribbon-btn" onClick={() => toast.success('Zoomed in 125%')}>🔍 Zoom</div>
+                      <div className="ribbon-btn" onClick={() => toast.success('Zoom reset to 100%')}>💯 100%</div>
                     </div>
                   </div>
                 )}

@@ -1,6 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Suspense, lazy, useEffect } from 'react';
-import toast from 'react-hot-toast';
 import { AppLayout } from './components/layout/AppLayout';
 import { AuthLayout } from './components/layout/AuthLayout';
 import { useAuthStore } from './store/auth.store';
@@ -30,8 +29,6 @@ const PluginsPage = lazy(() => import('./features/plugins/PluginsPage'));
 const ServerPage = lazy(() => import('./features/server/ServerPage'));
 const ProfilePage = lazy(() => import('./features/profile/ProfilePage'));
 const DownloadsPage = lazy(() => import('./features/plugins/DownloadsPage'));
-const InternshipStudentPage = lazy(() => import('./features/internship/InternshipStudentPage'));
-const InternshipAdminPage = lazy(() => import('./features/internship/InternshipAdminPage'));
 
 function hasPermission(user: any, module: string, action: string): boolean {
   if (!user) return false;
@@ -101,8 +98,6 @@ function GuestRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-import { UpdateChecker } from './components/ui/UpdateChecker';
-
 export default function App() {
   const { isAuthenticated, setUser, logout } = useAuthStore();
 
@@ -133,13 +128,6 @@ export default function App() {
         });
     }
   }, [isAuthenticated, setUser, logout]);
-
-  const { user } = useAuthStore();
-  useEffect(() => {
-    if (isAuthenticated && user?.role?.name === 'Student') {
-      window.location.replace(`/internship/student.html?regno=${user.loginId}`);
-    }
-  }, [isAuthenticated, user]);
 
   useEffect(() => {
     const handleGlobalClick = (e: MouseEvent) => {
@@ -191,42 +179,8 @@ export default function App() {
     return () => window.removeEventListener('click', handleGlobalClick, { capture: true });
   }, []);
 
-  useEffect(() => {
-    const handleGlobalDragOver = (e: DragEvent) => {
-      e.preventDefault();
-    };
-
-    const handleGlobalDrop = (e: DragEvent) => {
-      e.preventDefault();
-      if (e.dataTransfer?.items) {
-        let hasDirectory = false;
-        for (const item of Array.from(e.dataTransfer.items)) {
-          if (item.kind === 'file') {
-            const entry = (item as any).webkitGetAsEntry?.();
-            if (entry && entry.isDirectory) {
-              hasDirectory = true;
-              break;
-            }
-          }
-        }
-        if (hasDirectory) {
-          toast.error("Folder drops are not supported. Please compress your folder into a .zip or .tar archive before uploading.");
-        }
-      }
-    };
-
-    window.addEventListener('dragover', handleGlobalDragOver);
-    window.addEventListener('drop', handleGlobalDrop);
-
-    return () => {
-      window.removeEventListener('dragover', handleGlobalDragOver);
-      window.removeEventListener('drop', handleGlobalDrop);
-    };
-  }, []);
-
   return (
     <BrowserRouter>
-      <UpdateChecker />
       <Suspense fallback={<LoadingScreen />}>
         <Routes>
           {/* Auth routes */}
@@ -265,8 +219,6 @@ export default function App() {
             <Route path="server" element={<PermittedRoute module="server" action="view"><ServerPage /></PermittedRoute>} />
             <Route path="profile" element={<ProfilePage />} />
             <Route path="downloads" element={<DownloadsPage />} />
-            <Route path="internship-student" element={<InternshipStudentPage />} />
-            <Route path="internship-admin" element={<PermittedRoute module="users" action="update"><InternshipAdminPage /></PermittedRoute>} />
           </Route>
 
           {/* 404 */}

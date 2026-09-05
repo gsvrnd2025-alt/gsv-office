@@ -1,7 +1,9 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { Response } from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as archiver from 'archiver';
 
 @Injectable()
 export class FilesService implements OnModuleInit {
@@ -54,11 +56,15 @@ export class FilesService implements OnModuleInit {
     }
 
     return this.dataSource.query(
-      `SELECT DISTINCT f.*, u.full_name AS owner_name FROM folders f
+      `SELECT f.*, u.full_name AS owner_name FROM folders f
        LEFT JOIN users u ON u.id = f.owner_id
-       LEFT JOIN folder_access_requests far ON far.folder_id = f.id AND far.requester_id = $1 AND far.status = 'approved'
        WHERE f.deleted_at IS NULL
-       AND (f.owner_id = $1 OR far.id IS NOT NULL)
+       AND (
+         f.owner_id = $1
+         OR f.metadata->>'is_user_private' IS NULL
+         OR f.metadata->>'is_user_private' != 'true'
+         OR f.id IN (SELECT folder_id FROM folder_access_requests WHERE requester_id = $1 AND status = 'approved')
+       )
        AND ($2::uuid IS NULL AND f.parent_id IS NULL OR f.parent_id = $2::uuid)
        ORDER BY f.name ASC`,
       [userId, parentId || null]
@@ -67,10 +73,20 @@ export class FilesService implements OnModuleInit {
 
   async getFiles(userId: string, folderId?: string, search?: string, recursive = false) {
     const qb = `
-      SELECT DISTINCT f.*, u.full_name AS owner_name FROM files f
+      SELECT f.*, u.full_name AS owner_name FROM files f
       LEFT JOIN users u ON u.id = f.owner_id
-      LEFT JOIN folder_access_requests far ON far.folder_id = f.folder_id AND far.requester_id = $1 AND far.status = 'approved'
-      WHERE (f.owner_id = $1 OR f.is_public = true OR far.id IS NOT NULL) AND f.deleted_at IS NULL
+      WHERE (
+        f.owner_id = $1 
+        OR f.is_public = true
+        OR f.id IN (SELECT file_id FROM file_shares WHERE shared_with_user_id = $1 AND (expires_at IS NULL OR expires_at > NOW()))
+        OR f.folder_id IN (
+          SELECT id FROM folders WHERE owner_id = $1 
+          OR id IN (SELECT folder_id FROM folder_access_requests WHERE requester_id = $1 AND status = 'approved')
+          OR metadata->>'is_user_private' IS NULL
+          OR metadata->>'is_user_private' != 'true'
+        )
+        OR (f.conversation_id IS NOT NULL AND f.conversation_id IN (SELECT conversation_id FROM conversation_members WHERE user_id = $1))
+      ) AND f.deleted_at IS NULL
       ${recursive ? '' : (folderId ? 'AND f.folder_id = $2' : 'AND f.folder_id IS NULL')}
       ${search ? `AND (f.name ILIKE '%${search}%' OR f.original_name ILIKE '%${search}%')` : ''}
       ORDER BY f.created_at DESC
@@ -79,6 +95,7 @@ export class FilesService implements OnModuleInit {
   }
 
   async createFolder(dto: { name: string; parentId?: string; ownerId: string }) {
+
     const [folder] = await this.dataSource.query(
       `INSERT INTO folders (name, parent_id, owner_id) VALUES ($1, $2, $3) RETURNING *`,
       [dto.name, dto.parentId || null, dto.ownerId]
@@ -128,19 +145,10 @@ export class FilesService implements OnModuleInit {
   }
 
   async deleteFolder(folderId: string, userId: string) {
-    const [folder] = await this.dataSource.query(`SELECT owner_id FROM folders WHERE id = $1`, [folderId]);
-    if (!folder) return;
-    
-    // Check if owner or Super Admin
-    const [isAdmin] = await this.dataSource.query(`SELECT id FROM users WHERE id = $1 AND role_id IN (SELECT id FROM roles WHERE name IN ('Super Admin', 'Admin'))`, [userId]);
-    if (folder.owner_id !== userId && !isAdmin) {
-      throw new Error('You do not have permission to delete this folder. Read-only access does not permit deletion.');
-    }
-
     // 1. Soft-delete the folder itself
     await this.dataSource.query(
-      `UPDATE folders SET deleted_at = NOW() WHERE id = $1`,
-      [folderId]
+      `UPDATE folders SET deleted_at = NOW() WHERE id = $1 AND (owner_id = $2 OR $2 IN (SELECT id FROM users WHERE role_id IN (SELECT id FROM roles WHERE name IN ('Super Admin', 'Admin'))))`,
+      [folderId, userId]
     );
 
     // 2. Soft-delete all files directly inside this folder
@@ -175,91 +183,52 @@ export class FilesService implements OnModuleInit {
       `SELECT * FROM files WHERE id = $1 AND deleted_at IS NULL`,
       [fileId]
     );
+    if (!origFile) throw new Error('File not found');
 
-    if (origFile) {
-      const ext = path.extname(origFile.original_name).replace('.', '').toLowerCase();
-      
-      let categoryName = 'Documents';
-      if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext) || origFile.mime_type?.startsWith('image/')) {
-        categoryName = 'Images';
-      } else if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext) || origFile.mime_type?.startsWith('video/')) {
-        categoryName = 'Videos';
-      } else if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext) || origFile.mime_type?.startsWith('audio/')) {
-        categoryName = 'Audios';
-      }
-      
-      let targetFolderId;
-      const [existingFolder] = await this.dataSource.query(
-        `SELECT id FROM folders WHERE owner_id = $1 AND name = $2 AND deleted_at IS NULL LIMIT 1`,
-        [userId, categoryName]
-      );
-      
-      if (existingFolder) {
-        targetFolderId = existingFolder.id;
-      } else {
-        const newFolder = await this.createFolder({
-          name: categoryName,
-          ownerId: userId
-        });
-        targetFolderId = newFolder.id;
-      }
-
-      const [newFile] = await this.dataSource.query(
-        `INSERT INTO files (name, original_name, mime_type, size, extension, storage_path, storage_url, owner_id, folder_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-        [origFile.name, origFile.original_name, origFile.mime_type, origFile.size, ext, origFile.storage_path, origFile.storage_url, userId, targetFolderId]
-      );
-      return newFile;
+    const ext = path.extname(origFile.original_name).replace('.', '').toLowerCase();
+    
+    let categoryName = 'Documents';
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext) || origFile.mime_type?.startsWith('image/')) {
+      categoryName = 'Images';
+    } else if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext) || origFile.mime_type?.startsWith('video/')) {
+      categoryName = 'Videos';
+    } else if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext) || origFile.mime_type?.startsWith('audio/')) {
+      categoryName = 'Audios';
     }
-
-    const [origFolder] = await this.dataSource.query(
-      `SELECT * FROM folders WHERE id = $1 AND deleted_at IS NULL`,
-      [fileId]
+    
+    let targetFolderId;
+    const [existingFolder] = await this.dataSource.query(
+      `SELECT id FROM folders WHERE owner_id = $1 AND name = $2 AND deleted_at IS NULL LIMIT 1`,
+      [userId, categoryName]
     );
-
-    if (origFolder) {
-      const [user] = await this.dataSource.query(`SELECT full_name FROM users WHERE id = $1`, [userId]);
-      const userName = user?.full_name || 'Teammate';
-      const cloudFolderName = `${userName}'s Saved Cloud Files`;
-      
-      let rootCloudFolderId;
-      const [existingCloudFolder] = await this.dataSource.query(
-        `SELECT id FROM folders WHERE owner_id = $1 AND name = $2 AND deleted_at IS NULL LIMIT 1`,
-        [userId, cloudFolderName]
-      );
-      
-      if (existingCloudFolder) {
-        rootCloudFolderId = existingCloudFolder.id;
-      } else {
-        const newCloudFolder = await this.createFolder({
-          name: cloudFolderName,
-          ownerId: userId
-        });
-        rootCloudFolderId = newCloudFolder.id;
-      }
-
-      return this.moveOrCopy({
-        itemType: 'folder',
-        itemId: fileId,
-        targetFolderId: rootCloudFolderId,
-        action: 'copy',
-        userId: userId
+    
+    if (existingFolder) {
+      targetFolderId = existingFolder.id;
+    } else {
+      const newFolder = await this.createFolder({
+        name: categoryName,
+        ownerId: userId
       });
+      targetFolderId = newFolder.id;
     }
 
-    throw new Error('File or folder not found');
+
+    const [newFile] = await this.dataSource.query(
+      `INSERT INTO files (name, original_name, mime_type, size, extension, storage_path, storage_url, owner_id, folder_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [origFile.name, origFile.original_name, origFile.mime_type, origFile.size, ext, origFile.storage_path, origFile.storage_url, userId, targetFolderId]
+    );
+    return newFile;
   }
 
   async saveFolderStructure(dto: {
     files: any[];
     folderName: string;
     folderId?: string;
+    conversationId?: string;
     relativePaths?: string | string[];
     ownerId: string;
   }) {
-    const fs = require('fs');
-    const { v4: uuid } = require('uuid');
-
     let pathsArr: string[] = [];
     if (typeof dto.relativePaths === 'string') {
       try { pathsArr = JSON.parse(dto.relativePaths); } catch { pathsArr = [dto.relativePaths]; }
@@ -278,10 +247,9 @@ export class FilesService implements OnModuleInit {
     const folderCache = new Map<string, string>(); // path -> folderId
     folderCache.set('', topFolder.id);
 
-    // 2. Pre-process and collect all unique subfolder paths
-    const uniqueFolderPaths = new Set<string>();
-    for (let i = 0; i < dto.files.length; i++) {
-      const relPath = pathsArr[i] || dto.files[i].originalname || '';
+    // Helper to get or create folder path recursively
+    const getOrCreateFolderForPath = async (relPath: string): Promise<string> => {
+      // Clean path and remove the leading folderName segment if present
       const cleanRel = relPath.replace(/\\/g, '/');
       const parts = cleanRel.split('/');
       
@@ -291,106 +259,133 @@ export class FilesService implements OnModuleInit {
       }
       
       const fileSegments = parts.slice(0, -1); // Exclude the filename itself
-      if (fileSegments.length > 0) {
-        let pathAccum = '';
-        for (const segment of fileSegments) {
-          if (!segment) continue;
-          pathAccum = pathAccum ? `${pathAccum}/${segment}` : segment;
-          uniqueFolderPaths.add(pathAccum);
+      if (fileSegments.length === 0) return topFolder.id;
+
+      let currentParentId = topFolder.id;
+      let pathAccum = '';
+
+      for (const segment of fileSegments) {
+        if (!segment) continue;
+        pathAccum = pathAccum ? `${pathAccum}/${segment}` : segment;
+        if (folderCache.has(pathAccum)) {
+          currentParentId = folderCache.get(pathAccum)!;
+        } else {
+          const newFolder = await this.createFolder({
+            name: segment,
+            parentId: currentParentId,
+            ownerId: dto.ownerId
+          });
+          folderCache.set(pathAccum, newFolder.id);
+          currentParentId = newFolder.id;
         }
       }
-    }
-
-    // Sort unique paths by depth (number of slashes) to ensure parents are created before children
-    const sortedFolderPaths = Array.from(uniqueFolderPaths).sort((a, b) => {
-      const depthA = a.split('/').length;
-      const depthB = b.split('/').length;
-      return depthA - depthB;
-    });
-
-    // Pre-create all folders in order of depth to populate the cache
-    for (const folderPath of sortedFolderPaths) {
-      const parts = folderPath.split('/');
-      const segment = parts[parts.length - 1];
-      const parentPath = parts.slice(0, -1).join('/');
-      const parentId = folderCache.get(parentPath) || topFolder.id;
-
-      try {
-        const newFolder = await this.createFolder({
-          name: segment,
-          parentId: parentId,
-          ownerId: dto.ownerId
-        });
-        folderCache.set(folderPath, newFolder.id);
-      } catch (err) {
-        console.error(`Failed to pre-create subfolder ${folderPath}:`, err);
-      }
-    }
+      return currentParentId;
+    };
 
     const savedFiles = [];
-    const filesToInsert = [];
     
-    // 3. Prepare file data mapping to pre-resolved folder IDs
+    // 2. Save each file under the correct folder
     for (let i = 0; i < dto.files.length; i++) {
       const file = dto.files[i];
       const relPath = pathsArr[i] || file.originalname || '';
       
       try {
-        const cleanRel = relPath.replace(/\\/g, '/');
-        const parts = cleanRel.split('/');
-        if (parts[0] === dto.folderName) {
-          parts.shift();
-        }
-        const fileSegments = parts.slice(0, -1);
-        const folderPath = fileSegments.join('/');
-        const fileFolderId = folderCache.get(folderPath) || topFolder.id;
-
+        const fileFolderId = await getOrCreateFolderForPath(relPath);
         const fileName = path.basename(relPath) || file.originalname;
-        const ext = path.extname(fileName).replace('.', '');
 
-        filesToInsert.push({
+        const saved = await this.saveFile({
           name: file.filename,
           originalName: fileName,
           mimeType: file.mimetype,
           size: file.size,
-          extension: ext,
           storagePath: file.path,
           storageUrl: `/uploads/${file.filename}`,
           ownerId: dto.ownerId,
           folderId: fileFolderId,
-          conversationId: null
+          conversationId: dto.conversationId,
         });
+        savedFiles.push(saved);
       } catch (err) {
-        console.error(`Failed to prepare folder file ${relPath}:`, err);
-      }
-    }
-
-    // 3. Batch insert in chunks of 500
-    const CHUNK_SIZE = 500;
-    for (let i = 0; i < filesToInsert.length; i += CHUNK_SIZE) {
-      const chunk = filesToInsert.slice(i, i + CHUNK_SIZE);
-      const values = [];
-      const queryParams = [];
-      let paramIndex = 1;
-
-      for (const f of chunk) {
-        values.push(`($${paramIndex}, $${paramIndex+1}, $${paramIndex+2}, $${paramIndex+3}, $${paramIndex+4}, $${paramIndex+5}, $${paramIndex+6}, $${paramIndex+7}, $${paramIndex+8}, $${paramIndex+9})`);
-        queryParams.push(f.name, f.originalName, f.mimeType, f.size, f.extension, f.storagePath, f.storageUrl, f.ownerId, f.folderId, f.conversationId);
-        paramIndex += 10;
-      }
-
-      if (values.length > 0) {
-        const query = `INSERT INTO files (name, original_name, mime_type, size, extension, storage_path, storage_url, owner_id, folder_id, conversation_id) VALUES ${values.join(', ')} RETURNING *`;
-        try {
-          const inserted = await this.dataSource.query(query, queryParams);
-          savedFiles.push(...inserted);
-        } catch (err) {
-          console.error('Batch insert failed:', err);
-        }
+        console.error(`Failed to save folder file ${relPath}:`, err);
       }
     }
 
     return topFolder;
+  }
+
+  async streamFolderAsZip(folderId: string, userId: string, res: Response) {
+    const [folder] = await this.dataSource.query(
+      `SELECT * FROM folders WHERE id = $1 AND deleted_at IS NULL`,
+      [folderId]
+    );
+    if (!folder) {
+      return res.status(404).json({ message: 'Folder not found' });
+    }
+
+    // Recursively collect all subfolder IDs
+    const getAllSubfolderIds = async (parentIds: string[]): Promise<string[]> => {
+      if (parentIds.length === 0) return [];
+      const children = await this.dataSource.query(
+        `SELECT id FROM folders WHERE parent_id = ANY($1) AND deleted_at IS NULL`,
+        [parentIds]
+      );
+      if (children.length === 0) return parentIds;
+      const childIds = children.map((c: any) => c.id);
+      const deeper = await getAllSubfolderIds(childIds);
+      return [...parentIds, ...deeper];
+    };
+
+    const allFolderIds = await getAllSubfolderIds([folderId]);
+
+    // Fetch all folders to build hierarchy paths
+    const foldersList = await this.dataSource.query(
+      `SELECT id, name, parent_id FROM folders WHERE id = ANY($1)`,
+      [allFolderIds]
+    );
+    const folderMap = new Map<string, { name: string; parentId: string | null }>();
+    foldersList.forEach((f: any) => folderMap.set(f.id, { name: f.name, parentId: f.parent_id }));
+
+    const getFolderPath = (fId: string): string => {
+      let pathSegments: string[] = [];
+      let cur: string | null = fId;
+      while (cur && folderMap.has(cur)) {
+        const item = folderMap.get(cur)!;
+        pathSegments.unshift(item.name);
+        if (cur === folderId) break;
+        cur = item.parentId;
+      }
+      return pathSegments.join('/');
+    };
+
+    // Fetch all files in these folders
+    const files = await this.dataSource.query(
+      `SELECT * FROM files WHERE folder_id = ANY($1) AND deleted_at IS NULL`,
+      [allFolderIds]
+    );
+
+    const safeFolderName = folder.name.replace(/[^a-zA-Z0-9_-]/g, '_') || 'Folder_Download';
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeFolderName}.zip"`);
+
+    const archive = archiver('zip', { zlib: { level: 6 } });
+    archive.on('error', (err: any) => {
+      console.error('Archive generation error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ message: 'Error generating zip archive', error: err.message });
+      }
+    });
+
+    archive.pipe(res);
+
+    for (const f of files) {
+      if (f.storage_path && fs.existsSync(f.storage_path)) {
+        const subPath = f.folder_id ? getFolderPath(f.folder_id) : folder.name;
+        const entryPath = `${subPath}/${f.original_name || f.name}`;
+        archive.file(f.storage_path, { name: entryPath });
+      }
+    }
+
+    await archive.finalize();
   }
 
   async renameFile(id: string, name: string, userId: string) {
@@ -403,18 +398,9 @@ export class FilesService implements OnModuleInit {
   }
 
   async renameFolder(id: string, name: string, userId: string) {
-    const [folder] = await this.dataSource.query(`SELECT owner_id FROM folders WHERE id = $1`, [id]);
-    if (!folder) return { success: false };
-    
-    // Check if owner or Super Admin
-    const [isAdmin] = await this.dataSource.query(`SELECT id FROM users WHERE id = $1 AND role_id IN (SELECT id FROM roles WHERE name IN ('Super Admin', 'Admin'))`, [userId]);
-    if (folder.owner_id !== userId && !isAdmin) {
-      throw new Error('You do not have permission to rename this folder. Read-only access does not permit renaming.');
-    }
-
     await this.dataSource.query(
-      `UPDATE folders SET name = $1, updated_at = NOW() WHERE id = $2`,
-      [name, id]
+      `UPDATE folders SET name = $1, updated_at = NOW() WHERE id = $2 AND owner_id = $3`,
+      [name, id, userId]
     );
     return { success: true };
   }
@@ -459,37 +445,19 @@ export class FilesService implements OnModuleInit {
       } else {
         const [folder] = await this.dataSource.query(`SELECT * FROM folders WHERE id = $1`, [itemId]);
         if (!folder) throw new Error('Source folder not found');
-
-        // Recursive function to copy a folder and all its contents
-        const copyFolderRecursive = async (sourceId: string, parentTargetId: string | null) => {
-          const [srcFolder] = await this.dataSource.query(`SELECT * FROM folders WHERE id = $1`, [sourceId]);
-          if (!srcFolder) return;
-          
-          const newName = sourceId === itemId ? `Copy of ${srcFolder.name}` : srcFolder.name;
-          const [newFolder] = await this.dataSource.query(
-            `INSERT INTO folders (name, parent_id, owner_id, path, metadata)
-             VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-            [newName, parentTargetId, userId, srcFolder.path, srcFolder.metadata]
+        const [newFolder] = await this.dataSource.query(
+          `INSERT INTO folders (name, parent_id, owner_id, path, metadata)
+           VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+          [`Copy of ${folder.name}`, destFolderId, userId, folder.path, folder.metadata]
+        );
+        const files = await this.dataSource.query(`SELECT * FROM files WHERE folder_id = $1 AND deleted_at IS NULL`, [itemId]);
+        for (const f of files) {
+          await this.dataSource.query(
+            `INSERT INTO files (name, original_name, mime_type, size, extension, storage_type, storage_path, storage_url, folder_id, owner_id, metadata)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+            [f.name, f.original_name, f.mime_type, f.size, f.extension, f.storage_type, f.storage_path, f.storage_url, newFolder.id, userId, f.metadata]
           );
-
-          // Copy files in this folder
-          const files = await this.dataSource.query(`SELECT * FROM files WHERE folder_id = $1 AND deleted_at IS NULL`, [sourceId]);
-          for (const f of files) {
-            await this.dataSource.query(
-              `INSERT INTO files (name, original_name, mime_type, size, extension, storage_type, storage_path, storage_url, folder_id, owner_id, metadata)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-              [f.name, f.original_name, f.mime_type, f.size, f.extension, f.storage_type, f.storage_path, f.storage_url, newFolder.id, userId, f.metadata]
-            );
-          }
-
-          // Recursively copy subfolders
-          const subfolders = await this.dataSource.query(`SELECT id FROM folders WHERE parent_id = $1 AND deleted_at IS NULL`, [sourceId]);
-          for (const sub of subfolders) {
-            await copyFolderRecursive(sub.id, newFolder.id);
-          }
-        };
-
-        await copyFolderRecursive(itemId, destFolderId);
+        }
       }
     }
     return { success: true };
@@ -519,16 +487,14 @@ export class FilesService implements OnModuleInit {
           `UPDATE files SET owner_id = $1, folder_id = $2, updated_at = NOW() WHERE id = $3 AND owner_id = $4`,
           [targetUserId, targetFolderId, itemId, userId]
         );
-        return { success: true, id: itemId };
       } else {
         const [file] = await this.dataSource.query(`SELECT * FROM files WHERE id = $1`, [itemId]);
         if (!file) throw new Error('Source file not found');
-        const [newFile] = await this.dataSource.query(
+        await this.dataSource.query(
           `INSERT INTO files (name, original_name, mime_type, size, extension, storage_type, storage_path, storage_url, folder_id, owner_id, metadata)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
           [file.name, file.original_name, file.mime_type, file.size, file.extension, file.storage_type, file.storage_path, file.storage_url, targetFolderId, targetUserId, file.metadata]
         );
-        return { success: true, id: newFile?.id || itemId };
       }
     } else {
       if (action === 'move') {
@@ -536,45 +502,25 @@ export class FilesService implements OnModuleInit {
           `UPDATE folders SET owner_id = $1, parent_id = $2, updated_at = NOW() WHERE id = $3 AND owner_id = $4`,
           [targetUserId, targetFolderId, itemId, userId]
         );
-        return { success: true, id: itemId };
       } else {
         const [folder] = await this.dataSource.query(`SELECT * FROM folders WHERE id = $1`, [itemId]);
         if (!folder) throw new Error('Source folder not found');
-
-        // Recursive function to copy a folder and all its contents
-        const copyFolderRecursive = async (sourceId: string, parentTargetId: string) => {
-          const [srcFolder] = await this.dataSource.query(`SELECT * FROM folders WHERE id = $1`, [sourceId]);
-          if (!srcFolder) return null;
-          
-          const newName = sourceId === itemId ? `Copy of ${srcFolder.name}` : srcFolder.name;
-          const [newFolder] = await this.dataSource.query(
-            `INSERT INTO folders (name, parent_id, owner_id, path, metadata)
-             VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-            [newName, parentTargetId, targetUserId, srcFolder.path, srcFolder.metadata]
+        const [newFolder] = await this.dataSource.query(
+          `INSERT INTO folders (name, parent_id, owner_id, path, metadata)
+           VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+          [folder.name, targetFolderId, targetUserId, folder.path, folder.metadata]
+        );
+        const files = await this.dataSource.query(`SELECT * FROM files WHERE folder_id = $1 AND deleted_at IS NULL`, [itemId]);
+        for (const f of files) {
+          await this.dataSource.query(
+            `INSERT INTO files (name, original_name, mime_type, size, extension, storage_type, storage_path, storage_url, folder_id, owner_id, metadata)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+            [f.name, f.original_name, f.mime_type, f.size, f.extension, f.storage_type, f.storage_path, f.storage_url, newFolder.id, targetUserId, f.metadata]
           );
-
-          // Copy files in this folder
-          const files = await this.dataSource.query(`SELECT * FROM files WHERE folder_id = $1 AND deleted_at IS NULL`, [sourceId]);
-          for (const f of files) {
-            await this.dataSource.query(
-              `INSERT INTO files (name, original_name, mime_type, size, extension, storage_type, storage_path, storage_url, folder_id, owner_id, metadata)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-              [f.name, f.original_name, f.mime_type, f.size, f.extension, f.storage_type, f.storage_path, f.storage_url, newFolder.id, targetUserId, f.metadata]
-            );
-          }
-
-          // Recursively copy subfolders
-          const subfolders = await this.dataSource.query(`SELECT id FROM folders WHERE parent_id = $1 AND deleted_at IS NULL`, [sourceId]);
-          for (const sub of subfolders) {
-            await copyFolderRecursive(sub.id, newFolder.id);
-          }
-          return newFolder.id;
-        };
-
-        const newFolderId = await copyFolderRecursive(itemId, targetFolderId);
-        return { success: true, id: newFolderId };
+        }
       }
     }
+    return { success: true };
   }
 
   async getAccessRequests(userId: string) {
@@ -619,109 +565,11 @@ export class FilesService implements OnModuleInit {
   }
 
   async reviewAccessRequest(dto: { requestId: string; status: 'approved' | 'rejected'; permission: string }) {
-    const { requestId, status } = dto;
+    const { requestId, status, permission } = dto;
     await this.dataSource.query(
-      `UPDATE folder_access_requests SET status = $1, permission = 'read', reviewed_at = NOW() WHERE id = $2`,
-      [status, requestId]
+      `UPDATE folder_access_requests SET status = $1, permission = $2, reviewed_at = NOW() WHERE id = $3`,
+      [status, permission, requestId]
     );
     return { success: true };
-  }
-
-  async downloadFolderArchive(folderId: string, userId: string) {
-    const [folder] = await this.dataSource.query(`
-      SELECT f.name, f.owner_id FROM folders f
-      LEFT JOIN folder_access_requests far ON far.folder_id = f.id AND far.requester_id = $2 AND far.status = 'approved'
-      LEFT JOIN messages m ON m.folder_id = f.id
-      LEFT JOIN conversation_members cp ON cp.conversation_id = m.conversation_id AND cp.user_id = $2
-      WHERE f.id = $1 AND f.deleted_at IS NULL
-      AND (
-        f.owner_id = $2 
-        OR far.id IS NOT NULL 
-        OR cp.user_id IS NOT NULL
-        OR EXISTS (
-          SELECT 1 FROM users WHERE id = $2 AND role_id IN (SELECT id FROM roles WHERE name IN ('Super Admin', 'Admin'))
-        )
-      )
-      LIMIT 1
-    `, [folderId, userId]);
-
-    if (!folder) {
-      throw new Error('Folder not found or access denied');
-    }
-
-    const { ZipArchive } = require('archiver');
-    const archive = new ZipArchive({ zlib: { level: 6 } });
-
-    // Fetch all nested folders using recursive CTE
-    const subfolders = await this.dataSource.query(`
-      WITH RECURSIVE subfolders AS (
-        SELECT id, name, parent_id, name::text AS relative_path
-        FROM folders
-        WHERE id = $1 AND deleted_at IS NULL
-        
-        UNION ALL
-        
-        SELECT f.id, f.name, f.parent_id, (sf.relative_path || '/' || f.name) AS relative_path
-        FROM folders f
-        INNER JOIN subfolders sf ON f.parent_id = sf.id
-        WHERE f.deleted_at IS NULL
-      )
-      SELECT sf.id, sf.name, sf.relative_path
-      FROM subfolders sf
-    `, [folderId]);
-
-    const folderIds = subfolders.map((f: any) => f.id);
-    if (folderIds.length === 0) {
-      archive.append('This folder is empty.', { name: `${folder.name}/.keep` });
-      archive.finalize();
-      return { stream: archive, filename: folder.name };
-    }
-
-    // Map folder ID to its relative zip path
-    const folderMap = new Map<string, string>();
-    for (const sf of subfolders) {
-      folderMap.set(sf.id, sf.relative_path);
-    }
-
-    // Query all files belonging to these folders
-    const files = await this.dataSource.query(`
-      SELECT id, name, original_name, storage_path, folder_id
-      FROM files
-      WHERE folder_id = ANY($1) AND deleted_at IS NULL
-    `, [folderIds]);
-
-    // Add each file to the archive
-    let fileCount = 0;
-    for (const file of files) {
-      const parentPath = folderMap.get(file.folder_id) || '';
-      const fileName = file.original_name || file.name;
-      const zipFilePath = parentPath ? `${parentPath}/${fileName}` : fileName;
-      
-      try {
-        if (file.storage_path && fs.existsSync(file.storage_path)) {
-          archive.file(file.storage_path, { name: zipFilePath });
-          fileCount++;
-        } else {
-          console.warn(`[FilesService] File not found on disk: ${file.storage_path} (file id: ${file.id})`);
-        }
-      } catch (fileErr) {
-        console.error(`[FilesService] Error adding file to archive: ${file.id}`, fileErr);
-      }
-    }
-
-    // If folder is empty, add a placeholder
-    if (fileCount === 0) {
-      archive.append('This folder is empty.', { name: `${folder.name}/.keep` });
-    }
-
-    // Handle archive error events to prevent hanging streams
-    archive.on('error', (err: Error) => {
-      console.error('[FilesService] Archive error:', err.message);
-    });
-
-    // Trigger finalize asynchronously
-    archive.finalize();
-
-    return { stream: archive, filename: folder.name };
   }
 }

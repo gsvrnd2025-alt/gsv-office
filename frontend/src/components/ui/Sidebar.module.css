@@ -54,10 +54,10 @@
 }
 
 .logoIcon {
-  width: 48px; height: 48px;
+  width: 36px; height: 36px;
   flex-shrink: 0;
 }
-.logoIcon svg { width: 48px; height: 48px; }
+.logoIcon svg { width: 36px; height: 36px; }
 
 .logoText {
   font-family: var(--font-display);

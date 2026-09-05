@@ -5,7 +5,7 @@ const BASE_URL = '/api';
 
 const api = axios.create({
   baseURL: BASE_URL,
-  timeout: 180000,
+  timeout: 30000,
   withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
 });
@@ -53,11 +53,6 @@ export const authApi = {
   getForgotPasswordRequests: () => api.get('/auth/forgot-password/requests'),
   approveForgotPassword: (id: string) => api.post(`/auth/forgot-password/approve/${id}`),
   rejectForgotPassword: (id: string) => api.post(`/auth/forgot-password/reject/${id}`),
-};
-
-export const auditApi = {
-  getLogs: (params?: any) => api.get('/audit', { params }),
-  getLogById: (id: string) => api.get(`/audit/${id}`),
 };
 
 export const usersApi = {
@@ -112,24 +107,6 @@ export const chatApi = {
   sendMessage: (id: string, data: any) => api.post(`/chat/conversations/${id}/messages`, data),
   markRead: (id: string) => api.post(`/chat/conversations/${id}/read`),
   deleteMessage: (messageId: string) => api.delete(`/chat/messages/${messageId}`),
-  addMember: (id: string, userId: string) => api.post(`/chat/conversations/${id}/members`, { userId }),
-  deleteConversation: (id: string, clearForEveryone: boolean) => api.delete(`/chat/conversations/${id}`, { params: { clearForEveryone: String(clearForEveryone) } }),
-  updateConversation: (id: string, data: any) => api.patch(`/chat/conversations/${id}`, data),
-  inviteMember: (id: string, inviteeId: string) => api.post(`/chat/conversations/${id}/invitations`, { inviteeId }),
-  getInvitations: () => api.get('/chat/invitations'),
-  acceptInvitation: (id: string) => api.post(`/chat/invitations/${id}/accept`),
-  rejectInvitation: (id: string) => api.post(`/chat/invitations/${id}/reject`),
-  removeMember: (id: string, userId: string) => api.delete(`/chat/conversations/${id}/members/${userId}`),
-  changeMemberRole: (id: string, userId: string, role: string) => api.post(`/chat/conversations/${id}/members/${userId}/role`, { role }),
-  createRemovalRequest: (id: string, targetUserId: string) => api.post(`/chat/conversations/${id}/remove-requests`, { targetUserId }),
-  getRemovalRequests: (id: string) => api.get(`/chat/conversations/${id}/remove-requests`),
-  approveRemovalRequest: (id: string, requestId: string) => api.post(`/chat/conversations/${id}/remove-requests/${requestId}/approve`),
-  rejectRemovalRequest: (id: string, requestId: string) => api.post(`/chat/conversations/${id}/remove-requests/${requestId}/reject`),
-  joinConversation: (id: string) => api.post(`/chat/conversations/${id}/join`),
-  getPendingInvitations: (id: string) => api.get(`/chat/conversations/${id}/invitations-pending`),
-  approveInvitation: (id: string, invitationId: string) => api.post(`/chat/conversations/${id}/invitations/${invitationId}/approve`),
-  rejectGroupInvitation: (id: string, invitationId: string) => api.post(`/chat/conversations/${id}/invitations/${invitationId}/reject`),
-  toggleMute: (id: string, isMuted: boolean) => api.post(`/chat/conversations/${id}/mute`, { isMuted }),
 };
 
 export const filesApi = {
@@ -137,8 +114,8 @@ export const filesApi = {
   getFiles: (params?: any) => api.get('/files', { params }),
   getShared: () => api.get('/files/shared'),
   createFolder: (data: any) => api.post('/files/folders', data),
-  upload: (formData: FormData, onUploadProgress?: (progressEvent: any) => void) => api.post('/files/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress, timeout: 0 }),
-  uploadFolder: (formData: FormData, onUploadProgress?: (progressEvent: any) => void) => api.post('/files/upload-folder', formData, { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress, timeout: 0 }),
+  upload: (formData: FormData, onUploadProgress?: (progressEvent: any) => void) => api.post('/files/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress }),
+  uploadFolder: (formData: FormData, onUploadProgress?: (progressEvent: any) => void) => api.post('/files/upload-folder', formData, { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress }),
   delete: (id: string) => api.delete(`/files/${id}`),
   deleteFolder: (id: string) => api.delete(`/files/folders/${id}`),
   getAccessRequests: () => api.get('/files/access-requests'),
@@ -147,9 +124,9 @@ export const filesApi = {
   saveToCloud: (id: string) => api.post(`/files/${id}/save-to-cloud`),
   renameFile: (id: string, name: string) => api.post(`/files/files/${id}/rename`, { name }),
   renameFolder: (id: string, name: string) => api.post(`/files/folders/${id}/rename`, { name }),
+  getFolderDownloadUrl: (id: string) => `/api/files/folders/${id}/download`,
   moveOrCopy: (data: { itemType: 'file' | 'folder'; itemId: string; targetFolderId: string | null; action: 'move' | 'copy' }) => api.post('/files/move-or-copy', data),
   shareToUser: (data: { itemType: 'file' | 'folder'; itemId: string; targetUserId: string; action: 'move' | 'copy' }) => api.post('/files/share-to-user', data),
-  downloadFolder: (id: string) => api.get(`/files/folders/${id}/download`, { responseType: 'blob' }),
 };
 
 export const ticketsApi = {
@@ -205,8 +182,6 @@ export const serverApi = {
   updateSetting: (key: string, value: string) => api.put(`/server/settings/${key}`, { value }),
   getPublicSettings: () => api.get('/public/settings'),
   getDatabaseStatus: () => api.get('/server/db-status'),
-  syncGoogleSheets: () => api.post('/internship/run', { functionName: 'syncGoogleSheets', arguments: [] }, { timeout: 180000 }),
-  wipeAndReload: () => api.delete('/internship/wipe-local-data', { timeout: 180000 }),
 };
 
 export const storageApi = {
@@ -216,10 +191,4 @@ export const storageApi = {
 
 export const securityApi = {
   getLogs: () => api.get('/server/security-logs'),
-};
-
-export const webrtcApi = {
-  getConfig: () => api.get('/webrtc/config'),
-  saveCallLog: (data: any) => api.post('/webrtc/call-logs', data),
-  getCallLogs: () => api.get('/webrtc/call-logs'),
 };

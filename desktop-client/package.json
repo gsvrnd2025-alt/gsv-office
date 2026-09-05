@@ -1,6 +1,6 @@
 {
   "name": "gsv-office-client",
-  "version": "1.0.23",
+  "version": "1.0.0",
   "description": "GSV Office Windows Desktop Client",
   "main": "src/main.js",
   "author": "GSV",
@@ -13,8 +13,7 @@
     "pack": "electron-builder --dir"
   },
   "dependencies": {
-    "electron-store": "^8.1.0",
-    "electron-updater": "^6.8.9"
+    "electron-store": "^8.1.0"
   },
   "devDependencies": {
     "electron": "^31.0.0",
@@ -24,44 +23,20 @@
     "appId": "com.gsv.office.client",
     "productName": "GSV Office",
     "copyright": "Copyright © 2026 GSV",
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "YOUR_GITHUB_OWNER",
-        "repo": "YOUR_GITHUB_REPO"
-      }
-    ],
     "win": {
       "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        }
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
       ],
-      "icon": "assets/icon.ico"
+      "icon": "assets/icon.ico",
+      "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": false,
-      "createStartMenuShortcut": false,
-      "shortcutName": "GSV Office",
-      "allowElevation": true,
-      "perMachine": false,
-      "runAfterFinish": true,
-      "deleteAppDataOnUninstall": false,
-      "include": "build/installer.nsh",
-      "license": "assets/license.txt",
-      "artifactName": "GSVOffice-Setup.exe",
-      "warningsAsErrors": false
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "GSV Office"
     },
     "portable": {
       "artifactName": "GSVOffice-Portable.exe"

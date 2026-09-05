@@ -47,6 +47,16 @@ export class FilesController {
     return this.svc.createFolder({ ...dto, ownerId: userId });
   }
 
+  @Get('folders/:id/download')
+  @RequirePermissions(['files', 'read'])
+  async downloadFolder(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('id') userId: string,
+    @Res() res: Response
+  ) {
+    return this.svc.streamFolderAsZip(id, userId, res);
+  }
+
   @Post('upload')
   @RequirePermissions(['files', 'upload'])
   @UseInterceptors(FileInterceptor('file', {
@@ -54,10 +64,7 @@ export class FilesController {
       destination: (req, file, cb) => { cb(null, process.env.UPLOAD_PATH || '/app/uploads'); },
       filename: (req, file, cb) => { cb(null, `${uuid()}${path.extname(file.originalname)}`); },
     }),
-    limits: { 
-      fileSize: (process.env.MAX_FILE_SIZE_MB ? parseInt(process.env.MAX_FILE_SIZE_MB, 10) : 1000000) * 1024 * 1024,
-      fieldSize: 100 * 1024 * 1024
-    },
+    limits: { fileSize: 100 * 1024 * 1024 * 1024 }, // 100 GB
   }))
   async uploadFile(@UploadedFile() file: Express.Multer.File, @Body() dto: any, @CurrentUser('id') userId: string) {
     return this.svc.saveFile({
@@ -68,28 +75,25 @@ export class FilesController {
       storagePath: file.path,
       storageUrl: `/uploads/${file.filename}`,
       ownerId: userId,
-      folderId: dto?.folderId,
+      folderId: dto.folderId,
+      conversationId: dto.conversationId,
     });
   }
 
   @Post('upload-folder')
   @RequirePermissions(['files', 'upload'])
-  @UseInterceptors(FilesInterceptor('files', 50000, {
+  @UseInterceptors(FilesInterceptor('files', 5000, {
     storage: diskStorage({
       destination: (req, file, cb) => { cb(null, process.env.UPLOAD_PATH || '/app/uploads'); },
       filename: (req, file, cb) => { cb(null, `${uuid()}${path.extname(file.originalname)}`); },
     }),
-    limits: { 
-      fileSize: (process.env.MAX_FILE_SIZE_MB ? parseInt(process.env.MAX_FILE_SIZE_MB, 10) : 1000000) * 1024 * 1024,
-      fieldSize: 100 * 1024 * 1024,
-      fields: 50000,
-      files: 50000
-    },
+    limits: { fileSize: 100 * 1024 * 1024 * 1024 }, // 100 GB
   }))
   async uploadFolder(
     @UploadedFiles() files: Express.Multer.File[],
     @Body('folderName') folderName: string,
     @Body('folderId') folderId: string,
+    @Body('conversationId') conversationId: string,
     @Body('relativePaths') relativePaths: any,
     @CurrentUser('id') userId: string
   ) {
@@ -97,6 +101,7 @@ export class FilesController {
       files,
       folderName,
       folderId,
+      conversationId,
       relativePaths,
       ownerId: userId
     });
@@ -162,23 +167,5 @@ export class FilesController {
   @RequirePermissions(['files', 'upload'])
   async reviewAccessRequest(@Body() dto: any) {
     return this.svc.reviewAccessRequest(dto);
-  }
-
-  @Get('folders/:id/download')
-  @RequirePermissions(['files', 'read'])
-  async downloadFolder(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser('id') userId: string,
-    @Res() res: Response
-  ) {
-    try {
-      const { stream, filename } = await this.svc.downloadFolderArchive(id, userId);
-      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}.zip"`);
-      res.setHeader('Content-Type', 'application/zip');
-      stream.pipe(res);
-    } catch (err) {
-      console.error('[FilesController] Error downloading folder:', err);
-      res.status(500).json({ message: err.message || 'Failed to download folder archive' });
-    }
   }
 }

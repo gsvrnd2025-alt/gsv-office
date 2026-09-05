@@ -32,7 +32,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
 
   const { data: usersData } = useQuery({
     queryKey: ['users', '', '', 1],
-    queryFn: () => usersApi.getDirectory().then(r => r.data?.data || r.data || []),
+    queryFn: () => usersApi.getAll().then(r => r.data?.data || r.data || []),
   });
 
   const systemPages = [
@@ -78,15 +78,12 @@ export function Topbar({ onMenuClick }: TopbarProps) {
     .trim();
 
   // Get matching pages
-  const isDesktop = !!(window as any).gsvDesktop;
-  const matchingPages = normalizedQuery === '' ? [] : systemPages
-    .filter(p => !(p.path === '/remote-desktop' && !isDesktop))
-    .filter(p => {
-      const title = p.title.toLowerCase();
-      const matchesFull = title.includes(normalizedQuery) || p.keywords.some(k => k.includes(normalizedQuery));
-      const matchesClean = cleanQuery !== '' && (title.includes(cleanQuery) || p.keywords.some(k => k.includes(cleanQuery)));
-      return matchesFull || matchesClean;
-    });
+  const matchingPages = normalizedQuery === '' ? [] : systemPages.filter(p => {
+    const title = p.title.toLowerCase();
+    const matchesFull = title.includes(normalizedQuery) || p.keywords.some(k => k.includes(normalizedQuery));
+    const matchesClean = cleanQuery !== '' && (title.includes(cleanQuery) || p.keywords.some(k => k.includes(cleanQuery)));
+    return matchesFull || matchesClean;
+  });
 
   // Get matching chats
   const conversations = conversationsData || [];
@@ -448,16 +445,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
                             notifications.map((n: any) => (
                               <div
                                 key={n.id}
-                                onClick={() => {
-                                  if (!n.isRead) markReadMutation.mutate(n.id);
-                                  setShowNotifications(false);
-                                  let targetUrl = n.action_url || n.actionUrl;
-                                  if (!targetUrl && n.data) {
-                                    const parsed = typeof n.data === 'string' ? JSON.parse(n.data) : n.data;
-                                    if (parsed.conversationId) targetUrl = `/chat/${parsed.conversationId}`;
-                                  }
-                                  if (targetUrl) navigate(targetUrl);
-                                }}
+                                onClick={() => !n.isRead && markReadMutation.mutate(n.id)}
                                 style={{
                                   padding: '8px', background: n.isRead ? 'transparent' : 'rgba(99, 102, 241, 0.05)',
                                   border: `1px solid ${n.isRead ? 'transparent' : 'rgba(99, 102, 241, 0.1)'}`,

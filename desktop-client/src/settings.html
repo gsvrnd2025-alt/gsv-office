@@ -219,7 +219,7 @@
 <body>
 
   <div class="header">
-    <div class="header-logo" style="display: flex; align-items: center;"><img src="../assets/icon.png" width="32" height="32" style="border-radius: 6px;" /></div>
+    <div class="header-logo">🏢</div>
     <div class="header-text">
       <h1>GSV Office Settings</h1>
       <p>Desktop Client Configuration</p>
@@ -235,7 +235,7 @@
 
       <div class="field">
         <label>Server URL (IP Address & Port)</label>
-        <input type="url" id="serverUrl" placeholder="http://192.168.0.177" />
+        <input type="url" id="serverUrl" placeholder="http://192.168.0.177:8080" />
       </div>
 
       <div class="conn-row">
@@ -290,17 +290,6 @@
       </div>
     </div>
 
-    <!-- Updates -->
-    <div class="section">
-      <div class="section-title">🔄 Updates</div>
-      <div class="conn-row">
-        <button class="btn-test" id="btnUpdate" onclick="checkForUpdates()">Check for Updates</button>
-        <div class="conn-status" id="updateStatus" style="display:none;">
-          <span id="updateText"></span>
-        </div>
-      </div>
-    </div>
-
   </div>
 
   <div class="footer">
@@ -313,26 +302,14 @@
     let config = {};
 
     async function init() {
-      try {
-        if (!window.settingsAPI) {
-          throw new Error("window.settingsAPI is not defined. The preload script may have failed to load.");
-        }
-        config = await window.settingsAPI.getConfig();
-        const version = await window.settingsAPI.getVersion();
-        
-        document.getElementById('versionBadge').textContent = 'v' + version;
-        document.getElementById('serverUrl').value = config.serverUrl || 'http://192.168.0.177';
-        document.getElementById('autoStart').checked = !!config.autoStart;
-        document.getElementById('openOnStart').checked = !!config.openOnStart;
-        document.getElementById('minimizeToTray').checked = config.minimizeToTray !== false;
-      } catch (e) {
-        console.error("Initialization failed:", e);
-        document.body.innerHTML = `<div style="padding: 24px; color: #f87171; background: #0f172a; min-height: 100vh; font-family: sans-serif;">
-          <h1 style="font-size: 18px; margin-bottom: 12px; color: #ef4444;">Settings Initialization Error</h1>
-          <p style="font-size: 13px; margin-bottom: 16px; color: #cbd5e1;">An error occurred while loading settings:</p>
-          <pre style="background: rgba(0,0,0,0.5); padding: 16px; border-radius: 8px; font-family: monospace; font-size: 12px; color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); overflow: auto; white-space: pre-wrap;">${e.stack || e.message || e}</pre>
-        </div>`;
-      }
+      config = await window.settingsAPI.getConfig();
+      const version = await window.settingsAPI.getVersion();
+      
+      document.getElementById('versionBadge').textContent = 'v' + version;
+      document.getElementById('serverUrl').value = config.serverUrl || 'http://192.168.0.177:8080';
+      document.getElementById('autoStart').checked = !!config.autoStart;
+      document.getElementById('openOnStart').checked = !!config.openOnStart;
+      document.getElementById('minimizeToTray').checked = config.minimizeToTray !== false;
     }
 
     async function testConnection() {
@@ -375,23 +352,6 @@
         badge.classList.remove('show');
         window.close();
       }, 1500);
-    }
-
-    async function checkForUpdates() {
-      const btn = document.getElementById('btnUpdate');
-      const statusEl = document.getElementById('updateStatus');
-      const textEl = document.getElementById('updateText');
-      
-      btn.disabled = true;
-      statusEl.style.display = 'flex';
-      statusEl.className = 'conn-status checking';
-      textEl.textContent = 'Checking...';
-      
-      const res = await window.settingsAPI.checkForUpdates();
-      
-      btn.disabled = false;
-      statusEl.className = res.success ? 'conn-status online' : 'conn-status offline';
-      textEl.textContent = res.message;
     }
 
     init();

@@ -1,40 +1,10 @@
-import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import * as os from 'os';
-import * as path from 'path';
-import * as fs from 'fs';
 
 @Injectable()
-export class ServerService implements OnApplicationBootstrap {
+export class ServerService {
   constructor(private ds: DataSource) {}
-
-  async onApplicationBootstrap() {
-    try {
-      let version = process.env.APP_VERSION;
-      if (!version) {
-        try {
-          const pkgPath = path.join(__dirname, '..', '..', '..', 'package.json');
-          if (fs.existsSync(pkgPath)) {
-            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-            version = pkg.version;
-          }
-        } catch (e) {
-          // ignore
-        }
-      }
-      if (!version) version = '1.0.0';
-
-      await this.ds.query(
-        `INSERT INTO system_settings (key, value, category, description, is_public, updated_at)
-         VALUES ('app_version', $1, 'system', 'GSV Office Application Version', true, NOW())
-         ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
-        [version]
-      );
-      console.log(`[ServerService] Synchronized APP_VERSION: ${version} to system_settings.`);
-    } catch (err) {
-      console.error('[ServerService] Failed to sync app_version on bootstrap:', err);
-    }
-  }
 
   async getSystemInfo() {
     const uptime = process.uptime();
@@ -57,18 +27,6 @@ export class ServerService implements OnApplicationBootstrap {
   }
 
   async updateSetting(key: string, value: string, userId: string) {
-    const targetKeys = ['google_sheet_id', 'google_sheet_link', 'google_appscript_deployment_id', 'google_sheets_spreadsheet_url', 'google_sheets_deployment_id'];
-    if (targetKeys.includes(key)) {
-      const [oldSetting] = await this.ds.query(
-        `SELECT value FROM system_settings WHERE key = $1`,
-        [key]
-      );
-      if (oldSetting && oldSetting.value !== value) {
-        console.log(`[ServerService] Spreadsheet configuration "${key}" changed. Wiping local internship_tables to prevent old data retention.`);
-        await this.ds.query(`DELETE FROM internship_tables`);
-      }
-    }
-
     await this.ds.query(
       `INSERT INTO system_settings (key, value, updated_by, updated_at) VALUES ($1, $2, $3, NOW())
        ON CONFLICT (key) DO UPDATE SET value = $2, updated_by = $3, updated_at = NOW()`,

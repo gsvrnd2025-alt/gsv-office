@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useDropzone } from 'react-dropzone';
 import {
@@ -8,7 +8,6 @@ import {
   Folder, Lock, Unlock, Check, X, ShieldAlert, Key, Users, Copy, RefreshCw,
   Scissors, Clipboard, CheckSquare, Info
 } from 'lucide-react';
-import Editor from '@monaco-editor/react';
 import { filesApi, usersApi } from '../../api';
 import { useAuthStore } from '../../store/auth.store';
 import toast from 'react-hot-toast';
@@ -67,7 +66,6 @@ function formatBytes(bytes: number) {
 
 export default function FilesPage() {
   const qc = useQueryClient();
-  const navigate = useNavigate();
   const { user } = useAuthStore();
 
   const { folderId: routeFolderId } = useParams();
@@ -123,12 +121,11 @@ export default function FilesPage() {
     brandColor?: string;
   } | null>(null);
   const folderUploadInputRef = useRef<HTMLInputElement>(null);
-  const [folderInputKey, setFolderInputKey] = useState(0);
 
   // CRUD & Clipboard states
   const [clipboardItem, setClipboardItem] = useState<{ id: string; type: 'file' | 'folder'; action: 'cut' | 'copy' } | null>(null);
   const [renamingItem, setRenamingItem] = useState<{ id: string; type: 'file' | 'folder'; name: string } | null>(null);
-  const [sharingItem, setSharingItem] = useState<any | null>(null);
+  const [sharingItem, setSharingItem] = useState<{ id: string; type: 'file' | 'folder'; name: string } | null>(null);
 
   // Folder Access Request Modal State
   const [lockFolder, setLockFolder] = useState<any>(null);
@@ -249,14 +246,6 @@ export default function FilesPage() {
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (!acceptedFiles.length) return;
-
-    const MAX_FILE_SIZE_MB = 5000; // 5 GB limit
-    const oversized = acceptedFiles.filter(f => f.size / 1024 / 1024 > MAX_FILE_SIZE_MB);
-    if (oversized.length > 0) {
-      toast.error(`File "${oversized[0].name}" exceeds the maximum allowed size of ${MAX_FILE_SIZE_MB} MB.`);
-      return;
-    }
-
     setUploading(true);
     setUploadProgressPercent(0);
     let success = 0;
@@ -282,27 +271,8 @@ export default function FilesPage() {
 
   const onDropFolder = async (files: File[]) => {
     if (!files.length) return;
-
-    const MAX_FOLDER_FILES = 10000;
-    if (files.length > MAX_FOLDER_FILES) {
-      toast.error(`Folder contains too many files (${files.length.toLocaleString()}). For directories with more than ${MAX_FOLDER_FILES} files (like code projects), please compress them into a .zip or .tar archive before uploading.`);
-      return;
-    }
-
-    const totalSize = files.reduce((acc, f) => acc + f.size, 0);
-    const totalSizeMB = totalSize / 1024 / 1024;
-    const MAX_FOLDER_SIZE_MB = 5000; // 5 GB limit
-    if (totalSizeMB > MAX_FOLDER_SIZE_MB) {
-      toast.error(`Folder size (${totalSizeMB.toFixed(1)} MB) exceeds the folder upload limit of ${MAX_FOLDER_SIZE_MB} MB. Please compress the folder into a .zip file before uploading.`);
-      setFolderInputKey(prev => prev + 1);
-      return;
-    }
-
     setUploading(true);
     setUploadProgressPercent(0);
-    
-    console.log('[Upload Flow] Upload queue created');
-    const fdStart = performance.now();
     const fd = new FormData();
     files.forEach((file: File) => {
       fd.append('files', file);
@@ -312,29 +282,15 @@ export default function FilesPage() {
     const folderName = relativePaths[0]?.split('/')[0] || 'Uploaded_Folder';
     fd.append('folderName', folderName);
     if (folderId) fd.append('folderId', folderId);
-    console.log(`[Upload Flow] FormData construction finished. Time taken: ${(performance.now() - fdStart).toFixed(2)} ms`);
 
-    console.log('[Upload Flow] Upload started');
-    const uploadStart = performance.now();
-    let toastId: string | undefined;
     try {
-      toastId = toast.loading(`Uploading "${folderName}": 0%`);
-      let lastProgressTime = 0;
       await filesApi.uploadFolder(fd, (progressEvent: any) => {
         const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        const now = performance.now();
-        if (percent === 0 || percent === 100 || now - lastProgressTime >= 200) {
-          lastProgressTime = now;
-          setUploadProgressPercent(percent);
-          if (toastId) toast.loading(`Uploading "${folderName}": ${percent}%`, { id: toastId });
-        }
+        setUploadProgressPercent(percent);
       });
-      if (toastId) toast.success(`Folder "${folderName}" uploaded successfully!`, { id: toastId });
-      console.log(`[Upload Flow] Upload completed successfully. Total upload time: ${((performance.now() - uploadStart) / 1000).toFixed(2)} s`);
+      toast.success(`Folder "${folderName}" uploaded successfully!`);
     } catch (err) {
-      console.error('[Upload Flow] Folder upload failed:', err);
-      if (toastId) toast.error('Folder upload failed.', { id: toastId });
-      else toast.error('Folder upload failed.');
+      toast.error('Folder upload failed.');
     }
     setUploading(false);
     setUploadProgressPercent(null);
@@ -355,20 +311,6 @@ export default function FilesPage() {
     // Check in approved access requests list
     const grant = accessRequests.find((r: any) => r.folderId === folder.id && r.requesterId === user.id && r.status === 'approved');
     return !!grant;
-  };
-
-  const isReadOnly = (item: any, isFolder: boolean) => {
-    if (!user) return true;
-    if (user.role?.name === 'Super Admin') return false;
-    if (item.ownerId === user.id) return false;
-    
-    if (isFolder) {
-      const grant = accessRequests.find((r: any) => r.folderId === item.id && r.requesterId === user.id && r.status === 'approved');
-      if (grant && grant.permission === 'read') return true;
-    } else {
-      return true;
-    }
-    return true; 
   };
 
   const handleDoubleClickFolder = (folder: any) => {
@@ -415,24 +357,6 @@ export default function FilesPage() {
 
   const handleDuplicate = (name: string) => {
     toast.success(`👯 Duplicated folder hierarchy for: ${name}`);
-  };
-
-  const handleDownloadFolder = async (id: string, name: string) => {
-    const toastId = toast.loading(`Preparing folder "${name}" download...`);
-    try {
-      const response = await filesApi.downloadFolder(id);
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `${name}.zip`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-      toast.success(`Downloaded "${name}" successfully!`, { id: toastId });
-    } catch (err: any) {
-      toast.error(`Failed to download folder: ${err.message || 'Server error'}`, { id: toastId });
-    }
   };
 
   const handleTransfer = (folderName: string, targetUser: string) => {
@@ -500,12 +424,6 @@ export default function FilesPage() {
   const pendingRequests = accessRequests.filter((r: any) => r.ownerId === user?.id && r.status === 'pending');
   const mySentRequests = accessRequests.filter((r: any) => r.requesterId === user?.id);
 
-  // Filter folders by search
-  const filteredFolders = folders.filter((folder: any) => {
-    if (!search) return true;
-    return (folder.name || '').toLowerCase().includes(search.toLowerCase());
-  });
-
   // Perform category-based file filtering
   const filteredFiles = files.filter((file: any) => {
     const mime = (file.mimeType || '').toLowerCase();
@@ -542,26 +460,7 @@ export default function FilesPage() {
   const shouldShowFolders = categoryFilter === 'all';
 
   return (
-    <div 
-      className="page-enter" 
-      style={{ display: 'flex', flexDirection: 'column', gap: '24px', position: 'relative' }} 
-      {...getRootProps({
-        onDropCapture: (e) => {
-          const items = Array.from(e.dataTransfer.items || []);
-          for (const item of items) {
-            if (item.kind === 'file') {
-              const entry = item.webkitGetAsEntry();
-              if (entry && entry.isDirectory) {
-                e.preventDefault();
-                e.stopPropagation();
-                toast.error("Folder drops are not supported. Please compress your folder into a .zip or .tar archive before uploading.");
-                return;
-              }
-            }
-          }
-        }
-      })}
-    >
+    <div className="page-enter" style={{ display: 'flex', flexDirection: 'column', gap: '24px', position: 'relative' }} {...getRootProps()}>
       <input {...getInputProps()} />
 
       {isDragActive && (
@@ -692,8 +591,12 @@ export default function FilesPage() {
                     toast.error('Please select a teammate');
                     return;
                   }
-                  setSharingItem(null);
-                  navigate(`/chat?shareItemId=${sharingItem.id}&shareItemType=${sharingItem.type}&targetUserId=${targetUserId}&name=${encodeURIComponent(sharingItem.name)}&action=${action}`);
+                  shareToUserMutation.mutate({
+                    itemType: sharingItem.type,
+                    itemId: sharingItem.id,
+                    targetUserId,
+                    action
+                  });
                 }}
               >
                 Share
@@ -738,26 +641,15 @@ export default function FilesPage() {
             ) : previewFile.mimeType?.startsWith('audio/') ? (
               <audio controls src={previewFile.storageUrl} style={{ width: '80%' }} />
             ) : ['json', 'js', 'jsx', 'ts', 'tsx', 'py', 'java', 'html', 'css', 'txt', 'md', 'xml', 'yaml', 'yml', 'sh', 'bat', 'ini', 'log'].includes((previewFile.extension || previewFile.originalName?.split('.').pop() || '').toLowerCase()) || previewFile.mimeType?.startsWith('text/') || previewFile.mimeType === 'application/json' ? (
-              <div style={{ width: '100%', height: '100%', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+              <div style={{ width: '100%', height: '100%', background: '#1e1e1e', borderRadius: '8px', padding: '20px', overflow: 'auto', border: '1px solid #333' }}>
                 {loadingTextContent ? (
-                  <div style={{ color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', background: '#1e1e1e' }}>
+                  <div style={{ color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
                     <div className="spinner" style={{ marginRight: '8px' }} /> Loading file content...
                   </div>
                 ) : (
-                  <Editor
-                    height="100%"
-                    width="100%"
-                    language={(previewFile.extension || previewFile.originalName?.split('.').pop() || 'text').toLowerCase()}
-                    theme="vs-dark"
-                    value={previewTextContent}
-                    options={{
-                      readOnly: true,
-                      minimap: { enabled: true },
-                      scrollBeyondLastLine: false,
-                      fontSize: 14,
-                      wordWrap: 'on'
-                    }}
-                  />
+                  <pre style={{ margin: 0, color: '#d4d4d4', textAlign: 'left', fontFamily: 'monospace', fontSize: '13px', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                    {previewTextContent}
+                  </pre>
                 )}
               </div>
             ) : (
@@ -784,20 +676,16 @@ export default function FilesPage() {
           borderRadius: '8px', boxShadow: '0 10px 25px rgba(0,0,0,0.3)', zIndex: 1100,
           display: 'flex', flexDirection: 'column', padding: '4px', minWidth: '150px'
         }} onMouseLeave={() => setContextMenu(null)}>
-          {!isReadOnly(contextMenu.item, contextMenu.itemType === 'folder') && (
-            <>
-              <div className="dropdown-item" onClick={() => {
-                setRenamingItem({ id: contextMenu.item.id, type: contextMenu.itemType, name: contextMenu.item.name || contextMenu.item.originalName });
-                setContextMenu(null);
-              }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Plus size={13} /> Rename</div>
-              
-              <div className="dropdown-item" onClick={() => {
-                setClipboardItem({ id: contextMenu.item.id, type: contextMenu.itemType, action: 'cut' });
-                setContextMenu(null);
-                toast.success('Cut to clipboard');
-              }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Scissors size={13} /> Cut</div>
-            </>
-          )}
+          <div className="dropdown-item" onClick={() => {
+            setRenamingItem({ id: contextMenu.item.id, type: contextMenu.itemType, name: contextMenu.item.name || contextMenu.item.originalName });
+            setContextMenu(null);
+          }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Plus size={13} /> Rename</div>
+          
+          <div className="dropdown-item" onClick={() => {
+            setClipboardItem({ id: contextMenu.item.id, type: contextMenu.itemType, action: 'cut' });
+            setContextMenu(null);
+            toast.success('Cut to clipboard');
+          }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Scissors size={13} /> Cut</div>
 
           <div className="dropdown-item" onClick={() => {
             setClipboardItem({ id: contextMenu.item.id, type: contextMenu.itemType, action: 'copy' });
@@ -848,14 +736,7 @@ export default function FilesPage() {
           )}
 
           <div className="dropdown-item" onClick={() => {
-            setSharingItem({
-              id: contextMenu.item.id,
-              type: contextMenu.itemType,
-              name: contextMenu.item.name || contextMenu.item.originalName,
-              storageUrl: contextMenu.item.storageUrl || '',
-              size: contextMenu.item.sizeBytes || contextMenu.item.size || '',
-              mimeType: contextMenu.item.mimeType || ''
-            });
+            setSharingItem({ id: contextMenu.item.id, type: contextMenu.itemType, name: contextMenu.item.name || contextMenu.item.originalName });
             setContextMenu(null);
           }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Share2 size={13} /> Share with Teammate</div>
 
@@ -864,118 +745,25 @@ export default function FilesPage() {
               <div className="dropdown-item" onClick={() => { handleOpenPreview(contextMenu.item); setContextMenu(null); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><ChevronRight size={13} /> Preview</div>
               <div className="dropdown-item" onClick={() => { window.open(contextMenu.item.storageUrl, '_blank'); setContextMenu(null); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}>🔗 Open in New Tab</div>
               <a href={contextMenu.item.storageUrl} download={contextMenu.item.originalName} className="dropdown-item" onClick={() => setContextMenu(null)} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer', color: 'inherit', textDecoration: 'none' }}><Download size={13} /> Copy to PC (Download)</a>
-              {(window as any).gsvDesktop ? (
-                <div className="dropdown-item" onClick={async () => {
-                  const toastId = toast.loading('Copying file to PC... 📄');
-                  try {
-                    const token = useAuthStore.getState().accessToken;
-                    const fUrl = contextMenu.item.storageUrl;
-                    const fName = contextMenu.item.originalName || 'file';
-                    const res = await (window as any).gsvDesktop.copyFileToClipboard({
-                      fileUrl: fUrl.startsWith('http') ? fUrl : `${window.location.origin}${fUrl}`,
-                      fileName: fName,
-                      token: token
-                    });
-                    if (res?.success) {
-                      toast.success(`File copied to PC successfully! 📋`, { id: toastId });
-                    } else {
-                      toast.error(`Copy failed: ${res?.reason || 'Unknown error'}`, { id: toastId });
-                    }
-                  } catch (err: any) {
-                    toast.error(`Copy error: ${err.message}`, { id: toastId });
-                  }
-                  setContextMenu(null);
-                }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}>
-                  <Copy size={13} /> Copy File to PC (Direct)
-                </div>
-              ) : (
-                <div className="dropdown-item" onClick={async () => {
-                  const fUrl = contextMenu.item.storageUrl;
-                  const fName = contextMenu.item.originalName || 'file';
-                  const isImage = fName.toLowerCase().match(/\.(jpg|jpeg|png|gif|svg|webp)$/);
-                  const fullUrl = fUrl.startsWith('http') ? fUrl : `${window.location.origin}${fUrl}`;
-
-                  if (isImage) {
-                    const toastId = toast.loading('Copying image to clipboard... 📷');
-                    try {
-                      const response = await fetch(fullUrl);
-                      const blob = await response.blob();
-                      await navigator.clipboard.write([
-                        new ClipboardItem({ [blob.type]: blob })
-                      ]);
-                      toast.success('Image copied to clipboard! 📋', { id: toastId });
-                    } catch (err) {
-                      const success = copyTextToClipboard(fullUrl);
-                      if (success) {
-                        toast.success('Direct copy failed. Image link copied! 🔗', { id: toastId });
-                      } else {
-                        toast.error('Could not copy image. Try downloading it instead.', { id: toastId });
-                      }
-                    }
-                  } else {
-                    const success = copyTextToClipboard(fullUrl);
-                    if (success) {
-                      toast.success('File link copied to clipboard! 📋');
-                    } else {
-                      toast.error('Could not copy file link.');
-                    }
-                  }
-                  setContextMenu(null);
-                }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}>
-                  <Copy size={13} /> Copy File Link/Image
-                </div>
-              )}
             </>
           )}
 
-          {contextMenu.itemType === 'folder' && (
-            <>
-              <div className="dropdown-item" onClick={() => { handleDownloadFolder(contextMenu.item.id, contextMenu.item.name); setContextMenu(null); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Download size={13} /> Copy to PC (Zip Download)</div>
-              {(window as any).gsvDesktop && (
-                <div className="dropdown-item" onClick={async () => { 
-                  const toastId = toast.loading('Copying folder to PC... 📁');
-                  try {
-                    const token = useAuthStore.getState().accessToken;
-                    const res = await (window as any).gsvDesktop.copyFolderToClipboard({
-                      folderId: contextMenu.item.id,
-                      folderName: contextMenu.item.name || contextMenu.item.originalName || 'Folder',
-                      serverUrl: window.location.origin,
-                      token: token
-                    });
-                    if (res?.success) {
-                      toast.success(`Folder copied to PC successfully! Saved at: ${res.path}`, { id: toastId });
-                    } else {
-                      toast.error(`Copy failed: ${res?.error || 'Unknown error'}`, { id: toastId });
-                    }
-                  } catch (err: any) {
-                    toast.error(`Copy error: ${err.message}`, { id: toastId });
-                  }
-                  setContextMenu(null); 
-                }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}>
-                  <Folder size={13} /> Copy Folder to PC (Direct)
-                </div>
-              )}
-            </>
-          )}
-
-          {!isReadOnly(contextMenu.item, contextMenu.itemType === 'folder') && (
-            <div className="dropdown-item" onClick={() => {
-              const isFolder = contextMenu.itemType === 'folder';
-              const name = contextMenu.item.name || contextMenu.item.originalName;
-              setConfirmModal({
-                title: `Delete ${isFolder ? 'Folder' : 'File'}`,
-                message: `Are you sure you want to delete "${name}" permanently?`,
-                onConfirm: () => {
-                  if (isFolder) {
-                    deleteFolderMutation.mutate(contextMenu.item.id);
-                  } else {
-                    deleteMutation.mutate(contextMenu.item.id);
-                  }
+          <div className="dropdown-item" onClick={() => {
+            const isFolder = contextMenu.itemType === 'folder';
+            const name = contextMenu.item.name || contextMenu.item.originalName;
+            setConfirmModal({
+              title: `Delete ${isFolder ? 'Folder' : 'File'}`,
+              message: `Are you sure you want to delete "${name}" permanently?`,
+              onConfirm: () => {
+                if (isFolder) {
+                  deleteFolderMutation.mutate(contextMenu.item.id);
+                } else {
+                  deleteMutation.mutate(contextMenu.item.id);
                 }
-              });
-              setContextMenu(null);
-            }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer', color: 'var(--brand-danger)' }}><Trash2 size={13} /> Delete</div>
-          )}
+              }
+            });
+            setContextMenu(null);
+          }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer', color: 'var(--brand-danger)' }}><Trash2 size={13} /> Delete</div>
         </div>
       )}
 
@@ -1040,9 +828,7 @@ export default function FilesPage() {
               >
                 <CheckSquare size={15} /> {isBulkMode ? 'Exit Bulk' : 'Bulk Select'}
               </button>
-              {shouldShowFolders && (
-                <button className="btn btn-secondary btn-sm" onClick={() => setShowNewFolder(true)}><FolderOpen size={15} /> New Folder</button>
-              )}
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowNewFolder(true)}><FolderOpen size={15} /> New Folder</button>
               <label className="btn btn-primary btn-sm" style={{ cursor: 'pointer' }}>
                 <Upload size={15} /> Upload Files {uploading && uploadProgressPercent === null && <div className="spinner" />}
                 <input type="file" multiple style={{ display: 'none' }} onChange={e => { if (e.target.files) onDrop(Array.from(e.target.files)); }} />
@@ -1051,11 +837,6 @@ export default function FilesPage() {
                 className="btn btn-primary btn-sm" 
                 style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                 onClick={() => {
-                  const isNativeApp = navigator.userAgent.includes('GSVOfficeApp');
-                  if (isNativeApp) {
-                    toast.error("Folder uploads are not supported on the Desktop/Mobile app. Please compress the folder into a .zip or .tar archive before uploading.");
-                    return;
-                  }
                   setConfirmModal({
                     title: 'Upload Directory / Folder?',
                     message: 'This will stage all files inside the selected directory for upload to your current active folder directory. Do this only if you trust the files.',
@@ -1072,31 +853,11 @@ export default function FilesPage() {
                 <FolderOpen size={15} /> Upload Folder {uploading && uploadProgressPercent === null && <div className="spinner" />}
               </button>
               <input 
-                key={folderInputKey}
                 type="file" 
                 ref={folderUploadInputRef} 
                 {...{ webkitdirectory: "", directory: "", multiple: true } as any} 
                 style={{ display: 'none' }} 
-                onChange={e => { 
-                  if (e.target.files) {
-                    const startTime = performance.now();
-                    console.log('[Upload Flow] Folder selected');
-                    console.log('[Upload Flow] Folder scan start');
-                    const rawFiles = e.target.files;
-                    const MAX_FOLDER_FILES = 10000;
-                    if (rawFiles.length > MAX_FOLDER_FILES) {
-                      toast.error(`Folder contains too many files (${rawFiles.length.toLocaleString()}). For directories with more than ${MAX_FOLDER_FILES} files (like code projects), please compress them into a .zip or .tar archive before uploading.`);
-                      setFolderInputKey(prev => prev + 1);
-                      return;
-                    }
-                    setTimeout(() => {
-                      const files = Array.from(rawFiles);
-                      const scanEndTime = performance.now();
-                      console.log(`[Upload Flow] Folder scan end. Time taken: ${(scanEndTime - startTime).toFixed(2)} ms. Files count: ${files.length}`);
-                      onDropFolder(files);
-                    }, 0);
-                  }
-                }} 
+                onChange={e => { if (e.target.files) onDropFolder(Array.from(e.target.files)); }} 
               />
             </>
           )}
@@ -1185,7 +946,7 @@ export default function FilesPage() {
           {viewMode === 'grid' ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '16px' }}>
               {/* Folders */}
-              {shouldShowFolders && filteredFolders.map((folder: any) => {
+              {shouldShowFolders && folders.map((folder: any) => {
                 const locked = !hasAccess(folder);
                 const isPublic = folder.path?.startsWith('/public');
                 return (
@@ -1306,7 +1067,7 @@ export default function FilesPage() {
                   <thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Permissions</th><th>Actions</th></tr></thead>
                   <tbody>
                     {[
-                      ...(shouldShowFolders ? filteredFolders.map((f: any) => ({ ...f, isFolder: true })) : []),
+                      ...(shouldShowFolders ? folders.map((f: any) => ({ ...f, isFolder: true })) : []),
                       ...filteredFiles
                     ].map((item: any) => {
                       const locked = item.isFolder && !hasAccess(item);
@@ -1600,41 +1361,25 @@ export default function FilesPage() {
                     toast.error('Please select a teammate');
                     return;
                   }
-                  const fullItems = bulkSharingItems.map(item => {
-                    if (item.type === 'folder') {
-                      const f = folders.find((fol: any) => fol.id === item.id);
-                      return {
-                        id: item.id,
-                        type: 'folder',
-                        name: f?.name || 'Folder',
-                        storageUrl: '',
-                        size: '',
-                        mimeType: ''
-                      };
-                    } else {
-                      const f = files.find((fil: any) => fil.id === item.id);
-                      return {
-                        id: item.id,
-                        type: 'file',
-                        name: f?.originalName || f?.name || 'File',
-                        storageUrl: f?.storageUrl || '',
-                        size: f?.sizeBytes || f?.size || '',
-                        mimeType: f?.mimeType || ''
-                      };
-                    }
-                  });
-
-                  const ids = fullItems.map(item => item.id).join(',');
-                  const types = fullItems.map(item => item.type).join(',');
-                  const names = fullItems.map(item => item.name).join(',');
-                  const urls = fullItems.map(item => item.storageUrl).join(',');
-                  const sizes = fullItems.map(item => item.size).join(',');
-                  const mimes = fullItems.map(item => item.mimeType).join(',');
-
-                  setBulkSharingItems([]);
-                  setSelectedItems([]);
-                  setIsBulkMode(false);
-                  navigate(`/chat?shareItemId=${ids}&shareItemType=${types}&targetUserId=${targetUserId}&name=${encodeURIComponent(names)}&action=${action}&urls=${encodeURIComponent(urls)}&sizes=${encodeURIComponent(sizes)}&mimes=${encodeURIComponent(mimes)}`);
+                  const toastId = toast.loading('Sharing items...');
+                  try {
+                    await Promise.all(bulkSharingItems.map(item =>
+                      shareToUserMutation.mutateAsync({
+                        itemType: item.type,
+                        itemId: item.id,
+                        targetUserId,
+                        action
+                      })
+                    ));
+                    toast.success('Shared successfully', { id: toastId });
+                    setBulkSharingItems([]);
+                    setSelectedItems([]);
+                    setIsBulkMode(false);
+                    qc.invalidateQueries({ queryKey: ['folders'] });
+                    qc.invalidateQueries({ queryKey: ['files'] });
+                  } catch {
+                    toast.error('Failed to share some items', { id: toastId });
+                  }
                 }}
               >
                 Share Bulk
@@ -1657,7 +1402,7 @@ export default function FilesPage() {
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => {
               const allItems = [
-                ...filteredFolders.map((f: any) => ({ id: f.id, type: 'folder' as const })),
+                ...folders.map((f: any) => ({ id: f.id, type: 'folder' as const })),
                 ...filteredFiles.map((f: any) => ({ id: f.id, type: 'file' as const }))
               ];
               const isAllChecked = allItems.every(item => selectedItems.some(s => s.id === item.id));
@@ -1669,7 +1414,7 @@ export default function FilesPage() {
             }}>
               {(() => {
                 const allItems = [
-                  ...filteredFolders.map((f: any) => ({ id: f.id, type: 'folder' as const })),
+                  ...folders.map((f: any) => ({ id: f.id, type: 'folder' as const })),
                   ...filteredFiles.map((f: any) => ({ id: f.id, type: 'file' as const }))
                 ];
                 const isAllChecked = allItems.length > 0 && allItems.every(item => selectedItems.some(s => s.id === item.id));

@@ -12,8 +12,6 @@ export class WebrtcGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server;
   private readonly logger = new Logger(WebrtcGateway.name);
   private rooms = new Map<string, Set<string>>(); // roomId -> Set<socketId>
-  // Track active remote desktop sessions: userId -> partnerUserId
-  private remoteSessions = new Map<string, string>();
 
   constructor(private jwtService: JwtService) {}
 
@@ -38,98 +36,34 @@ export class WebrtcGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   handleDisconnect(client: Socket) {
     this.logger.log(`WebRTC Client disconnected: ${client.id}`);
-    // Notify any active call rooms that the participant left
-    for (const [roomId, participants] of this.rooms.entries()) {
-      if (participants.has(client.id)) {
-        participants.delete(client.id);
-        this.server.to(roomId).emit('call:participant-left', { socketId: client.id });
-        if (participants.size === 0) {
-          this.rooms.delete(roomId);
-        }
-      }
-    }
-    // Notify remote desktop partner if session was active
-    const userId = client.data?.userId;
-    if (userId && this.remoteSessions.has(userId)) {
-      const partnerId = this.remoteSessions.get(userId);
-      this.logger.log(`Remote session cleanup on disconnect: ${userId} <-> ${partnerId}`);
-      this.server.to(`user:${partnerId}`).emit('remote:terminate', { fromId: userId, reason: 'peer_disconnected' });
-      this.remoteSessions.delete(userId);
-      // Also clean up the reverse mapping
-      if (partnerId && this.remoteSessions.get(partnerId) === userId) {
-        this.remoteSessions.delete(partnerId);
-      }
-    }
   }
 
   @SubscribeMessage('call:initiate')
   handleCallInitiate(@ConnectedSocket() client: Socket, @MessageBody() data: any) {
-    const roomId = data.groupId ? `group:${data.groupId}` : uuid();
-    let room = this.rooms.get(roomId);
-    if (!room) {
-      room = new Set<string>();
-      this.rooms.set(roomId, room);
-    }
-    room.add(client.id);
+    const roomId = uuid();
+    this.rooms.set(roomId, new Set([client.id]));
     client.join(roomId);
-
-    // Notify callee(s)
-    if (data.calleeIds && Array.isArray(data.calleeIds)) {
-      for (const calleeId of data.calleeIds) {
-        this.server.to(`user:${calleeId}`).emit('call:incoming', {
-          roomId, callerId: client.data?.userId, groupId: data.groupId, type: data.type,
-        });
-      }
-    } else if (data.calleeId) {
-      this.server.to(`user:${data.calleeId}`).emit('call:incoming', {
-        roomId, callerId: client.data?.userId, type: data.type,
-      });
-    }
+    // Notify callee
+    this.server.to(`user:${data.calleeId}`).emit('call:incoming', {
+      roomId, callerId: client.data?.userId, type: data.type,
+    });
     return { roomId };
   }
 
-  @SubscribeMessage('call:invite-participant')
-  handleInviteParticipant(@ConnectedSocket() client: Socket, @MessageBody() data: { calleeId: string; roomId: string; type: string }) {
-    this.server.to(`user:${data.calleeId}`).emit('call:incoming', {
-      roomId: data.roomId, callerId: client.data?.userId, type: data.type,
-    });
-  }
-
-  @SubscribeMessage('call:busy')
-  handleCallBusy(@ConnectedSocket() client: Socket, @MessageBody() data: { callerId: string; roomId: string }) {
-    this.server.to(`user:${data.callerId}`).emit('call:busy', { roomId: data.roomId });
-  }
-
   @SubscribeMessage('call:join')
-  handleCallJoin(@ConnectedSocket() client: Socket, @MessageBody() data: { roomId: string; callerId?: string }) {
-    let room = this.rooms.get(data.roomId);
-    if (!room) {
-      room = new Set<string>();
-      this.rooms.set(data.roomId, room);
+  handleCallJoin(@ConnectedSocket() client: Socket, @MessageBody() data: { roomId: string }) {
+    const room = this.rooms.get(data.roomId);
+    if (room) {
+      room.add(client.id);
+      client.join(data.roomId);
+      client.to(data.roomId).emit('call:participant-joined', { socketId: client.id });
     }
-    room.add(client.id);
-    client.join(data.roomId);
-    client.to(data.roomId).emit('call:participant-joined', { socketId: client.id });
-    
-    // Notify other active sockets of this user that the call was answered elsewhere
-    client.broadcast.to(`user:${client.data.userId}`).emit('call:dismissed_elsewhere', { roomId: data.roomId });
   }
 
   @SubscribeMessage('call:leave')
   handleCallLeave(@ConnectedSocket() client: Socket, @MessageBody() data: { roomId: string }) {
     client.leave(data.roomId);
     client.to(data.roomId).emit('call:participant-left', { socketId: client.id });
-    
-    // If the call was rejected without joining, also notify other devices
-    client.broadcast.to(`user:${client.data.userId}`).emit('call:dismissed_elsewhere', { roomId: data.roomId });
-    
-    const room = this.rooms.get(data.roomId);
-    if (room) {
-      room.delete(client.id);
-      if (room.size === 0) {
-        this.rooms.delete(data.roomId);
-      }
-    }
   }
 
   @SubscribeMessage('webrtc:offer')
@@ -161,21 +95,14 @@ export class WebrtcGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('remote:response')
-  handleRemoteResponse(@ConnectedSocket() client: Socket, @MessageBody() data: { targetUserId: string; status: 'accepted' | 'rejected'; permissions?: any; duration?: string; isDesktopAgent?: boolean }) {
+  handleRemoteResponse(@ConnectedSocket() client: Socket, @MessageBody() data: { targetUserId: string; status: 'accepted' | 'rejected'; permissions?: any; duration?: string }) {
     this.logger.log(`Remote response from ${client.data.userId} to ${data.targetUserId} status ${data.status}`);
     this.server.to(`user:${data.targetUserId}`).emit('remote:response', {
       hostId: client.data.userId,
       status: data.status,
       permissions: data.permissions,
       duration: data.duration,
-      isDesktopAgent: data.isDesktopAgent,
     });
-    // Register active remote session bidirectionally on acceptance
-    if (data.status === 'accepted') {
-      this.remoteSessions.set(client.data.userId, data.targetUserId);
-      this.remoteSessions.set(data.targetUserId, client.data.userId);
-      this.logger.log(`Remote session registered: ${client.data.userId} <-> ${data.targetUserId}`);
-    }
   }
 
   @SubscribeMessage('remote:signal')
@@ -207,20 +134,6 @@ export class WebrtcGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.logger.log(`Remote session terminated between ${client.data.userId} and ${data.targetUserId}`);
     this.server.to(`user:${data.targetUserId}`).emit('remote:terminate', {
       fromId: client.data.userId,
-    });
-    // Clean up session tracking on explicit termination
-    this.remoteSessions.delete(client.data.userId);
-    if (this.remoteSessions.get(data.targetUserId) === client.data.userId) {
-      this.remoteSessions.delete(data.targetUserId);
-    }
-  }
-
-  @SubscribeMessage('remote:navigate')
-  handleRemoteNavigate(@ConnectedSocket() client: Socket, @MessageBody() data: { targetUserId: string; action: 'back' | 'forward' | 'refresh' }) {
-    this.logger.log(`Remote navigation command '${data.action}' from ${client.data.userId} to ${data.targetUserId}`);
-    this.server.to(`user:${data.targetUserId}`).emit('remote:navigate', {
-      fromId: client.data.userId,
-      action: data.action,
     });
   }
 }
