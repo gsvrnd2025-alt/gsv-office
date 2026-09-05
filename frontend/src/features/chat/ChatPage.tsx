@@ -5,7 +5,8 @@ import {
   Send, Plus, Search, MessageSquare, Hash, Phone, Video,
   MoreVertical, Smile, Paperclip, CheckCheck, Check, File, Image,
   Download, Folder, Volume2, ChevronRight, ChevronLeft, X, Users2,
-  Pin, ArrowRight, Mic, Sparkles, Copy, Trash2, Menu, CheckSquare, Info
+  Pin, ArrowRight, ArrowLeft, Mic, Sparkles, Copy, Trash2, Menu, CheckSquare, Info, StickyNote, ChevronDown,
+  Bold, Italic, List, Code, Maximize2, Minimize2, Heart, LogOut, Link, AlertTriangle, UserPlus, Camera
 } from 'lucide-react';
 import { chatApi, usersApi, filesApi } from '../../api';
 import { useAuthStore } from '../../store/auth.store';
@@ -13,6 +14,53 @@ import { SoundManager } from '../../utils/sound';
 import { copyTextToClipboard } from '../../utils/clipboard';
 import toast from 'react-hot-toast';
 import styles from './ChatPage.module.css';
+
+const FILE_EXTENSIONS = [
+  { ext: 'txt', name: 'Plain Text (.txt)' },
+  { ext: 'md', name: 'Markdown (.md)' },
+  { ext: 'py', name: 'Python (.py)' },
+  { ext: 'js', name: 'JavaScript (.js)' },
+  { ext: 'jsx', name: 'React JS (.jsx)' },
+  { ext: 'ts', name: 'TypeScript (.ts)' },
+  { ext: 'tsx', name: 'React TS (.tsx)' },
+  { ext: 'html', name: 'HTML (.html)' },
+  { ext: 'css', name: 'CSS (.css)' },
+  { ext: 'json', name: 'JSON (.json)' },
+  { ext: 'sql', name: 'SQL Query (.sql)' },
+  { ext: 'yaml', name: 'YAML (.yaml)' },
+  { ext: 'yml', name: 'YAML (.yml)' },
+  { ext: 'sh', name: 'Shell Script (.sh)' },
+  { ext: 'bat', name: 'Batch Script (.bat)' },
+  { ext: 'c', name: 'C Source (.c)' },
+  { ext: 'cpp', name: 'C++ Source (.cpp)' },
+  { ext: 'cs', name: 'C# Source (.cs)' },
+  { ext: 'java', name: 'Java (.java)' },
+  { ext: 'go', name: 'Go (.go)' },
+  { ext: 'rs', name: 'Rust (.rs)' },
+  { ext: 'php', name: 'PHP (.php)' },
+  { ext: 'rb', name: 'Ruby (.rb)' },
+  { ext: 'swift', name: 'Swift (.swift)' },
+  { ext: 'kt', name: 'Kotlin (.kt)' },
+  { ext: 'dart', name: 'Dart (.dart)' },
+  { ext: 'xml', name: 'XML (.xml)' },
+  { ext: 'ini', name: 'Configuration (.ini)' },
+  { ext: 'env', name: 'Environment (.env)' },
+  { ext: 'log', name: 'Log File (.log)' },
+  { ext: 'zip', name: 'ZIP Archive (.zip)' },
+  { ext: 'rar', name: 'RAR Archive (.rar)' },
+  { ext: '7z', name: '7-Zip Archive (.7z)' },
+  { ext: 'tar', name: 'TAR Archive (.tar)' },
+  { ext: 'gz', name: 'GZIP Archive (.gz)' },
+];
+
+function formatBytes(bytes: number) {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const dm = 2;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
 
 interface StagedFile {
   name: string;
@@ -185,6 +233,204 @@ export default function ChatPage() {
       setClearTimestamp(null);
     }
   }, [user?.id, conversationId]);
+
+  // Note Editor states
+  const [showNoteEditor, setShowNoteEditor] = useState(false);
+  const [showExtDropdown, setShowExtDropdown] = useState(false);
+  const [noteFileName, setNoteFileName] = useState('note.txt');
+  const [noteContent, setNoteContent] = useState('');
+
+  // Scratchpad / Notepad (Personal Ideas) states
+  const [showScratchpad, setShowScratchpad] = useState(false);
+  const [scratchpadText, setScratchpadText] = useState(() => localStorage.getItem('gsv_scratchpad') || '');
+  const [showScratchpadMenu, setShowScratchpadMenu] = useState(false);
+  const [scratchpadTitle, setScratchpadTitle] = useState('');
+  const [selectedExtension, setSelectedExtension] = useState('txt');
+  const [extensionSearch, setExtensionSearch] = useState('');
+  const [isScratchpadMaximized, setIsScratchpadMaximized] = useState(false);
+  const [scratchpadPos, setScratchpadPos] = useState({ x: 150, y: 150 });
+  const [isDraggingScratchpad, setIsDraggingScratchpad] = useState(false);
+  const scratchpadDragStartRef = useRef({ mouseX: 0, mouseY: 0, popupX: 0, popupY: 0 });
+
+  useEffect(() => {
+    localStorage.setItem('gsv_scratchpad', scratchpadText);
+  }, [scratchpadText]);
+
+  const handleScratchpadHeaderMouseDown = (e: React.MouseEvent) => {
+    if (isScratchpadMaximized) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('button') || target.closest('input')) return;
+    
+    setIsDraggingScratchpad(true);
+    scratchpadDragStartRef.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      popupX: scratchpadPos.x,
+      popupY: scratchpadPos.y
+    };
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDraggingScratchpad) return;
+      const dx = e.clientX - scratchpadDragStartRef.current.mouseX;
+      const dy = e.clientY - scratchpadDragStartRef.current.mouseY;
+      
+      const newX = Math.max(0, Math.min(window.innerWidth - 330, scratchpadDragStartRef.current.popupX + dx));
+      const newY = Math.max(0, Math.min(window.innerHeight - 380, scratchpadDragStartRef.current.popupY + dy));
+      
+      setScratchpadPos({ x: newX, y: newY });
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingScratchpad(false);
+    };
+
+    if (isDraggingScratchpad) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDraggingScratchpad]);
+
+  const insertFormatting = (prefix: string, suffix: string = '') => {
+    const textarea = document.getElementById('scratchpad-textarea') as HTMLTextAreaElement;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = textarea.value;
+    const selectedText = text.substring(start, end);
+    const replacement = prefix + selectedText + suffix;
+    const newValue = text.substring(0, start) + replacement + text.substring(end);
+    setScratchpadText(newValue);
+    localStorage.setItem('gsv_scratchpad', newValue);
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + prefix.length, start + prefix.length + selectedText.length);
+    }, 50);
+  };
+
+  const handleSendScratchpadDirect = async () => {
+    if (!scratchpadText.trim()) {
+      toast.error('Scratchpad is empty.');
+      return;
+    }
+    if (!conversationId) {
+      toast.error('No active conversation selected.');
+      return;
+    }
+    try {
+      await sendMutation.mutateAsync({ content: scratchpadText });
+      toast.success('Note sent directly to chat! 🚀');
+      setShowScratchpad(false);
+    } catch (err) {
+      toast.error('Failed to send note.');
+    }
+  };
+
+  const handleInsertScratchpadToChat = () => {
+    if (!scratchpadText.trim()) {
+      toast.error('Scratchpad is empty.');
+      return;
+    }
+    setMessage(prev => prev ? prev + '\n' + scratchpadText : scratchpadText);
+    toast.success('Note inserted into chat input! 📝');
+    setShowScratchpad(false);
+  };
+
+  const sendScratchpadAsFile = async () => {
+    if (!scratchpadText.trim()) {
+      toast.error('Scratchpad content is empty.');
+      return;
+    }
+    if (!conversationId) {
+      toast.error('No active conversation selected.');
+      return;
+    }
+
+    const title = scratchpadTitle.trim() || 'note';
+    const filename = `${title}.${selectedExtension}`;
+    
+    const getMimeType = (ext: string) => {
+      const mimes: Record<string, string> = {
+        txt: 'text/plain',
+        md: 'text/markdown',
+        py: 'text/x-python',
+        js: 'application/javascript',
+        jsx: 'text/javascript',
+        ts: 'application/x-typescript',
+        tsx: 'text/typescript',
+        html: 'text/html',
+        css: 'text/css',
+        json: 'application/json',
+        sql: 'application/sql',
+        java: 'text/x-java-source',
+        ino: 'text/plain',
+        log: 'text/plain',
+        doc: 'application/msword',
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        xls: 'application/vnd.ms-excel',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        pdf: 'application/pdf',
+        zip: 'application/zip',
+        mp3: 'audio/mpeg',
+        wav: 'audio/wav',
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        gif: 'image/gif'
+      };
+      return mimes[ext] || 'application/octet-stream';
+    };
+
+    const mime = getMimeType(selectedExtension);
+    const blob = new Blob([scratchpadText], { type: mime });
+    const file = new window.File([blob], filename, { type: mime });
+
+    const staged: StagedFile = {
+      name: filename,
+      size: formatBytes(blob.size),
+      blob: file,
+      type: 'file'
+    };
+
+    const toastId = toast.loading(`Uploading document "${filename}"...`);
+    try {
+      const fd = new FormData();
+      fd.append('file', staged.blob);
+      
+      const uploadRes = await filesApi.upload(fd);
+      const fileData = uploadRes.data?.data || uploadRes.data;
+      if (!fileData) throw new Error('No file data returned');
+      
+      const fileId = fileData.id;
+      const fileUrl = fileData.storage_url || fileData.storageUrl || fileData.url;
+      const fileSize = fileData.size || fileData.sizeBytes;
+      const mimeType = fileData.mime_type || fileData.mimeType;
+      
+      await chatApi.sendMessage(conversationId!, {
+        content: '',
+        type: 'file',
+        fileId,
+        fileName: filename,
+        fileUrl,
+        fileSize,
+        mimeType
+      });
+      
+      toast.success(`Sent document "${filename}" to chat! 🚀`, { id: toastId });
+      setShowScratchpad(false);
+      
+      qc.invalidateQueries({ queryKey: ['messages', conversationId] });
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+    } catch (err: any) {
+      console.error(err);
+      toast.error(`Failed to send document: ${err.message || 'Server error'}`, { id: toastId });
+    }
+  };
 
   const handleDeleteFile = (msgId: string) => {
     const updated = [...deletedFiles, msgId];
@@ -2602,6 +2848,22 @@ export default function ChatPage() {
                       }}>
                         📁 ⚡ Direct SMB & Cloud Folder Share
                       </div>
+                      <div className="dropdown-item" onClick={() => {
+                        setShowAttachmentsDropdown(false);
+                        setShowNoteEditor(true);
+                      }}>
+                        📝 Create Note
+                      </div>
+                      <div className="dropdown-item" onClick={() => {
+                        setShowAttachmentsDropdown(false);
+                        setShowScratchpad(true);
+                        setScratchpadPos({
+                          x: Math.max(20, window.innerWidth - 370),
+                          y: Math.max(20, window.innerHeight - 440)
+                        });
+                      }}>
+                        💡 Personal Ideas / Notepad
+                      </div>
                     </div>
                   )}
                 </div>
@@ -2614,6 +2876,24 @@ export default function ChatPage() {
                   style={{ color: 'var(--wa-accent)' }}
                 >
                   <Folder size={20} />
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-icon"
+                  title="Personal Ideas / Notepad"
+                  onClick={() => {
+                    setShowScratchpad(!showScratchpad);
+                    if (!showScratchpad) {
+                      setScratchpadPos({
+                        x: Math.max(20, window.innerWidth - 370),
+                        y: Math.max(20, window.innerHeight - 440)
+                      });
+                    }
+                  }}
+                  style={{ color: showScratchpad ? 'var(--wa-accent)' : 'var(--text-secondary)' }}
+                >
+                  <StickyNote size={20} />
                 </button>
 
                 <input
@@ -3459,7 +3739,7 @@ export default function ChatPage() {
                       type="button"
                       className="btn btn-ghost btn-xs"
                       style={{ fontSize: '10px', padding: '2px 6px', border: '1px solid var(--border-color)' }}
-                      onClick={() => setSmbForm({ ...smbForm, path: '\\\\192.168.0.177\\apps', name: 'apps' })}
+                      onClick={() => setSmbForm({ ...smbForm, path: '\\\\192.168.0.177\\GSVR_Movies\\apps', name: 'apps' })}
                     >
                       📁 apps
                     </button>
@@ -3467,7 +3747,7 @@ export default function ChatPage() {
                       type="button"
                       className="btn btn-ghost btn-xs"
                       style={{ fontSize: '10px', padding: '2px 6px', border: '1px solid var(--border-color)' }}
-                      onClick={() => setSmbForm({ ...smbForm, path: '\\\\192.168.0.177\\dataset', name: 'dataset' })}
+                      onClick={() => setSmbForm({ ...smbForm, path: '\\\\192.168.0.177\\GSVR_Movies\\dataset', name: 'dataset' })}
                     >
                       📁 dataset
                     </button>
@@ -3580,6 +3860,492 @@ export default function ChatPage() {
         </div>
       )}
 
+      {/* Create Note Modal */}
+      {showNoteEditor && (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card card-body" style={{ width: '600px', maxWidth: '90vw', display: 'flex', flexDirection: 'column', gap: '14px', background: 'var(--bg-card)' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)' }}>
+              📝 Create Note
+            </h3>
+            
+            <div>
+              <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px', display: 'block' }}>File Name (with extension)</label>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <input 
+                  type="text" 
+                  className="form-control" 
+                  value={noteFileName}
+                  onChange={e => setNoteFileName(e.target.value)}
+                  placeholder="e.g. script.py, config.json, notes.txt"
+                  style={{ flex: 1, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                />
+                <div style={{ position: 'relative' }}>
+                  <button type="button" className="btn btn-ghost btn-icon" onClick={() => setShowExtDropdown(!showExtDropdown)}>
+                    <MoreVertical size={18} />
+                  </button>
+                  {showExtDropdown && (
+                    <div style={{ position: 'absolute', right: 0, top: '100%', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '4px', zIndex: 10, display: 'flex', flexDirection: 'column', gap: '2px', width: '80px', boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}>
+                      {['.txt', '.py', '.json', '.js', '.ts', '.md', '.html', '.css', '.yaml'].map(ext => (
+                        <div 
+                          key={ext}
+                          onClick={() => {
+                            const name = noteFileName.includes('.') ? noteFileName.substring(0, noteFileName.lastIndexOf('.')) : noteFileName || 'note';
+                            setNoteFileName(name + ext);
+                            setShowExtDropdown(false);
+                          }}
+                          style={{ padding: '6px 12px', fontSize: '12px', cursor: 'pointer', borderRadius: '4px', color: 'var(--text-primary)' }}
+                          className="hover-glass"
+                        >
+                          {ext}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            <div style={{ flex: 1, minHeight: '250px', display: 'flex', flexDirection: 'column' }}>
+              <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px', display: 'block' }}>Content</label>
+              <textarea 
+                className="form-control"
+                value={noteContent}
+                onChange={e => setNoteContent(e.target.value)}
+                placeholder="Start typing your note or code here..."
+                style={{ 
+                  flex: 1, 
+                  width: '100%', 
+                  resize: 'vertical',
+                  minHeight: '250px',
+                  fontFamily: 'monospace',
+                  fontSize: '13px',
+                  background: 'var(--bg-secondary)', 
+                  border: '1px solid var(--border-color)', 
+                  color: 'var(--text-primary)' 
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+              <button type="button" className="btn btn-ghost" onClick={() => {
+                setShowNoteEditor(false);
+                setShowExtDropdown(false);
+              }}>Cancel</button>
+              <button type="button" className="btn btn-primary" disabled={!noteContent.trim() || !noteFileName.trim()} onClick={async () => {
+                if (!conversationId) {
+                  toast.error('No conversation selected');
+                  return;
+                }
+                const toastId = toast.loading(`Uploading note "${noteFileName}"...`);
+                try {
+                  const blob = new Blob([noteContent], { type: 'text/plain' });
+                  const file = new window.File([blob], noteFileName, { type: 'text/plain' });
+                  
+                  const fd = new FormData();
+                  fd.append('file', file);
+                  const uploadRes = await filesApi.upload(fd);
+                  const fileData = uploadRes.data?.data || uploadRes.data;
+                  if (!fileData) throw new Error('No file data returned');
+                  
+                  const fileId = fileData.id;
+                  const fileUrl = fileData.storage_url || fileData.storageUrl || fileData.url;
+                  const fileSize = fileData.size || fileData.sizeBytes;
+                  const mimeType = fileData.mime_type || fileData.mimeType || 'text/plain';
+                  
+                  await chatApi.sendMessage(conversationId, {
+                    content: '',
+                    type: 'file',
+                    fileId,
+                    fileName: noteFileName,
+                    fileUrl,
+                    fileSize,
+                    mimeType
+                  });
+                  
+                  toast.success(`Note "${noteFileName}" sent successfully! 🚀`, { id: toastId });
+                  setShowNoteEditor(false);
+                  setShowExtDropdown(false);
+                  setNoteContent('');
+                  setNoteFileName('note.txt');
+                  qc.invalidateQueries({ queryKey: ['messages', conversationId] });
+                  qc.invalidateQueries({ queryKey: ['conversations'] });
+                } catch (err: any) {
+                  console.error(err);
+                  toast.error(`Failed to send note: ${err.message || 'Error'}`, { id: toastId });
+                }
+              }}>
+                <Send size={16} style={{ marginRight: '6px' }} /> Send Note
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Draggable Scratchpad (Personal Ideas / Notepad) */}
+      {showScratchpad && (
+        <div 
+          id="scratchpad-popup"
+          style={{
+            position: 'fixed',
+            left: isScratchpadMaximized ? '5vw' : `${scratchpadPos.x}px`,
+            top: isScratchpadMaximized ? '5vh' : `${scratchpadPos.y}px`,
+            width: isScratchpadMaximized ? '90vw' : '330px',
+            height: isScratchpadMaximized ? '90vh' : '380px',
+            background: 'var(--bg-card)', 
+            border: '1px solid var(--border-color)', 
+            borderRadius: '12px',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.4)', 
+            overflow: 'hidden',
+            zIndex: 1000,
+            display: 'flex',
+            flexDirection: 'column',
+            transition: isDraggingScratchpad ? 'none' : 'width 0.2s ease, height 0.2s ease, left 0.2s ease, top 0.2s ease',
+          }} 
+          className="animate-scale-in"
+        >
+          {/* Header Row - Drag handle */}
+          <div 
+            onMouseDown={handleScratchpadHeaderMouseDown}
+            style={{
+              padding: '10px 14px',
+              background: 'var(--bg-secondary)',
+              borderBottom: '1px solid var(--border-color)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              cursor: isScratchpadMaximized ? 'default' : 'grab'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+              <StickyNote size={14} color="var(--wa-accent)" /> 
+              Personal Ideas
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <button 
+                type="button" 
+                className="btn btn-ghost btn-icon btn-sm" 
+                onClick={() => setIsScratchpadMaximized(!isScratchpadMaximized)} 
+                style={{ width: '24px', height: '24px', minHeight: '24px', padding: 0 }}
+                title={isScratchpadMaximized ? "Minimize" : "Maximize"}
+              >
+                {isScratchpadMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-ghost btn-icon btn-sm" 
+                onClick={() => setShowScratchpad(false)} 
+                style={{ width: '24px', height: '24px', minHeight: '24px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </div>
+
+          {/* Document Title Input */}
+          <div style={{ padding: '8px 12px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>File Name:</span>
+            <input
+              type="text"
+              value={scratchpadTitle}
+              onChange={e => setScratchpadTitle(e.target.value)}
+              placeholder="e.g. Stage One"
+              style={{
+                flex: 1,
+                background: 'transparent',
+                border: 'none',
+                borderBottom: '1px solid var(--border-color)',
+                color: 'var(--text-primary)',
+                fontSize: '12px',
+                outline: 'none',
+                padding: '2px 4px'
+              }}
+            />
+            <select
+              value={selectedExtension}
+              onChange={e => setSelectedExtension(e.target.value)}
+              style={{
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '6px',
+                color: 'var(--text-primary)',
+                fontSize: '11px',
+                fontWeight: 600,
+                outline: 'none',
+                padding: '2px 6px',
+                cursor: 'pointer'
+              }}
+            >
+              {FILE_EXTENSIONS.map(fe => (
+                <option key={fe.ext} value={fe.ext} style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>
+                  .{fe.ext}
+                </option>
+              ))}
+            </select>
+          </div>
+          
+          {/* Text Formatting Toolbar */}
+          <div style={{
+            padding: '6px 12px',
+            background: 'var(--bg-secondary)',
+            borderBottom: '1px solid var(--border-color)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <button
+              type="button"
+              onClick={() => insertFormatting('**', '**')}
+              title="Bold"
+              style={{
+                background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px',
+                color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                borderRadius: '4px'
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <Bold size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => insertFormatting('_', '_')}
+              title="Italic"
+              style={{
+                background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px',
+                color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                borderRadius: '4px'
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <Italic size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => insertFormatting('`', '`')}
+              title="Inline Code"
+              style={{
+                background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px',
+                color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                borderRadius: '4px'
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <Code size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => insertFormatting('```\n', '\n```')}
+              title="Code Block"
+              style={{
+                background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px',
+                color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                borderRadius: '4px', fontSize: '10px', fontWeight: 'bold'
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              Block
+            </button>
+            <button
+              type="button"
+              onClick={() => insertFormatting('- ')}
+              title="Bullet List"
+              style={{
+                background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px',
+                color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                borderRadius: '4px'
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <List size={14} />
+            </button>
+          </div>
+
+          <textarea
+            id="scratchpad-textarea"
+            value={scratchpadText}
+            onChange={e => setScratchpadText(e.target.value)}
+            placeholder="Type your brilliant ideas here... (Auto-saves locally)"
+            style={{
+              flex: 1, padding: '12px', background: 'transparent', border: 'none', resize: 'none',
+              color: 'var(--text-primary)', fontSize: '13px', outline: 'none', fontFamily: 'inherit'
+            }}
+          />
+
+          {/* Bottom Action Bar */}
+          <div style={{
+            padding: '8px 12px',
+            background: 'var(--bg-secondary)',
+            borderTop: '1px solid var(--border-color)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            position: 'relative'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              {/* Menu Dropdown */}
+              <div style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-icon btn-sm"
+                  title="Options"
+                  onClick={() => setShowScratchpadMenu(!showScratchpadMenu)}
+                  style={{ width: '28px', height: '28px', minHeight: '28px', padding: 0 }}
+                >
+                  <MoreVertical size={16} />
+                </button>
+                {showScratchpadMenu && (
+                  <div style={{
+                    position: 'absolute', bottom: '100%', left: 0, marginBottom: '8px', zIndex: 1100,
+                    background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.5)', width: '220px', display: 'flex', flexDirection: 'column',
+                    maxHeight: '320px', overflow: 'hidden'
+                  }} className="animate-scale-in">
+                    <div style={{ padding: '8px 12px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)', fontSize: '11px', fontWeight: 750, color: 'var(--text-secondary)', letterSpacing: '0.5px' }}>
+                      CHOOSE FILE EXTENSION
+                    </div>
+                    
+                    {/* Extension Search Input */}
+                    <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border-color)' }}>
+                      <input
+                        type="text"
+                        placeholder="Search extension..."
+                        value={extensionSearch}
+                        onChange={e => setExtensionSearch(e.target.value)}
+                        onClick={e => e.stopPropagation()}
+                        style={{
+                          width: '100%',
+                          background: 'rgba(0,0,0,0.2)',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: '6px',
+                          color: 'var(--text-primary)',
+                          fontSize: '11px',
+                          padding: '4px 8px',
+                          outline: 'none'
+                        }}
+                      />
+                    </div>
+                    
+                    {/* Scrollable Extensions List */}
+                    <div style={{ flex: 1, overflowY: 'auto', maxHeight: '180px' }}>
+                      {FILE_EXTENSIONS.filter(fe => 
+                        fe.ext.toLowerCase().includes(extensionSearch.toLowerCase()) || 
+                        fe.name.toLowerCase().includes(extensionSearch.toLowerCase())
+                      ).map(fe => {
+                        const isSelected = selectedExtension === fe.ext;
+                        return (
+                          <div
+                            key={fe.ext}
+                            onClick={() => {
+                              setSelectedExtension(fe.ext);
+                              toast.success(`Selected format: .${fe.ext}`);
+                            }}
+                            style={{
+                              padding: '6px 12px',
+                              fontSize: '12px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              background: isSelected ? 'rgba(0, 168, 132, 0.12)' : 'transparent',
+                              color: isSelected ? 'var(--brand-success)' : 'var(--text-primary)'
+                            }}
+                            className="dropdown-item"
+                          >
+                            <span>{fe.name}</span>
+                            {isSelected && <span style={{ fontSize: '10px' }}>🟢</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    
+                    {/* General Actions Section */}
+                    <div style={{ borderTop: '1px solid var(--border-color)', padding: '4px 0', background: 'var(--bg-secondary)' }}>
+                      <div
+                        onClick={handleInsertScratchpadToChat}
+                        style={{ padding: '6px 12px', fontSize: '12px', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                        className="dropdown-item"
+                      >
+                        <Plus size={12} /> Insert as Text to Input
+                      </div>
+                      <div
+                        onClick={() => {
+                          copyTextToClipboard(scratchpadText);
+                          toast.success('Note copied to clipboard!');
+                          setShowScratchpadMenu(false);
+                        }}
+                        style={{ padding: '6px 12px', fontSize: '12px', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                        className="dropdown-item"
+                      >
+                        <Copy size={12} /> Copy to Clipboard
+                      </div>
+                      <div
+                        onClick={() => {
+                          setScratchpadText('');
+                          localStorage.setItem('gsv_scratchpad', '');
+                          toast.success('Scratchpad cleared.');
+                          setShowScratchpadMenu(false);
+                        }}
+                        style={{ padding: '6px 12px', fontSize: '12px', color: 'var(--brand-danger)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                        className="dropdown-item"
+                      >
+                        <Trash2 size={12} /> Clear Note
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                title="Clear Note"
+                onClick={() => {
+                  setScratchpadText('');
+                  localStorage.setItem('gsv_scratchpad', '');
+                  toast.success('Note cleared 🧹');
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', padding: '4px 6px', color: 'var(--brand-danger)', background: 'transparent', border: 'none' }}
+              >
+                <Trash2 size={12} /> Clear
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                title="Copy Note"
+                onClick={() => {
+                  copyTextToClipboard(scratchpadText);
+                  toast.success('Note copied 📋');
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', padding: '4px 6px', color: 'var(--text-primary)', background: 'transparent', border: 'none' }}
+              >
+                <Copy size={12} /> Copy
+              </button>
+            </div>
+            {/* Send button (primary) */}
+            <button
+              type="button"
+              className="btn btn-primary btn-sm px-3"
+              style={{
+                background: 'var(--wa-accent, #00a884)',
+                borderColor: 'var(--wa-accent, #00a884)',
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '12px',
+                fontWeight: 600,
+                borderRadius: '8px'
+              }}
+              onClick={sendScratchpadAsFile}
+            >
+              <Send size={12} /> Send to Chat
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Mic Access Blocked Custom Warning Dialog */}
       {showMicWarningModal && (
