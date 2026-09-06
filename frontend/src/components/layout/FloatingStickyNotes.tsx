@@ -1168,6 +1168,11 @@ export default function FloatingStickyNotes() {
     );
   };
 
+  // On mobile screens (width <= 768px), hide the floating sticky notes FAB so it does not block mobile UI controls and chat inputs
+  if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+    return null;
+  }
+
   return (
     <div style={{ position: 'relative', zIndex: 9999 }}>
       
@@ -1182,6 +1187,8 @@ export default function FloatingStickyNotes() {
           top: `${fabPosition.y}px`,
           width: '75px', 
           height: '75px', 
+          display: typeof window !== 'undefined' && window.innerWidth <= 768 ? 'none' : 'flex',
+
           background: 'linear-gradient(145deg, #fef08a 0%, #facc15 100%)',
           boxShadow: '4px 8px 15px rgba(0,0,0,0.2), inset -2px -2px 5px rgba(0,0,0,0.1), inset 2px 2px 5px rgba(255,255,255,0.7)',
           cursor: isDraggingFab ? 'grabbing' : 'grab',
@@ -1189,7 +1196,6 @@ export default function FloatingStickyNotes() {
           touchAction: 'none',
           borderRadius: '4px 20px 4px 4px',
           border: '1px solid #eab308',
-          display: 'flex',
           flexDirection: 'column'
         }}
         title="GSV Sticky Notes (Drag to move)"

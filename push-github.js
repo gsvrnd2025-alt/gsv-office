@@ -19,7 +19,7 @@ try {
 
   console.log('Syncing latest code from GSV Server Plugin workspace...');
   try {
-    execSync(`robocopy "F:\\gsv_server plugin" "${gitDir}" /E /XD node_modules dist .git .gemini scratch logs uploads db redis minio downloads frontend\\android\\jdk21 /XF *.log *.tar.gz *.apk *.exe /NJH /NJS /NDL`, { stdio: 'inherit' });
+    execSync(`robocopy "F:\\gsv_server plugin" "${gitDir}" /E /XD node_modules dist build .dart_tool .gradle .git .gemini scratch logs uploads db redis minio downloads frontend\\android\\jdk21 /XF *.log *.tar.gz *.apk *.exe *.zip *.lock /NJH /NJS /NDL`, { stdio: 'inherit' });
   } catch (robocopyErr) {
     if (robocopyErr.status && robocopyErr.status > 7) {
       throw robocopyErr;

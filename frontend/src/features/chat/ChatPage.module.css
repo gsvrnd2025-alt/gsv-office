@@ -507,6 +507,93 @@
   background: var(--wa-sidebar);
 }
 
+/* Modern Input Capsule — "Button in Button" Integrated Box */
+.inputCapsule {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--wa-sidebar);
+  border: 1.5px solid var(--wa-border);
+  border-radius: 26px;
+  padding: 3px 8px;
+  min-height: 44px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease;
+  min-width: 0;
+}
+
+.inputCapsule:focus-within {
+  border-color: var(--wa-accent);
+  box-shadow: 0 0 0 3px rgba(0, 168, 132, 0.18);
+}
+
+.insideTextInput {
+  flex: 1;
+  border: none !important;
+  background: transparent !important;
+  outline: none !important;
+  font-size: 15px;
+  font-weight: 550;
+  color: var(--wa-text-primary);
+  padding: 6px 8px;
+  min-width: 0;
+  font-family: inherit;
+}
+
+.insideTextInput::placeholder {
+  color: var(--wa-text-tertiary);
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.insideInputBtn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--wa-text-secondary);
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.insideInputBtn:hover, .insideInputBtn:active {
+  background: var(--wa-hover);
+  color: var(--wa-accent);
+  transform: scale(1.08);
+}
+
+.sendActionBtn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: var(--wa-accent);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+  box-shadow: 0 3px 12px rgba(0, 168, 132, 0.35);
+}
+
+.sendActionBtn:hover {
+  transform: scale(1.08);
+  box-shadow: 0 4px 16px rgba(0, 168, 132, 0.45);
+}
+
+.sendActionBtn:active {
+  transform: scale(0.94);
+}
+
 .sendBtn {
   width: 40px;
   height: 40px;
@@ -568,17 +655,341 @@
   font-weight: 700;
 }
 
+/* Responsive / Desktop & Mobile Helpers */
+.mobileBackBtn {
+  display: none !important;
+}
+
+.desktopOnly {
+  display: flex !important;
+}
+
+.mobileOnly {
+  display: none !important;
+}
+
+/* More Options Menu */
+.moreOptionsMenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 4px;
+  background: var(--wa-sidebar);
+  border: 1px solid var(--wa-border);
+  border-radius: 12px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
+  min-width: 235px;
+  z-index: 9999;
+  padding: 6px 0;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.moreOptionItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--wa-text-primary);
+  cursor: pointer;
+  transition: background 0.15s ease;
+  user-select: none;
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+}
+
+.moreOptionItem:hover {
+  background: var(--wa-hover);
+}
+
+.moreOptionDivider {
+  height: 1px;
+  background: var(--wa-border);
+  margin: 4px 0;
+}
+
+.searchFilterBar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--wa-header);
+  border-bottom: 1px solid var(--wa-border);
+  animation: slideDown 0.2s ease;
+}
+
+.searchFilterRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chatHeaderBtn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--wa-border);
+  background: var(--wa-hover);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.chatHeaderBtn:hover {
+  background: var(--wa-selected);
+  transform: scale(1.06);
+}
+
+.chatHeaderBtn:active {
+  transform: scale(0.95);
+}
+
+/* Base Input Capsule (Button in Button Design) */
+.inputCapsule {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--wa-sidebar);
+  border: 1.5px solid var(--wa-border);
+  border-radius: 28px;
+  padding: 4px 10px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  min-height: 48px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+
+.inputCapsule:focus-within {
+  border-color: var(--wa-accent);
+  box-shadow: 0 0 0 2.5px rgba(0, 168, 132, 0.25), 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.insideTextInput {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--wa-text-primary);
+  font-size: 15px;
+  font-weight: 600;
+  padding: 6px 8px;
+}
+
+.insideTextInput::placeholder {
+  color: var(--text-secondary);
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.insideInputBtn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--wa-accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.insideInputBtn:hover {
+  background: var(--wa-hover);
+  transform: scale(1.08);
+}
+
+.insideInputBtn:active {
+  transform: scale(0.92);
+}
+
+.sendActionBtn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: none;
+  background: var(--wa-accent);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  box-shadow: 0 3px 14px rgba(0, 168, 132, 0.4);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 0;
+}
+
+.sendActionBtn:hover {
+  transform: scale(1.06);
+  box-shadow: 0 6px 20px rgba(0, 168, 132, 0.55);
+  filter: brightness(1.08);
+}
+
+.sendActionBtn:active {
+  transform: scale(0.94);
+}
+
+.sendActionBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Floating Active Calling HUD */
+.callHudFloating {
+  position: absolute;
+  bottom: 84px;
+  left: 16px;
+  right: 16px;
+  max-width: 460px;
+  margin: 0 auto;
+  background: var(--bg-card);
+  border: 2px solid var(--wa-accent);
+  border-radius: 24px;
+  padding: 12px 18px;
+  z-index: 1250;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(14px);
+}
+
+
+
 @media (max-width: 768px) {
   .convSidebar {
-    width: 100%;
+    width: 100% !important;
   }
   .chatMain {
-    display: none;
+    display: none !important;
   }
   .chatLayout.chatOpen .convSidebar {
-    display: none;
+    display: none !important;
   }
   .chatLayout.chatOpen .chatMain {
-    display: flex;
+    display: flex !important;
+    width: 100% !important;
+  }
+
+  .mobileBackBtn {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    margin-right: 4px;
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--wa-hover);
+    border: 1px solid var(--wa-border);
+  }
+
+  .desktopOnly {
+    display: none !important;
+  }
+
+  .mobileOnly {
+    display: flex !important;
+  }
+
+  .chatHeader {
+    padding: 8px 16px 8px 12px;
+    gap: 8px;
+    min-height: 56px;
+    position: relative;
+    z-index: 100;
+    box-sizing: border-box;
+  }
+
+  .chatHeaderInfo {
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .chatName {
+    font-size: 15px;
+    font-weight: 800;
+    max-width: 130px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chatStatus {
+    font-size: 11px;
+    font-weight: 600;
+    max-width: 130px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chatActions {
+    gap: 6px;
+    flex-shrink: 0;
+    margin-right: 4px;
+  }
+
+  .messageBubble {
+    max-width: 88% !important;
+    font-size: 15px;
+    font-weight: 500;
+  }
+
+  .chatInput {
+    padding: 6px 8px;
+    gap: 6px;
+    box-sizing: border-box;
+    width: 100%;
+  }
+
+  .inputCapsule {
+    min-height: 44px;
+    padding: 2px 6px;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .insideTextInput {
+    font-size: 14px;
+    font-weight: 600;
+    padding: 4px 4px;
+    min-width: 30px;
+    flex: 1;
+  }
+
+  .insideInputBtn {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+  }
+
+  .sendActionBtn {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+  }
+
+  .callHudFloating {
+    left: 8px;
+    right: 8px;
+    bottom: 74px;
+    padding: 10px 14px;
   }
 }
+

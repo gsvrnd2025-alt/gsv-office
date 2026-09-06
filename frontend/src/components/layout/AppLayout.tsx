@@ -101,7 +101,7 @@ export function AppLayout() {
           />
         )}
         <main className={isChatPage ? styles.chatPageContent : styles.pageContent}>
-          <Outlet context={{ sidebarCollapsed, setSidebarCollapsed }} />
+          <Outlet context={{ sidebarCollapsed, setSidebarCollapsed, mobileSidebarOpen, setMobileSidebarOpen }} />
         </main>
       </div>
 

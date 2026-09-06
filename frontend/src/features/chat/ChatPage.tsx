@@ -6,8 +6,10 @@ import {
   MoreVertical, Smile, Paperclip, CheckCheck, Check, File, Image,
   Download, Folder, Volume2, ChevronRight, ChevronLeft, X, Users2,
   Pin, ArrowRight, ArrowLeft, Mic, Sparkles, Copy, Trash2, Menu, CheckSquare, Info, StickyNote, ChevronDown,
-  Bold, Italic, List, Code, Maximize2, Minimize2, Heart, LogOut, Link, AlertTriangle, UserPlus, Camera
+  Bold, Italic, List, Code, Maximize2, Minimize2, Heart, LogOut, Link, AlertTriangle, UserPlus, Camera,
+  PhoneOff, MicOff, VideoOff, Share2, Settings
 } from 'lucide-react';
+import { io, Socket } from 'socket.io-client';
 import { chatApi, usersApi, filesApi } from '../../api';
 import { useAuthStore } from '../../store/auth.store';
 import { SoundManager } from '../../utils/sound';
@@ -138,9 +140,10 @@ export default function ChatPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const dmUserId = searchParams.get('userId');
-  const { sidebarCollapsed, setSidebarCollapsed } = useOutletContext<any>() || {};
-  const { user } = useAuthStore();
+  const { sidebarCollapsed, setSidebarCollapsed, mobileSidebarOpen, setMobileSidebarOpen } = useOutletContext<any>() || {};
+  const { user, accessToken } = useAuthStore();
   const qc = useQueryClient();
+  const isMobileDevice = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768);
 
   // Standard states
   const [message, setMessage] = useState('');
@@ -155,6 +158,8 @@ export default function ChatPage() {
   const audioChunksRef = useRef<Blob[]>([]);
   const [chatSidebarCollapsed, setChatSidebarCollapsed] = useState(false);
   const [activeMainTab, setActiveMainTab] = useState<'chats' | 'teammates' | 'bookmarks'>('chats');
+  const [showMoreOptions, setShowMoreOptions] = useState(false);
+  const [showFileSearchBar, setShowFileSearchBar] = useState(false);
   
   // Custom states
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
@@ -178,10 +183,56 @@ export default function ChatPage() {
   const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'unknown'>('unknown');
   const [showMicWarningModal, setShowMicWarningModal] = useState(false);
   
-  // Calling resonance state
-  const [incomingCall, setIncomingCall] = useState<string | null>(null);
+  // ── Calling / WebRTC state ────────────────────────────────────────────────
+  const socketRef = useRef<Socket | null>(null);
+  const currentCallRoomIdRef = useRef<string | null>(null);
+  const callTimeoutRef = useRef<any>(null);
+  const callTimerRef = useRef<any>(null);
+  // Real WebRTC peer connection + media stream refs
+  const peerRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const callerSocketIdRef = useRef<string | null>(null); // remote peer's socket ID for ICE/offer/answer
+
+  const [incomingCallData, setIncomingCallData] = useState<{
+    roomId: string;
+    callerId: string;
+    callerSocketId?: string;
+    callerName: string;
+    callerAvatar?: string;
+    type: 'audio' | 'video';
+    isConference?: boolean;
+  } | null>(null);
+
+  interface MissedCall {
+    id: string;
+    callerName: string;
+    callerAvatar?: string;
+    type: 'audio' | 'video';
+    timestamp: string;
+    isOutgoing: boolean;
+  }
+  const [missedCalls, setMissedCalls] = useState<MissedCall[]>([]);
+
+  const [callParticipants, setCallParticipants] = useState<string[]>([]);
+  const [showConferenceModal, setShowConferenceModal] = useState(false);
+  const [showRoomSettingsModal, setShowRoomSettingsModal] = useState(false);
+  const [roomSettings, setRoomSettings] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('gsv_room_settings') || '{"soundEnabled":true,"enterToSend":true,"autoScroll":true}');
+    } catch {
+      return { soundEnabled: true, enterToSend: true, autoScroll: true };
+    }
+  });
+
   const [activeCall, setActiveCall] = useState(false);
   const [callingState, setCallingState] = useState<'idle' | 'calling' | 'connected'>('idle');
+  const [callType, setCallType] = useState<'audio' | 'video'>('audio');
+  const [callSeconds, setCallSeconds] = useState(0);
+  const [isCallMuted, setIsCallMuted] = useState(false);
+  const [isVideoMuted, setIsVideoMuted] = useState(false);
 
   // WhatsApp-style Custom Features
   const [showAttachmentsDropdown, setShowAttachmentsDropdown] = useState(false);
@@ -599,9 +650,12 @@ export default function ChatPage() {
     }
   }, []);
 
-  // Click outside to dismiss context menu
+  // Click outside to dismiss context menu & more options dropdown
   useEffect(() => {
-    const handleClose = () => setMsgContextMenu(null);
+    const handleClose = () => {
+      setMsgContextMenu(null);
+      setShowMoreOptions(false);
+    };
     window.addEventListener('click', handleClose);
     return () => window.removeEventListener('click', handleClose);
   }, []);
@@ -649,7 +703,41 @@ export default function ChatPage() {
       if (fileUrl) {
         const targetUrl = fileUrl.startsWith('http') ? fileUrl : `${window.location.origin}${fileUrl}`;
         const toastId = toast.loading(`Downloading ${fileName}... 💾`);
-        
+
+        // On mobile, blob URL anchor click fails (e.g. "Cannot download from blob:http://...")
+        // Use navigator.share (Web Share API) or fallback to opening the URL directly
+        if (isMobileDevice) {
+          try {
+            const response = await fetch(targetUrl, { mode: 'cors' });
+            if (!response.ok) throw new Error(`Server returned status: ${response.status}`);
+            const contentType = response.headers.get('content-type') || 'application/octet-stream';
+            if (contentType.includes('text/html')) throw new Error('File not found (received HTML)');
+            const blob = await response.blob();
+            const FileConstructor = (window as any).File as any;
+            const file = new FileConstructor([blob], fileName, { type: blob.type || contentType });
+            const navShare = navigator as any;
+            if (navShare.canShare && navShare.canShare({ files: [file] })) {
+              toast.dismiss(toastId);
+              await navShare.share({ files: [file], title: fileName });
+              toast.success(`"${fileName}" shared/saved successfully! 💾`);
+            } else {
+              // Fallback: open URL directly in new tab so browser handles download
+              toast.dismiss(toastId);
+              window.open(targetUrl, '_blank');
+              toast.success(`Opening "${fileName}" — use browser Save option 💾`);
+            }
+          } catch (mobileErr: any) {
+            if (mobileErr.name === 'AbortError') { toast.dismiss(toastId); return; }
+            console.error('Mobile download fallback to direct open:', mobileErr);
+            // Last resort: open directly
+            toast.dismiss(toastId);
+            window.open(targetUrl, '_blank');
+            toast.success(`Opening "${fileName}" — use browser Save option 💾`);
+          }
+          return;
+        }
+
+        // Desktop path: fetch + blob URL anchor click
         try {
           const response = await fetch(targetUrl);
           if (!response.ok) {
@@ -682,7 +770,8 @@ export default function ChatPage() {
 
       const blob = new Blob([content], { type: 'text/plain' });
 
-      if ('showSaveFilePicker' in window) {
+      // Never use showSaveFilePicker on mobile — it's unsupported and may throw
+      if (!isMobileDevice && 'showSaveFilePicker' in window) {
         const handle = await (window as any).showSaveFilePicker({
           suggestedName: fileName,
         });
@@ -695,51 +784,119 @@ export default function ChatPage() {
         const a = document.createElement('a');
         a.href = url;
         a.download = fileName;
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        toast.success('Downloaded to PC successfully! 💾');
+        toast.success(isMobileDevice ? 'Downloaded to device successfully! 💾' : 'Downloaded to PC successfully! 💾');
       }
     } catch (err: any) {
       if (err.name !== 'AbortError') {
-        toast.error('Failed to save to PC');
+        toast.error(isMobileDevice ? 'Failed to save to device' : 'Failed to save to PC');
       }
     }
   };
 
-  const handleShareFile = (msg: any) => {
+  const handleShareFile = async (msg: any) => {
     const url = msg.file_url || msg.fileUrl;
-    const name = msg.file_name || msg.fileName || 'Shared file';
+    const name = msg.file_name || msg.fileName || 'shared-file';
     if (!url) {
-      toast.error('No link available to share.');
+      toast.error('No file available to share.');
       return;
     }
     const absoluteUrl = url.startsWith('http') ? url : `${window.location.origin}${url}`;
-    
-    if (navigator.share) {
-      navigator.share({
-        title: name,
-        text: `Shared via GSV Office: ${name}`,
-        url: absoluteUrl,
-      }).then(() => {
-        toast.success('Shared successfully!');
-      }).catch((err: any) => {
-        if (err.name !== 'AbortError') {
-          const success = copyTextToClipboard(absoluteUrl);
-          if (success) {
-            toast.success('Link copied to clipboard! 🔗');
-          } else {
-            toast.error('Failed to copy link.');
-          }
-        }
-      });
-    } else {
-      const success = copyTextToClipboard(absoluteUrl);
-      if (success) {
-        toast.success('Link copied to clipboard! 🔗');
+    const toastId = toast.loading('Preparing file to share... 📤');
+
+    try {
+      // Step 1: Fetch the actual file bytes
+      const response = await fetch(absoluteUrl, { mode: 'cors' });
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
+      const contentType = response.headers.get('content-type') || 'application/octet-stream';
+      if (contentType.includes('text/html')) throw new Error('File not found on server');
+      const blob = await response.blob();
+
+      // Step 2: Create a real File object (so WhatsApp/Gmail/etc get the actual file)
+      const FileCtor = (window as any).File as any;
+      const file = new FileCtor([blob], name, { type: blob.type || contentType });
+      const navShare = navigator as any;
+
+      // Step 3: Try Web Share API Level 2 with the real file
+      if (navShare.canShare && navShare.canShare({ files: [file] })) {
+        toast.dismiss(toastId);
+        await navShare.share({
+          files: [file],
+          title: name,
+          text: `Shared from GSV Office: ${name}`,
+        });
+        toast.success('File shared successfully! 🚀');
+        return;
+      }
+
+      // Step 4: Fallback — share URL (text/link share)
+      if (navShare.share) {
+        toast.dismiss(toastId);
+        await navShare.share({ title: name, url: absoluteUrl, text: `Shared via GSV Office: ${name}` });
+        toast.success('Link shared! 🔗');
+        return;
+      }
+
+      throw new Error('Web Share API not supported on this browser');
+    } catch (err: any) {
+      toast.dismiss(toastId);
+      if (err.name === 'AbortError') return; // User cancelled share sheet
+      // Final fallback — copy link to clipboard
+      console.warn('Share failed, copying link:', err.message);
+      const ok = copyTextToClipboard(absoluteUrl);
+      if (ok) {
+        toast.success('Link copied to clipboard! 📋 (File sharing not supported on this browser)');
       } else {
-        toast.error('Failed to copy link.');
+        toast.error('Could not share file. Try a different browser.');
       }
     }
+  };
+
+  const handleNativeShare = async (item: { text?: string; url?: string; title?: string }) => {
+    const shareTitle = item.title || 'GSV Team Chat';
+    const shareText = item.text || '';
+    const shareUrl = item.url ? (item.url.startsWith('http') ? item.url : `${window.location.origin}${item.url}`) : undefined;
+
+    if (navigator.share) {
+      try {
+        const dataToShare: ShareData = { title: shareTitle };
+        if (shareText) dataToShare.text = shareText;
+        if (shareUrl) dataToShare.url = shareUrl;
+        await navigator.share(dataToShare);
+        toast.success('Shared successfully! 🚀');
+        return;
+      } catch (err: any) {
+        if (err.name === 'AbortError') return;
+        console.warn('Native share failed, falling back to clipboard:', err);
+      }
+    }
+
+    const content = shareUrl ? (shareText ? `${shareText}\n${shareUrl}` : shareUrl) : shareText;
+    if (content) {
+      const ok = copyTextToClipboard(content);
+      if (ok) toast.success('Copied to clipboard for external sharing! 📋');
+      else toast.error('Failed to copy to clipboard.');
+    } else {
+      toast.error('Nothing to share.');
+    }
+  };
+
+  const handleBulkNativeShare = () => {
+    if (selectedMessages.length === 0) return;
+    const msgs = sortedMessages.filter((m: any) => selectedMessages.includes(m.id));
+    const textParts = msgs.map((m: any) => {
+      const sender = m.sender_name || m.senderName || 'Teammate';
+      const url = m.file_url || m.fileUrl;
+      return `[${sender}]: ${m.content || ''}${url ? ` (${url})` : ''}`;
+    }).join('\n\n');
+
+    handleNativeShare({
+      title: `${selectedMessages.length} Messages from GSV Chat`,
+      text: textParts
+    });
   };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1449,31 +1606,471 @@ export default function ChatPage() {
     }
   };
 
-  const handleCallHandshake = (type: 'audio' | 'video') => {
-    if (activeConv && activeConv.type === 'private') {
-      const partnerName = activeConv.name?.replace('DM with ', '');
-      const partnerUser = otherUsers.find(
-        (u: any) => u.fullName.toLowerCase() === partnerName?.toLowerCase() || u.loginId.toLowerCase() === partnerName?.toLowerCase()
-      );
-      const isPartnerOnline = partnerUser ? partnerUser.isOnline : false;
-      if (!isPartnerOnline) {
-        toast.error(`Teammate "${partnerName || 'User'}" is offline. Call handshakes are blocked.`);
+
+  // ── Real WebRTC Intercom Engine ───────────────────────────────────────────────
+  // STUN for LAN peer-to-peer hole punching
+  const ICE_SERVERS = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ];
+
+  /** Create and wire up a new RTCPeerConnection */
+  const createPeerConnection = (onIceCandidate: (candidate: RTCIceCandidate) => void): RTCPeerConnection => {
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    peerRef.current = pc;
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate) onIceCandidate(e.candidate);
+    };
+
+    pc.ontrack = (e) => {
+      console.log('Remote track received:', e.track.kind);
+      if (e.track.kind === 'audio' || e.streams[0]) {
+        if (remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = e.streams[0] || null;
+          remoteAudioRef.current.play().catch(console.warn);
+        }
+      }
+      if (e.track.kind === 'video' && remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = e.streams[0] || null;
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      const state = pc.connectionState;
+      console.log('RTCPeerConnection state:', state);
+      if (state === 'connected') {
+        setCallingState('connected');
+        SoundManager.stopAll();
+        toast.success('Call connected! 📞');
+      } else if (state === 'failed' || state === 'disconnected') {
+        toast.error('Call connection lost. Please try again.');
+        cleanupCall();
+      }
+    };
+
+    return pc;
+  };
+
+  /** Get microphone/camera stream. Returns null and shows mic warning if blocked. */
+  const getMediaStream = async (video: boolean): Promise<MediaStream | null> => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: video ? { width: 640, height: 480, frameRate: 24 } : false,
+      });
+      localStreamRef.current = stream;
+      if (localVideoRef.current && video) {
+        localVideoRef.current.srcObject = stream;
+        localVideoRef.current.muted = true;
+        localVideoRef.current.play().catch(console.warn);
+      }
+      return stream;
+    } catch (err: any) {
+      console.error('getUserMedia error:', err);
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setShowMicWarningModal(true);
+      } else {
+        toast.error(`Microphone error: ${err.message}`);
+      }
+      return null;
+    }
+  };
+
+  /** Stop all media tracks and close the peer connection */
+  const cleanupCall = () => {
+    SoundManager.stopAll();
+    if (callTimeoutRef.current) { clearTimeout(callTimeoutRef.current); callTimeoutRef.current = null; }
+    if (callTimerRef.current) { clearInterval(callTimerRef.current); callTimerRef.current = null; }
+    // Stop local tracks
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(t => t.stop());
+      localStreamRef.current = null;
+    }
+    // Close peer
+    if (peerRef.current) {
+      peerRef.current.close();
+      peerRef.current = null;
+    }
+    // Clear video elements
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
+    if (localVideoRef.current) localVideoRef.current.srcObject = null;
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+    callerSocketIdRef.current = null;
+    currentCallRoomIdRef.current = null;
+    setActiveCall(false);
+    setCallingState('idle');
+    setCallSeconds(0);
+    setCallParticipants([]);
+  };
+
+  // Connect to WebRTC socket namespace for real-time calling and presence signals
+  useEffect(() => {
+    if (!accessToken) return;
+    const s = io('/webrtc', {
+      auth: { token: accessToken },
+      transports: ['websocket', 'polling']
+    });
+    socketRef.current = s;
+
+    s.on('connect', () => {
+      console.log('Chat WebRTC socket established:', s.id);
+    });
+
+    // ── Incoming call from a teammate ──────────────────────────────────────────
+    s.on('call:incoming', (data: any) => {
+      console.log('Incoming call received:', data);
+      // If already in a call, auto-reject
+      if (activeCall) {
+        s.emit('call:reject', { roomId: data.roomId, callerId: data.callerId });
         return;
       }
+      const caller = otherUsers.find((u: any) => u.id === data.callerId);
+      const callerName = data.callerName || caller?.fullName || 'Teammate';
+      setIncomingCallData({
+        roomId: data.roomId,
+        callerId: data.callerId,
+        callerSocketId: data.callerSocketId,
+        callerName,
+        callerAvatar: data.callerAvatar || caller?.avatarUrl,
+        type: data.type || 'audio',
+        isConference: !!data.isConference
+      });
+      SoundManager.playIncomingRing();
+    });
+
+    // ── Callee accepted — exchange WebRTC offer ─────────────────────────────────
+    s.on('call:participant-joined', (data: any) => {
+      console.log('Participant joined call:', data);
+      SoundManager.stopAll();
+      if (callTimeoutRef.current) { clearTimeout(callTimeoutRef.current); callTimeoutRef.current = null; }
+      const joinedName = data.userName || otherUsers.find((u: any) => u.id === data.userId)?.fullName || 'Teammate';
+      setCallParticipants(prev => prev.includes(joinedName) ? prev : [...prev, joinedName]);
+      // Caller creates the WebRTC offer now that callee has joined
+      callerSocketIdRef.current = data.socketId;
+      if (peerRef.current && currentCallRoomIdRef.current) {
+        peerRef.current.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: callType === 'video' })
+          .then(async (offer) => {
+            await peerRef.current!.setLocalDescription(offer);
+            s.emit('webrtc:offer', { to: data.socketId, offer, roomId: currentCallRoomIdRef.current });
+          }).catch(console.error);
+      }
+    });
+
+    // ── WebRTC Offer received (callee side) ────────────────────────────────────
+    s.on('webrtc:offer', async (data: { from: string; offer: RTCSessionDescriptionInit; roomId: string }) => {
+      console.log('Received WebRTC offer from:', data.from);
+      callerSocketIdRef.current = data.from;
+      if (!peerRef.current) return;
+      try {
+        await peerRef.current.setRemoteDescription(new RTCSessionDescription(data.offer));
+        const answer = await peerRef.current.createAnswer();
+        await peerRef.current.setLocalDescription(answer);
+        s.emit('webrtc:answer', { to: data.from, answer });
+        setCallingState('connected');
+        SoundManager.stopAll();
+        toast.success('Call connected! 📞');
+      } catch (err) { console.error('Error handling offer:', err); }
+    });
+
+    // ── WebRTC Answer received (caller side) ───────────────────────────────────
+    s.on('webrtc:answer', async (data: { from: string; answer: RTCSessionDescriptionInit }) => {
+      console.log('Received WebRTC answer from:', data.from);
+      if (!peerRef.current) return;
+      try {
+        await peerRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+      } catch (err) { console.error('Error handling answer:', err); }
+    });
+
+    // ── ICE Candidate exchange ─────────────────────────────────────────────────
+    s.on('webrtc:ice-candidate', async (data: { from: string; candidate: RTCIceCandidateInit }) => {
+      if (!peerRef.current) return;
+      try {
+        await peerRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+      } catch (err) { console.error('Error adding ICE candidate:', err); }
+    });
+
+    // ── Call was rejected ──────────────────────────────────────────────────────
+    s.on('call:rejected', () => {
+      if (callTimeoutRef.current) { clearTimeout(callTimeoutRef.current); callTimeoutRef.current = null; }
+      SoundManager.playBusyTone();
+      cleanupCall();
+      toast.error('Call declined 📵');
+    });
+
+    // ── Callee offline ─────────────────────────────────────────────────────────
+    s.on('call:unavailable', (data: any) => {
+      if (callTimeoutRef.current) { clearTimeout(callTimeoutRef.current); callTimeoutRef.current = null; }
+      SoundManager.stopAll();
+      cleanupCall();
+      toast.error(`${data?.calleeName || 'Teammate'} is offline ⚠️`);
+    });
+
+    // ── Participant left active call ───────────────────────────────────────────
+    s.on('call:participant-left', (data: any) => {
+      const leftName = otherUsers.find((u: any) => u.id === data.userId)?.fullName || 'Teammate';
+      setCallParticipants(prev => prev.filter(n => n !== leftName));
+      toast(`${leftName} left the call.`);
+      // If no participants remain and we were connected, end the call
+      setCallParticipants(prev => {
+        if (prev.length <= 1) {
+          SoundManager.playCallEnd();
+          cleanupCall();
+          toast.error('Call ended — all participants left');
+        }
+        return prev.filter(n => n !== leftName);
+      });
+    });
+
+    // ── Missed call notification ───────────────────────────────────────────────
+    s.on('call:missed', (data: any) => {
+      console.log('Missed call from:', data);
+      SoundManager.stopAll();
+      setIncomingCallData(null);
+      const mc: MissedCall = {
+        id: `missed-${Date.now()}`,
+        callerName: data.callerName || 'Teammate',
+        callerAvatar: data.callerAvatar,
+        type: data.type || 'audio',
+        timestamp: data.timestamp || new Date().toISOString(),
+        isOutgoing: false,
+      };
+      setMissedCalls(prev => [mc, ...prev]);
+      toast(`📞 Missed ${data.type === 'video' ? 'video' : 'voice'} call from ${data.callerName || 'Teammate'}`);
+    });
+
+    // ── Presence updates ───────────────────────────────────────────────────────
+    s.on('presence:update', (_data: { userId: string; isOnline: boolean }) => {
+      // Presence handled by main chat socket; this is just for awareness
+    });
+
+    return () => {
+      SoundManager.stopAll();
+      if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
+      cleanupCall();
+      s.disconnect();
+    };
+  }, [accessToken, otherUsers]);
+
+  // ── Initiate a call (caller side) ──────────────────────────────────────────────
+  const handleCallHandshake = async (type: 'audio' | 'video', targetPartnerId?: string) => {
+    const targetPartner = targetPartnerId ? otherUsers.find((u: any) => u.id === targetPartnerId) : partner;
+    const targetName = targetPartner?.fullName || partnerName || activeConv?.name || 'Teammate';
+
+    if (targetPartner && targetPartner.isOnline === false) {
+      toast.error(`${targetName} is currently offline ⚠️`);
+      return;
     }
 
+    setCallType(type);
+    setCallSeconds(0);
+    setIsCallMuted(false);
+    setIsVideoMuted(false);
     setCallingState('calling');
     setActiveCall(true);
-    toast(`Initiating secure ${type} handshake resonance... 📞`);
-    setTimeout(() => {
-      setCallingState('connected');
-      toast.success('Link Established! Nodal resonance synced.');
-    }, 2500);
+    setCallParticipants([user?.fullName || 'Me']);
+
+    // Get mic/camera
+    const stream = await getMediaStream(type === 'video');
+    if (!stream) {
+      setActiveCall(false);
+      setCallingState('idle');
+      return;
+    }
+
+    // Create peer connection — ICE candidates sent to callee
+    const calleeId = targetPartner?.id || partner?.id;
+    const pc = createPeerConnection((candidate) => {
+      if (callerSocketIdRef.current && socketRef.current) {
+        socketRef.current.emit('webrtc:ice-candidate', { to: callerSocketIdRef.current, candidate });
+      }
+    });
+
+    // Add local tracks
+    stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+    // Play outgoing ringback tone (caller hears "ring ring")
+    SoundManager.playRingback();
+
+    // Signal the server
+    if (socketRef.current && calleeId) {
+      socketRef.current.emit('call:initiate', {
+        calleeId,
+        type,
+        callerName: user?.fullName || 'Teammate',
+        callerAvatar: user?.avatarUrl,
+        callerRole: user?.role?.name
+      }, (res: any) => {
+        if (res && res.roomId) {
+          currentCallRoomIdRef.current = res.roomId;
+        }
+      });
+    }
+
+    toast(`📞 Calling ${targetName}...`);
+
+    // 35-second unanswered timeout → emit call:cancel → callee gets missed call
+    if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
+    callTimeoutRef.current = setTimeout(() => {
+      SoundManager.stopAll();
+      if (socketRef.current && currentCallRoomIdRef.current && calleeId) {
+        socketRef.current.emit('call:cancel', {
+          calleeId,
+          roomId: currentCallRoomIdRef.current,
+          callerName: user?.fullName || 'Teammate',
+          type,
+        });
+        socketRef.current.emit('call:leave', { roomId: currentCallRoomIdRef.current });
+      }
+      // Add to local outgoing missed calls list
+      const mc: MissedCall = {
+        id: `missed-out-${Date.now()}`,
+        callerName: targetName,
+        type,
+        timestamp: new Date().toISOString(),
+        isOutgoing: true,
+      };
+      setMissedCalls(prev => [mc, ...prev]);
+      cleanupCall();
+      toast.error(`No answer from ${targetName} ⏱️`);
+    }, 35000);
   };
 
-  const simulateIncomingCall = () => {
-    setIncomingCall(activeConv?.name || 'Jane Doe');
+  // ── Accept incoming call (callee side) ─────────────────────────────────────────
+  const acceptIncomingCall = async () => {
+    if (!incomingCallData) return;
+    SoundManager.stopAll();
+
+    const roomId = incomingCallData.roomId;
+    currentCallRoomIdRef.current = roomId;
+    const callTypeLocal = incomingCallData.type;
+    setCallType(callTypeLocal);
+    setCallSeconds(0);
+    setIsCallMuted(false);
+    setIsVideoMuted(false);
+    setActiveCall(true);
+    setCallingState('calling'); // will switch to 'connected' after ICE
+    setCallParticipants([incomingCallData.callerName, user?.fullName || 'Me']);
+
+    // Get mic/camera
+    const stream = await getMediaStream(callTypeLocal === 'video');
+    if (!stream) {
+      setActiveCall(false);
+      setCallingState('idle');
+      setIncomingCallData(null);
+      return;
+    }
+
+    // Create peer connection — ICE candidates sent back to caller
+    const pc = createPeerConnection((candidate) => {
+      if (callerSocketIdRef.current && socketRef.current) {
+        socketRef.current.emit('webrtc:ice-candidate', { to: callerSocketIdRef.current, candidate });
+      }
+    });
+
+    // Store caller socket ID for offer/answer routing
+    if (incomingCallData.callerSocketId) {
+      callerSocketIdRef.current = incomingCallData.callerSocketId;
+    }
+
+    // Add local tracks
+    stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+    // Join the room (this triggers call:participant-joined on caller who then sends offer)
+    if (socketRef.current) {
+      socketRef.current.emit('call:join', { roomId, userName: user?.fullName || 'Teammate' });
+    }
+    setIncomingCallData(null);
   };
+
+  // ── Decline incoming call ───────────────────────────────────────────────────────
+  const declineIncomingCall = () => {
+    if (!incomingCallData) return;
+    SoundManager.playBusyTone();
+
+    if (socketRef.current) {
+      socketRef.current.emit('call:reject', {
+        roomId: incomingCallData.roomId,
+        callerId: incomingCallData.callerId
+      });
+      socketRef.current.emit('call:leave', { roomId: incomingCallData.roomId });
+    }
+    setIncomingCallData(null);
+  };
+
+  // ── End active call ─────────────────────────────────────────────────────────────
+  const endActiveCall = () => {
+    SoundManager.playCallEnd();
+    if (socketRef.current && currentCallRoomIdRef.current) {
+      socketRef.current.emit('call:leave', { roomId: currentCallRoomIdRef.current });
+    }
+    cleanupCall();
+    toast('Call ended.');
+  };
+
+  // ── Toggle mic mute ─────────────────────────────────────────────────────────────
+  const toggleCallMute = () => {
+    if (localStreamRef.current) {
+      const audioTracks = localStreamRef.current.getAudioTracks();
+      audioTracks.forEach(t => { t.enabled = isCallMuted; }); // toggle
+    }
+    setIsCallMuted(m => !m);
+    toast(isCallMuted ? 'Microphone unmuted 🎤' : 'Microphone muted 🔇');
+  };
+
+  // ── Toggle video ────────────────────────────────────────────────────────────────
+  const toggleVideoMute = () => {
+    if (localStreamRef.current) {
+      const videoTracks = localStreamRef.current.getVideoTracks();
+      videoTracks.forEach(t => { t.enabled = isVideoMuted; });
+    }
+    setIsVideoMuted(v => !v);
+  };
+
+  // ── Conference invite ───────────────────────────────────────────────────────────
+  const inviteTeammateToConference = (targetUser: any) => {
+    if (!targetUser || !currentCallRoomIdRef.current) {
+      toast.error('No active call room to invite to.');
+      return;
+    }
+    if (socketRef.current) {
+      socketRef.current.emit('call:initiate', {
+        calleeId: targetUser.id,
+        roomId: currentCallRoomIdRef.current,
+        type: callType,
+        callerName: user?.fullName || 'Teammate',
+        isConference: true
+      });
+      toast.success(`Invited ${targetUser.fullName} to conference call! 👥`);
+      setShowConferenceModal(false);
+    }
+  };
+
+  const formatCallDuration = (sec: number) => {
+    const mins = Math.floor(sec / 60);
+    const remaining = sec % 60;
+    return `${mins.toString().padStart(2, '0')}:${remaining.toString().padStart(2, '0')}`;
+  };
+
+  // Active call duration timer
+  useEffect(() => {
+    if (activeCall && callingState === 'connected') {
+      callTimerRef.current = setInterval(() => {
+        setCallSeconds(s => s + 1);
+      }, 1000);
+    } else {
+      if (callTimerRef.current) clearInterval(callTimerRef.current);
+    }
+    return () => {
+      if (callTimerRef.current) clearInterval(callTimerRef.current);
+    };
+  }, [activeCall, callingState]);
+
+
 
   const filteredConvs = conversations.filter((c: any) => {
     const matchSearch = c.name?.toLowerCase().includes(search.toLowerCase());
@@ -1756,7 +2353,7 @@ export default function ChatPage() {
   };
 
   return (
-    <div className={styles.chatLayout} style={{ animation: 'slideUp 0.3s ease', position: 'relative' }}>
+    <div className={`${styles.chatLayout} ${conversationId && activeConv ? styles.chatOpen : ''}`} style={{ animation: 'slideUp 0.3s ease', position: 'relative' }}>
       
       {chatSidebarCollapsed && (!conversationId || !activeConv) && (
         <button
@@ -1900,28 +2497,38 @@ export default function ChatPage() {
       {/* Sidebar */}
       <div className={`${styles.convSidebar} ${chatSidebarCollapsed ? styles.collapsed : ''}`}>
         <div className={styles.convHeader}>
-          <h2 className={styles.convTitle}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
-              className="btn btn-ghost btn-icon btn-sm"
+              className={`btn btn-ghost btn-icon btn-sm ${styles.mobileOnly}`}
+              onClick={() => setMobileSidebarOpen && setMobileSidebarOpen(true)}
+              style={{ width: '32px', height: '32px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+              title="Open Navigation Menu"
+            >
+              <Menu size={18} style={{ color: 'var(--text-secondary)' }} />
+            </button>
+            <button
+              className={`btn btn-ghost btn-icon btn-sm ${styles.desktopOnly}`}
               onClick={() => setChatSidebarCollapsed(true)}
-              style={{ marginRight: '6px', width: '28px', height: '28px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+              style={{ width: '28px', height: '28px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
               title="Collapse Conversation List"
             >
               <ChevronLeft size={16} style={{ color: 'var(--text-secondary)' }} />
             </button>
-            <MessageSquare size={18} style={{ color: 'var(--brand-primary)' }} />
-            Node Matrix
-          </h2>
+            <h2 className={styles.convTitle} style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <MessageSquare size={18} style={{ color: 'var(--brand-primary)' }} />
+              Node Matrix
+            </h2>
+          </div>
           <div style={{ display: 'flex', gap: '6px' }}>
             <button 
               className="btn btn-ghost btn-sm btn-icon" 
               onClick={markAllChatsRead} 
               title="Mark all chats as read"
-              style={{ width: '28px', height: '28px', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+              style={{ width: '32px', height: '32px', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
             >
               <CheckCheck size={16} />
             </button>
-            <button className="btn btn-primary btn-sm btn-icon" onClick={() => setShowCreateGroup(true)} title="Create group channel">
+            <button className="btn btn-primary btn-sm btn-icon" onClick={() => setShowCreateGroup(true)} title="Create group channel" style={{ width: '32px', height: '32px' }}>
               <Plus size={16} />
             </button>
           </div>
@@ -2199,8 +2806,16 @@ export default function ChatPage() {
           {/* Header */}
           <div className={styles.chatHeader} style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
             <div className={styles.chatHeaderInfo}>
+              {/* Mobile Back Button to Conversation List */}
               <button 
-                className="btn btn-ghost btn-icon" 
+                className={`btn btn-ghost btn-icon ${styles.mobileBackBtn}`}
+                onClick={() => navigate('/chat')}
+                title="Back to Conversations"
+              >
+                <ArrowLeft size={22} strokeWidth={2.6} style={{ color: 'var(--brand-primary)' }} />
+              </button>
+              <button 
+                className={`btn btn-ghost btn-icon ${styles.desktopOnly}`} 
                 onClick={() => setSidebarCollapsed && setSidebarCollapsed(!sidebarCollapsed)}
                 style={{ marginRight: '8px' }}
                 title="Toggle Sidebar"
@@ -2208,21 +2823,21 @@ export default function ChatPage() {
                 <Menu size={18} style={{ color: 'var(--text-secondary)' }} />
               </button>
               <button 
-                className="btn btn-ghost btn-icon" 
+                className={`btn btn-ghost btn-icon ${styles.desktopOnly}`} 
                 onClick={() => setChatSidebarCollapsed(!chatSidebarCollapsed)}
                 style={{ marginRight: '8px' }}
                 title={chatSidebarCollapsed ? "Expand Conversation List" : "Collapse Conversation List"}
               >
                 {chatSidebarCollapsed ? <ChevronRight size={18} style={{ color: 'var(--text-secondary)' }} /> : <ChevronRight size={18} style={{ color: 'var(--text-secondary)', transform: 'rotate(180deg)' }} />}
               </button>
-              <div className={styles.convAvatar} style={{ background: 'var(--gradient-brand)' }}>
+              <div className={styles.convAvatar} style={{ background: 'var(--gradient-brand)', cursor: 'pointer' }} onClick={() => setShowGroupDetails(!showGroupDetails)}>
                 {activeConv.type === 'group' || activeConv.type === 'department' ? (
                   <Hash size={16} />
                 ) : (
                   (partnerName?.charAt(0).toUpperCase() || 'U')
                 )}
               </div>
-              <div>
+              <div style={{ minWidth: 0, cursor: 'pointer' }} onClick={() => setShowGroupDetails(!showGroupDetails)}>
                 <div className={styles.chatName}>
                   {activeConv.type === 'private' ? partnerName : (activeConv.name || 'Secure Group')}
                 </div>
@@ -2252,47 +2867,49 @@ export default function ChatPage() {
                 </div>
               </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <select
-                value={fileCategory}
-                onChange={e => setFileCategory(e.target.value as any)}
-                className="form-control"
-                style={{
-                  width: '90px',
-                  height: '28px',
-                  fontSize: '11px',
-                  padding: '0 4px',
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-primary)',
-                  borderRadius: '6px'
-                }}
-                title="Filter by file type"
-              >
-                <option value="all">All Files</option>
-                <option value="image">Images</option>
-                <option value="doc">Docs</option>
-                <option value="zip">Zips</option>
-                <option value="folder">Folders</option>
-              </select>
-              <div className="search-bar" style={{ width: '160px', marginRight: '8px' }}>
-                <Search size={12} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }} />
-                <input
-                  type="text"
-                  placeholder="🔍 Search Files..."
-                  value={fileSearch}
-                  onChange={e => setFileSearch(e.target.value)}
+
+            {/* Right Controls */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', position: 'relative' }}>
+              {/* Desktop Quick Search & Filter */}
+              <div className={styles.desktopOnly} style={{ alignItems: 'center', gap: '8px' }}>
+                <select
+                  value={fileCategory}
+                  onChange={e => setFileCategory(e.target.value as any)}
                   className="form-control"
-                  style={{ paddingLeft: '28px', height: '28px', fontSize: '11px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
-                />
-              </div>
-              <div className={styles.chatActions}>
+                  style={{
+                    width: '90px',
+                    height: '28px',
+                    fontSize: '11px',
+                    padding: '0 4px',
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-color)',
+                    color: 'var(--text-primary)',
+                    borderRadius: '6px'
+                  }}
+                  title="Filter by file type"
+                >
+                  <option value="all">All Files</option>
+                  <option value="image">Images</option>
+                  <option value="doc">Docs</option>
+                  <option value="zip">Zips</option>
+                  <option value="folder">Folders</option>
+                </select>
+                <div className="search-bar" style={{ width: '150px' }}>
+                  <Search size={12} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }} />
+                  <input
+                    type="text"
+                    placeholder="🔍 Search Files..."
+                    value={fileSearch}
+                    onChange={e => setFileSearch(e.target.value)}
+                    className="form-control"
+                    style={{ paddingLeft: '28px', height: '28px', fontSize: '11px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                  />
+                </div>
                 {activeConv?.type === 'private' && partner && (
                   <button 
                     className="btn btn-xs" 
                     onClick={() => toggleBlockUser(partner.id)} 
                     style={{
-                      marginRight: '8px',
                       fontSize: '11px',
                       padding: '4px 10px',
                       height: 'auto',
@@ -2308,16 +2925,6 @@ export default function ChatPage() {
                     {blockedUsers.includes(partner.id) ? "🔓 Unblock" : "🚫 Block"}
                   </button>
                 )}
-                {activeConv && (
-                  <button
-                    className="btn btn-ghost btn-icon"
-                    onClick={() => setShowGroupDetails(!showGroupDetails)}
-                    title="Conversation Info & Files"
-                    style={{ marginRight: '8px' }}
-                  >
-                    <Info size={18} style={{ color: showGroupDetails ? 'var(--brand-primary)' : 'var(--text-secondary)' }} />
-                  </button>
-                )}
                 <button
                   className="btn btn-ghost btn-icon"
                   onClick={() => {
@@ -2329,42 +2936,259 @@ export default function ChatPage() {
                 >
                   <CheckSquare size={18} />
                 </button>
-                {(() => {
-                  let isOffline = false;
-                  if (activeConv && activeConv.type === 'private') {
-                    const partnerName = activeConv.name?.replace('DM with ', '');
-                    const partnerUser = otherUsers.find(
-                      (u: any) => u.fullName?.toLowerCase() === partnerName?.toLowerCase() || u.loginId?.toLowerCase() === partnerName?.toLowerCase()
-                    );
-                    isOffline = partnerUser ? !partnerUser.isOnline : true;
-                  }
-                  return (
-                    <>
-                      <button 
-                        className="btn btn-ghost btn-icon" 
-                        onClick={() => handleCallHandshake('audio')} 
-                        disabled={isOffline}
-                        title={isOffline ? "Teammate offline" : "Audio Handshake"}
-                        style={{ opacity: isOffline ? 0.4 : 1, cursor: isOffline ? 'not-allowed' : 'pointer' }}
+              </div>
+
+              {/* Audio & Video Handshake Actions (Available on Desktop & Mobile, always working) */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <button 
+                  className={`btn btn-ghost btn-icon btn-sm ${styles.chatHeaderBtn}`} 
+                  onClick={() => handleCallHandshake('audio')} 
+                  title="Audio Handshake Call"
+                  style={{ width: '36px', height: '36px', color: 'var(--wa-accent)' }}
+                >
+                  <Phone size={19} strokeWidth={2.5} />
+                </button>
+                <button 
+                  className={`btn btn-ghost btn-icon btn-sm ${styles.chatHeaderBtn}`} 
+                  onClick={() => handleCallHandshake('video')} 
+                  title="Video Resonance Call"
+                  style={{ width: '36px', height: '36px', color: 'var(--brand-primary)' }}
+                >
+                  <Video size={19} strokeWidth={2.5} />
+                </button>
+              </div>
+
+              {/* Info Button */}
+              {activeConv && (
+                <button
+                  className={`btn btn-ghost btn-icon btn-sm ${styles.chatHeaderBtn}`}
+                  onClick={() => setShowGroupDetails(!showGroupDetails)}
+                  title="Conversation Info & Files"
+                  style={{ width: '36px', height: '36px', color: showGroupDetails ? 'var(--brand-primary)' : 'var(--text-secondary)' }}
+                >
+                  <Info size={19} strokeWidth={2.5} />
+                </button>
+              )}
+
+              {/* FULL "MORE OPTIONS" (⋮) BUTTON & COMPREHENSIVE DROPDOWN MENU */}
+              <div style={{ position: 'relative' }}>
+                <button 
+                  className={`btn btn-ghost btn-icon btn-sm ${styles.chatHeaderBtn}`} 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowMoreOptions(!showMoreOptions);
+                  }} 
+                  title="More Options"
+                  style={{ width: '36px', height: '36px', color: showMoreOptions ? 'var(--brand-primary)' : 'var(--text-secondary)' }}
+                >
+                  <MoreVertical size={20} strokeWidth={2.5} />
+                </button>
+
+                {showMoreOptions && (
+                  <div className={styles.moreOptionsMenu} onClick={e => e.stopPropagation()}>
+                    {/* Search in Files */}
+                    <button
+                      type="button"
+                      className={styles.moreOptionItem}
+                      onClick={() => {
+                        setShowFileSearchBar(!showFileSearchBar);
+                        setShowMoreOptions(false);
+                      }}
+                    >
+                      <Search size={18} strokeWidth={2.4} style={{ color: 'var(--brand-primary)' }} />
+                      <span>{showFileSearchBar ? 'Hide File Search' : 'Search Files in Room'}</span>
+                    </button>
+
+                    {/* Room Info & Files */}
+                    <button
+                      type="button"
+                      className={styles.moreOptionItem}
+                      onClick={() => {
+                        setShowGroupDetails(true);
+                        setShowMoreOptions(false);
+                      }}
+                    >
+                      <Info size={18} strokeWidth={2.4} style={{ color: 'var(--brand-primary)' }} />
+                      <span>Conversation Info & Files</span>
+                    </button>
+
+                    {/* Bulk Selection Mode */}
+                    <button
+                      type="button"
+                      className={styles.moreOptionItem}
+                      onClick={() => {
+                        setIsSelectionMode(!isSelectionMode);
+                        setSelectedMessages([]);
+                        setShowMoreOptions(false);
+                      }}
+                    >
+                      <CheckSquare size={18} strokeWidth={2.4} style={{ color: isSelectionMode ? 'var(--brand-primary)' : 'var(--text-secondary)' }} />
+                      <span>{isSelectionMode ? 'Exit Selection Mode' : 'Select Multiple Messages'}</span>
+                    </button>
+
+                    {/* Block / Unblock Teammate (Private DM) */}
+                    {activeConv?.type === 'private' && partner && (
+                      <button
+                        type="button"
+                        className={styles.moreOptionItem}
+                        onClick={() => {
+                          toggleBlockUser(partner.id);
+                          setShowMoreOptions(false);
+                        }}
                       >
-                        <Phone size={18} style={{ color: isOffline ? 'var(--text-tertiary)' : 'var(--brand-primary)' }} />
+                        <AlertTriangle size={18} strokeWidth={2.4} style={{ color: blockedUsers.includes(partner.id) ? 'var(--brand-success)' : 'var(--brand-danger)' }} />
+                        <span>{blockedUsers.includes(partner.id) ? '🔓 Unblock Teammate' : '🚫 Block Teammate'}</span>
                       </button>
-                      <button 
-                        className="btn btn-ghost btn-icon" 
-                        onClick={() => handleCallHandshake('video')} 
-                        disabled={isOffline}
-                        title={isOffline ? "Teammate offline" : "Video Resonance"}
-                        style={{ opacity: isOffline ? 0.4 : 1, cursor: isOffline ? 'not-allowed' : 'pointer' }}
-                      >
-                        <Video size={18} style={{ color: isOffline ? 'var(--text-tertiary)' : 'var(--brand-primary)' }} />
-                      </button>
-                    </>
-                  );
-                })()}
-                <button className="btn btn-ghost btn-icon" onClick={simulateIncomingCall} title="Simulate Call"><MoreVertical size={18} /></button>
+                    )}
+
+                    {/* Quick Note Creator */}
+                    <button
+                      type="button"
+                      className={styles.moreOptionItem}
+                      onClick={() => {
+                        setShowNoteEditor(true);
+                        setShowMoreOptions(false);
+                      }}
+                    >
+                      <StickyNote size={18} strokeWidth={2.4} style={{ color: '#00a884' }} />
+                      <span>Create & Send Note</span>
+                    </button>
+
+                    {/* Personal Scratchpad / Notepad */}
+                    <button
+                      type="button"
+                      className={styles.moreOptionItem}
+                      onClick={() => {
+                        setShowScratchpad(true);
+                        setScratchpadPos({
+                          x: Math.max(10, Math.min(window.innerWidth - 350, 40)),
+                          y: Math.max(10, Math.min(window.innerHeight - 420, 60))
+                        });
+                        setShowMoreOptions(false);
+                      }}
+                    >
+                      <Sparkles size={18} strokeWidth={2.4} style={{ color: '#6366f1' }} />
+                      <span>Personal Ideas / Scratchpad</span>
+                    </button>
+
+                    {/* Room Settings & Preferences */}
+                    <button
+                      type="button"
+                      className={styles.moreOptionItem}
+                      onClick={() => {
+                        setShowRoomSettingsModal(true);
+                        setShowMoreOptions(false);
+                      }}
+                    >
+                      <Settings size={18} strokeWidth={2.4} style={{ color: 'var(--brand-primary)' }} />
+                      <span>Room Settings & Preferences</span>
+                    </button>
+
+                    <div className={styles.moreOptionDivider} />
+
+                    {/* Test Audio Handshake */}
+                    <button
+                      type="button"
+                      className={styles.moreOptionItem}
+                      onClick={() => {
+                        handleCallHandshake('audio');
+                        setShowMoreOptions(false);
+                      }}
+                    >
+                      <Phone size={18} strokeWidth={2.4} style={{ color: 'var(--brand-warning)' }} />
+                      <span>Test Call Handshake</span>
+                    </button>
+
+                    {/* Clear Chat History */}
+                    <button
+                      type="button"
+                      className={styles.moreOptionItem}
+                      style={{ color: 'var(--brand-danger)' }}
+                      onClick={() => {
+                        setShowMoreOptions(false);
+                        setConfirmModal({
+                          title: 'Clear Chat History',
+                          message: 'Are you sure you want to clear all messages locally for this conversation?',
+                          onConfirm: handleClearHistory,
+                          iconType: 'trash',
+                          confirmText: 'Clear Messages',
+                          cancelText: 'Cancel'
+                        });
+                      }}
+                    >
+                      <Trash2 size={18} strokeWidth={2.4} style={{ color: 'var(--brand-danger)' }} />
+                      <span>Clear Chat History</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
+
+          {/* Expandable File Search & Filter Bar (Mobile & Desktop) */}
+          {showFileSearchBar && (
+            <div className={styles.searchFilterBar}>
+              <div className={styles.searchFilterRow}>
+                <div className="search-bar" style={{ flex: 1, position: 'relative' }}>
+                  <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }} />
+                  <input
+                    type="text"
+                    placeholder="Search files in this chat by name or extension..."
+                    value={fileSearch}
+                    onChange={e => setFileSearch(e.target.value)}
+                    className="form-control"
+                    style={{ paddingLeft: '32px', height: '34px', fontSize: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', width: '100%', borderRadius: '8px' }}
+                    autoFocus
+                  />
+                  {fileSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setFileSearch('')}
+                      style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 0 }}
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm btn-icon"
+                  onClick={() => setShowFileSearchBar(false)}
+                  title="Close Search"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '2px' }}>
+                {[
+                  { val: 'all', label: 'All Files' },
+                  { val: 'image', label: 'Images' },
+                  { val: 'doc', label: 'Documents' },
+                  { val: 'zip', label: 'Archives' },
+                  { val: 'folder', label: 'Folders' }
+                ].map(f => (
+                  <button
+                    key={f.val}
+                    type="button"
+                    onClick={() => setFileCategory(f.val as any)}
+                    style={{
+                      fontSize: '11px',
+                      padding: '4px 10px',
+                      borderRadius: '16px',
+                      border: '1px solid var(--border-color)',
+                      background: fileCategory === f.val ? 'var(--wa-accent)' : 'var(--bg-secondary)',
+                      color: fileCategory === f.val ? '#fff' : 'var(--text-secondary)',
+                      fontWeight: fileCategory === f.val ? 700 : 500,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Messages list */}
           <div className={styles.messagesArea}>
@@ -2700,13 +3524,22 @@ export default function ChatPage() {
                             if (copied) toast.success('Message content copied to clipboard.');
                             else toast.error('Failed to copy message content.');
                           }} style={{ display: 'inline-flex', cursor: 'pointer', color: isOwn ? 'var(--wa-own-text)' : 'var(--wa-other-text)' }}>
-                            <Copy size={18} />
+                            <Copy size={18} strokeWidth={2.4} />
+                          </span>
+                          <span title="Share to External Apps (WhatsApp, Drive, etc.)" onClick={() => {
+                            handleNativeShare({
+                              text: msg.content,
+                              url: msg.file_url || msg.fileUrl,
+                              title: msg.file_name || 'GSV Message'
+                            });
+                          }} style={{ display: 'inline-flex', cursor: 'pointer', color: isOwn ? 'var(--wa-own-text)' : 'var(--wa-other-text)' }}>
+                            <Share2 size={18} strokeWidth={2.4} />
                           </span>
                           <span title="Pin Message" onClick={() => setPinnedMessage(msg)} style={{ display: 'inline-flex', cursor: 'pointer', color: isOwn ? 'var(--wa-own-text)' : 'var(--wa-other-text)' }}>
-                            <Pin size={18} />
+                            <Pin size={18} strokeWidth={2.4} />
                           </span>
                           <span title="Forward Message" onClick={() => setForwardingMsg(msg)} style={{ display: 'inline-flex', cursor: 'pointer', color: isOwn ? 'var(--wa-own-text)' : 'var(--wa-other-text)' }}>
-                            <ArrowRight size={18} />
+                            <ArrowRight size={18} strokeWidth={2.4} />
                           </span>
                           {isOwn && (
                             <span title="Delete Message" onClick={() => {
@@ -2716,7 +3549,7 @@ export default function ChatPage() {
                                 onConfirm: () => deleteMessageMutation.mutate(msg.id)
                               });
                             }} style={{ display: 'inline-flex', cursor: 'pointer', color: 'var(--brand-danger)' }}>
-                              <Trash2 size={18} />
+                              <Trash2 size={18} strokeWidth={2.4} />
                             </span>
                           )}
                         </div>
@@ -2786,6 +3619,9 @@ export default function ChatPage() {
                 </button>
                 <button type="button" className="btn btn-ghost btn-sm" disabled={selectedMessages.length === 0} onClick={handleBulkForwardClick}>
                   Forward
+                </button>
+                <button type="button" className="btn btn-primary btn-sm" disabled={selectedMessages.length === 0} onClick={handleBulkNativeShare} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  <Share2 size={13} strokeWidth={2.4} /> Share to Apps
                 </button>
                 <button type="button" className="btn btn-danger btn-sm" disabled={selectedMessages.length === 0} onClick={deleteSelectedMessages}>
                   Delete
@@ -2892,133 +3728,138 @@ export default function ChatPage() {
                 </div>
               </div>
             ) : (
-              /* Standard Input control form */
-              <form onSubmit={handleSend} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div className="dropdown">
+              /* Standard Input control form - Button in Button Capsule */
+              <form onSubmit={handleSend} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}>
+                <div className={styles.inputCapsule}>
+                  {/* Inside Left: Emoji Picker Toggle */}
                   <button
                     type="button"
-                    className="btn btn-ghost btn-icon"
-                    title="Attach Files/Folders"
-                    onClick={() => setShowAttachmentsDropdown(!showAttachmentsDropdown)}
+                    className={styles.insideInputBtn}
+                    title="Emoji resonance picker"
+                    onClick={() => setShowEmoji(!showEmoji)}
                   >
-                    <Paperclip size={20} style={{ color: 'var(--wa-accent)' }} />
+                    <Smile size={22} strokeWidth={2.4} style={{ color: showEmoji ? 'var(--brand-primary)' : 'var(--wa-accent)' }} />
                   </button>
-                  {showAttachmentsDropdown && (
-                    <div className="dropdown-menu" style={{ bottom: '100%', top: 'auto', left: 0, marginBottom: '8px', display: 'block', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-                      <div className="dropdown-item" onClick={() => { setUploadAccept('image/*'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
-                        📸 Photos
+
+                  {/* Inside Center: Text Input */}
+                  <input
+                    type="text"
+                    value={message}
+                    onChange={e => handleInputChange(e.target.value)}
+                    onPaste={handlePaste}
+                    placeholder="Type secure signal resonance (@ to mention)..."
+                    className={styles.insideTextInput}
+                    disabled={sendMutation.isPending}
+                    autoFocus
+                  />
+
+                  {/* Inside Right: Attachments Dropdown Toggle */}
+                  <div className="dropdown" style={{ display: 'inline-flex', alignItems: 'center', position: 'relative' }}>
+                    <button
+                      type="button"
+                      className={styles.insideInputBtn}
+                      title="Attach Files/Folders"
+                      onClick={() => setShowAttachmentsDropdown(!showAttachmentsDropdown)}
+                    >
+                      <Paperclip size={21} strokeWidth={2.4} style={{ color: showAttachmentsDropdown ? 'var(--brand-primary)' : 'var(--wa-accent)' }} />
+                    </button>
+                    {showAttachmentsDropdown && (
+                      <div className="dropdown-menu" style={{ bottom: '100%', top: 'auto', right: 0, left: 'auto', marginBottom: '10px', display: 'block', background: 'var(--bg-card)', border: '1.5px solid var(--border-color)', borderRadius: '14px', boxShadow: '0 12px 36px rgba(0,0,0,0.5)', zIndex: 1100 }}>
+                        <div className="dropdown-item" onClick={() => { setUploadAccept('image/*'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
+                          📸 Photos
+                        </div>
+                        <div className="dropdown-item" onClick={() => { setUploadAccept('video/*'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
+                          🎥 Videos
+                        </div>
+                        <div className="dropdown-item" onClick={() => { setUploadAccept('.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.js,.jsx,.ts,.tsx,.json,.py,.java,.html,.css,.xml,.yaml,.yml,.sh,.bat,.ini,.log'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
+                          📄 Documents
+                        </div>
+                        <div className="dropdown-item" onClick={() => { setUploadAccept('.zip,.rar,.tar,.gz,.7z'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
+                          🤐 Zip File Upload
+                        </div>
+                        <div className="dropdown-item" onClick={() => { setUploadAccept('*'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
+                          📁 Files (All Types)
+                        </div>
+                        <div className="dropdown-item" onClick={() => {
+                          setShowAttachmentsDropdown(false);
+                          setTimeout(() => folderInputRef.current?.click(), 100);
+                        }}>
+                          📁 ⬆️ Upload PC Folder (Direct)
+                        </div>
+                        <div className="dropdown-item" onClick={() => {
+                          setShowAttachmentsDropdown(false);
+                          setTimeout(() => zipFolderInputRef.current?.click(), 100);
+                        }}>
+                          📦 ⚡ Upload ZIP as Folder (Auto-Extract)
+                        </div>
+                        <div className="dropdown-item" onClick={() => {
+                          setShowAttachmentsDropdown(false);
+                          setShowSmbModal(true);
+                        }}>
+                          📁 ⚡ Direct SMB & Cloud Folder Share
+                        </div>
+                        <div className="dropdown-item" onClick={() => {
+                          setShowAttachmentsDropdown(false);
+                          setShowNoteEditor(true);
+                        }}>
+                          📝 Create Note
+                        </div>
+                        <div className="dropdown-item" onClick={() => {
+                          setShowAttachmentsDropdown(false);
+                          setShowScratchpad(true);
+                          setScratchpadPos({
+                            x: Math.max(20, window.innerWidth - 370),
+                            y: Math.max(20, window.innerHeight - 440)
+                          });
+                        }}>
+                          💡 Personal Ideas / Notepad
+                        </div>
                       </div>
-                      <div className="dropdown-item" onClick={() => { setUploadAccept('video/*'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
-                        🎥 Videos
-                      </div>
-                      <div className="dropdown-item" onClick={() => { setUploadAccept('.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.js,.jsx,.ts,.tsx,.json,.py,.java,.html,.css,.xml,.yaml,.yml,.sh,.bat,.ini,.log'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
-                        📄 Documents
-                      </div>
-                      <div className="dropdown-item" onClick={() => { setUploadAccept('.zip,.rar,.tar,.gz,.7z'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
-                        🤐 Zip File Upload
-                      </div>
-                      <div className="dropdown-item" onClick={() => { setUploadAccept('*'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
-                        📁 Files (All Types)
-                      </div>
-                      <div className="dropdown-item" onClick={() => {
-                        setShowAttachmentsDropdown(false);
-                        setTimeout(() => folderInputRef.current?.click(), 100);
-                      }}>
-                        📁 ⬆️ Upload PC Folder (Direct)
-                      </div>
-                      <div className="dropdown-item" onClick={() => {
-                        setShowAttachmentsDropdown(false);
-                        setTimeout(() => zipFolderInputRef.current?.click(), 100);
-                      }}>
-                        📦 ⚡ Upload ZIP as Folder (Auto-Extract)
-                      </div>
-                      <div className="dropdown-item" onClick={() => {
-                        setShowAttachmentsDropdown(false);
-                        setShowSmbModal(true);
-                      }}>
-                        📁 ⚡ Direct SMB & Cloud Folder Share
-                      </div>
-                      <div className="dropdown-item" onClick={() => {
-                        setShowAttachmentsDropdown(false);
-                        setShowNoteEditor(true);
-                      }}>
-                        📝 Create Note
-                      </div>
-                      <div className="dropdown-item" onClick={() => {
-                        setShowAttachmentsDropdown(false);
-                        setShowScratchpad(true);
+                    )}
+                  </div>
+
+                  {/* Inside Right: Share Folder (SMB/Cloud) */}
+                  <button
+                    type="button"
+                    className={styles.insideInputBtn}
+                    title="Share Folder (Direct SMB Network / Cloud / Local PC)"
+                    onClick={() => setShowSmbModal(true)}
+                  >
+                    <Folder size={20} strokeWidth={2.4} style={{ color: 'var(--wa-accent)' }} />
+                  </button>
+
+                  {/* Inside Right: Notepad / Scratchpad (Desktop only) */}
+                  <button
+                    type="button"
+                    className={`${styles.insideInputBtn} ${styles.desktopOnly}`}
+                    title="Personal Ideas / Notepad"
+                    onClick={() => {
+                      setShowScratchpad(!showScratchpad);
+                      if (!showScratchpad) {
                         setScratchpadPos({
                           x: Math.max(20, window.innerWidth - 370),
                           y: Math.max(20, window.innerHeight - 440)
                         });
-                      }}>
-                        💡 Personal Ideas / Notepad
-                      </div>
-                    </div>
-                  )}
+                      }
+                    }}
+                  >
+                    <StickyNote size={20} strokeWidth={2.4} style={{ color: showScratchpad ? 'var(--wa-accent)' : 'var(--text-secondary)' }} />
+                  </button>
                 </div>
 
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-icon"
-                  title="Share Folder (Direct SMB Network / Cloud / Local PC)"
-                  onClick={() => setShowSmbModal(true)}
-                  style={{ color: 'var(--wa-accent)' }}
-                >
-                  <Folder size={20} />
-                </button>
-
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-icon"
-                  title="Personal Ideas / Notepad"
-                  onClick={() => {
-                    setShowScratchpad(!showScratchpad);
-                    if (!showScratchpad) {
-                      setScratchpadPos({
-                        x: Math.max(20, window.innerWidth - 370),
-                        y: Math.max(20, window.innerHeight - 440)
-                      });
-                    }
-                  }}
-                  style={{ color: showScratchpad ? 'var(--wa-accent)' : 'var(--text-secondary)' }}
-                >
-                  <StickyNote size={20} />
-                </button>
-
-                <input
-                  type="text"
-                  value={message}
-                  onChange={e => handleInputChange(e.target.value)}
-                  onPaste={handlePaste}
-                  placeholder="Type secure signal resonance (@ to mention)..."
-                  className={styles.messageInput}
-                  disabled={sendMutation.isPending}
-                  autoFocus
-                  style={{ background: 'var(--wa-sidebar)', color: 'var(--wa-text-primary)', border: '1.5px solid var(--wa-border)', boxShadow: '0 2px 10px rgba(0, 168, 132, 0.08)', fontWeight: 500, fontSize: '15px' }}
-                />
-
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-icon"
-                  title="Emoji resonance picker"
-                  onClick={() => setShowEmoji(!showEmoji)}
-                >
-                  <Smile size={20} style={{ color: 'var(--wa-accent)' }} />
-                </button>
-
+                {/* Emoji Picker Popover */}
                 {showEmoji && (
                   <div style={{
-                    position: 'absolute', bottom: '100%', right: '60px', marginBottom: '8px', zIndex: 1000,
-                    background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px',
-                    padding: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap', maxWidth: '240px',
-                    boxShadow: '0 10px 30px rgba(0,0,0,0.5)'
+                    position: 'absolute', bottom: '100%', left: '8px', marginBottom: '10px', zIndex: 1200,
+                    background: 'var(--bg-card)', border: '1.5px solid var(--border-color)', borderRadius: '16px',
+                    padding: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap', maxWidth: '270px',
+                    boxShadow: '0 12px 36px rgba(0,0,0,0.5)'
                   }} className="animate-scale-in">
                     {['😀','😂','🔥','👍','🎉','🚀','👏','❤️','🔒','🤖','😮','😢','🙏','🌟','💡','💻','📈','🎨','✈️','🍕','🎈','🧸','👑','🎯'].map(emoji => (
                       <span
                         key={emoji}
                         onClick={() => { setMessage(prev => prev + emoji); setShowEmoji(false); }}
-                        style={{ fontSize: '20px', cursor: 'pointer', padding: '4px' }}
+                        style={{ fontSize: '22px', cursor: 'pointer', padding: '4px', borderRadius: '8px' }}
                         className="hover-glass"
                       >
                         {emoji}
@@ -3027,33 +3868,33 @@ export default function ChatPage() {
                   </div>
                 )}
 
+                {/* Outside Action Button: Send or Mic */}
                 {message.trim() || stagedFiles.length > 0 ? (
                   <button
                     type="submit"
                     disabled={sendMutation.isPending}
-                    className={`${styles.sendBtn} ${styles.sendBtnActive}`}
+                    className={styles.sendActionBtn}
                     title="Send secure signal"
                   >
-                    <Send size={20} />
+                    <Send size={20} strokeWidth={2.6} />
                   </button>
                 ) : (
                   <button
                     type="button"
-                    className={styles.sendBtn}
+                    className={styles.sendActionBtn}
                     title={micPermission === 'granted' ? "Voice Recording Handshake (Connected)" : micPermission === 'denied' ? "Microphone Access Blocked" : "Voice Recording Handshake"}
                     onClick={handleMicClick}
                     style={{
-                      color: micPermission === 'granted' ? 'var(--brand-success)' : micPermission === 'denied' ? 'var(--brand-danger)' : 'var(--wa-accent)',
                       position: 'relative'
                     }}
                   >
-                    <Mic size={20} />
+                    <Mic size={20} strokeWidth={2.6} />
                     <span style={{
                       position: 'absolute',
-                      top: '6px',
-                      right: '6px',
-                      width: '8px',
-                      height: '8px',
+                      top: '8px',
+                      right: '8px',
+                      width: '9px',
+                      height: '9px',
                       borderRadius: '50%',
                       border: '1.5px solid var(--wa-sidebar)',
                       background: micPermission === 'granted' ? 'var(--brand-success)' : micPermission === 'denied' ? 'var(--brand-danger)' : 'var(--brand-warning)'
@@ -3449,61 +4290,303 @@ export default function ChatPage() {
           </div>
         </div>
       )}
+      {/* ── Hidden WebRTC Audio/Video Output Elements ───────────────────────── */}
+      <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
+      {callType === 'video' && (
+        <div style={{
+          position: 'fixed', bottom: '100px', right: '16px', zIndex: 1200,
+          display: activeCall && callingState === 'connected' ? 'flex' : 'none',
+          flexDirection: 'column', gap: '8px'
+        }}>
+          <video ref={remoteVideoRef} autoPlay playsInline
+            style={{ width: '240px', borderRadius: '12px', border: '2px solid var(--brand-primary)', background: '#000' }} />
+          <video ref={localVideoRef} autoPlay playsInline muted
+            style={{ width: '120px', borderRadius: '8px', border: '2px solid var(--wa-border)', background: '#000', alignSelf: 'flex-end' }} />
+        </div>
+      )}
 
-      {/* Incoming Call Overlay */}
-      {incomingCall && (
-        <div className="modal-backdrop" style={{ zIndex: 1200 }}>
-          <div className="modal animate-scale-in" style={{ maxWidth: '340px', textAlign: 'center', background: 'var(--bg-card)', border: '1px solid var(--brand-primary)' }}>
-            <div style={{ padding: '24px 20px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--brand-primary)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: '16px', animation: 'pulse 1.5s infinite' }}>
-                <Phone size={22} />
+      {/* Incoming Call Overlay Modal */}
+      {incomingCallData && (
+        <div className="modal-backdrop" style={{ zIndex: 1300 }}>
+          <div className="modal animate-scale-in" style={{ maxWidth: '360px', textAlign: 'center', background: 'var(--bg-card)', border: '1.5px solid var(--wa-accent)', borderRadius: '20px', boxShadow: '0 16px 48px rgba(0,0,0,0.5)', padding: '24px 20px' }}>
+            <div style={{
+              width: '64px', height: '64px', borderRadius: '50%',
+              background: 'linear-gradient(135deg, #00a884, #005c4b)',
+              color: '#ffffff', display: 'inline-flex', alignItems: 'center',
+              justifyContent: 'center', marginBottom: '16px',
+              animation: 'pulse 1.4s infinite',
+              boxShadow: '0 0 24px rgba(0, 168, 132, 0.6)'
+            }}>
+              {incomingCallData.type === 'video' ? <Video size={30} strokeWidth={2.5} /> : <Phone size={30} strokeWidth={2.5} />}
+            </div>
+            <h4 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '4px' }}>
+              {incomingCallData.isConference ? 'CONFERENCE CALL INVITATION' : `INCOMING ${incomingCallData.type === 'video' ? 'VIDEO' : 'VOICE'} CALL`}
+            </h4>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '24px' }}>
+              <strong>{incomingCallData.callerName}</strong> is calling you...
+            </p>
+            
+            <div style={{ display: 'flex', gap: '14px', justifyContent: 'center' }}>
+              <button 
+                type="button" 
+                className="btn btn-danger rounded-pill px-4" 
+                onClick={declineIncomingCall}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}
+              >
+                <PhoneOff size={16} strokeWidth={2.4} /> DECLINE
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-success rounded-pill px-4" 
+                onClick={acceptIncomingCall}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, background: 'var(--brand-success)' }}
+              >
+                <Phone size={16} strokeWidth={2.4} /> ACCEPT
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Active Call Resonance HUD - Floating interactive card */}
+      {activeCall && (
+        <div className={styles.callHudFloating}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+            <div style={{
+              width: '42px', height: '42px', borderRadius: '50%',
+              background: callingState === 'connected' ? 'var(--brand-success)' : 'var(--wa-accent)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff',
+              boxShadow: callingState === 'connected' ? '0 0 16px rgba(34, 197, 94, 0.6)' : '0 0 16px rgba(0, 168, 132, 0.5)',
+              animation: 'pulse 1.8s infinite', flexShrink: 0
+            }}>
+              {callType === 'video' ? <Video size={20} strokeWidth={2.5} /> : <Phone size={20} strokeWidth={2.5} />}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{
+                  width: '8px', height: '8px', borderRadius: '50%',
+                  background: callingState === 'connected' ? '#22c55e' : '#eab308',
+                  display: 'inline-block'
+                }} />
+                {callingState === 'connected' ? (
+                  <span>
+                    {formatCallDuration(callSeconds)} • {callParticipants.length > 2 ? `Conference (${callParticipants.length})` : 'Connected'}
+                  </span>
+                ) : (
+                  <span>Calling {partnerName || activeConv?.name || 'Teammate'}...</span>
+                )}
               </div>
-              <h4 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '4px' }}>INCOMING RESONANCE</h4>
-              <p style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '24px' }}>Node <strong>{incomingCall}</strong> is requesting audio handshake link.</p>
-              
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-                <button className="btn btn-danger btn-sm rounded-pill px-4" onClick={() => setIncomingCall(null)}>REJECT</button>
-                <button className="btn btn-success btn-sm rounded-pill px-4" onClick={() => { setIncomingCall(null); setActiveCall(true); setCallingState('connected'); toast.success('Link Established! Resonance synced.'); }}>ESTABLISH</button>
+              <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {callingState === 'connected' ? (
+                  callParticipants.length > 1 ? `Participants: ${callParticipants.join(', ')}` : (callType === 'video' ? 'Encrypted HD Video Link' : 'Secure P2P Voice Resonance')
+                ) : 'Ringing teammate device...'}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+            {/* Conference Add Member Button */}
+            {callingState === 'connected' && (
+              <button
+                type="button"
+                className={styles.chatHeaderBtn}
+                onClick={() => setShowConferenceModal(true)}
+                title="Add Teammate to Conference Call"
+                style={{
+                  width: '38px', height: '38px',
+                  background: 'var(--wa-hover)',
+                  color: 'var(--brand-primary)',
+                  border: '1px solid var(--wa-border)'
+                }}
+              >
+                <UserPlus size={18} strokeWidth={2.4} />
+              </button>
+            )}
+
+            {/* Mute Mic Toggle */}
+            <button
+              type="button"
+              className={styles.chatHeaderBtn}
+              onClick={() => {
+                setIsCallMuted(!isCallMuted);
+                toast(isCallMuted ? 'Microphone unmuted 🎙️' : 'Microphone muted 🔇');
+              }}
+              title={isCallMuted ? 'Unmute Mic' : 'Mute Mic'}
+              style={{
+                width: '38px', height: '38px',
+                background: isCallMuted ? 'rgba(239, 68, 68, 0.2)' : 'var(--wa-hover)',
+                color: isCallMuted ? 'var(--brand-danger)' : 'var(--text-primary)',
+                border: isCallMuted ? '1.5px solid var(--brand-danger)' : '1px solid var(--wa-border)'
+              }}
+            >
+              {isCallMuted ? <MicOff size={18} strokeWidth={2.4} /> : <Mic size={18} strokeWidth={2.4} />}
+            </button>
+
+            {/* Video Feed Toggle */}
+            {callType === 'video' && (
+              <button
+                type="button"
+                className={styles.chatHeaderBtn}
+                onClick={toggleVideoMute}
+                title={isVideoMuted ? 'Enable Camera' : 'Disable Camera'}
+                style={{
+                  width: '38px', height: '38px',
+                  background: isVideoMuted ? 'rgba(239, 68, 68, 0.2)' : 'var(--wa-hover)',
+                  color: isVideoMuted ? 'var(--brand-danger)' : 'var(--text-primary)',
+                  border: isVideoMuted ? '1.5px solid var(--brand-danger)' : '1px solid var(--wa-border)'
+                }}
+              >
+                {isVideoMuted ? <VideoOff size={18} strokeWidth={2.4} /> : <Video size={18} strokeWidth={2.4} />}
+              </button>
+            )}
+
+            {/* End Call Button */}
+            <button
+              type="button"
+              className={styles.chatHeaderBtn}
+              onClick={endActiveCall}
+              title="End Call"
+              style={{
+                width: '38px', height: '38px',
+                background: 'var(--brand-danger)',
+                color: '#ffffff',
+                border: 'none',
+                boxShadow: '0 4px 12px rgba(239, 68, 68, 0.4)'
+              }}
+            >
+              <PhoneOff size={18} strokeWidth={2.5} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Conference Add Teammate Modal */}
+      {showConferenceModal && (
+        <div className="modal-backdrop" style={{ zIndex: 1300 }} onClick={() => setShowConferenceModal(false)}>
+          <div className="modal animate-scale-in" style={{ maxWidth: '420px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <UserPlus size={20} style={{ color: 'var(--wa-accent)' }} />
+                <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 800 }}>Invite to Conference Call</h4>
+              </div>
+              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setShowConferenceModal(false)}><X size={16} /></button>
+            </div>
+            <div className="modal-body" style={{ maxHeight: '350px', overflowY: 'auto', padding: '12px 16px' }}>
+              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                Select an active teammate to add them to this ongoing {callType} call:
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {otherUsers.map((u: any) => {
+                  const isAlreadyIn = callParticipants.includes(u.fullName);
+                  return (
+                    <div key={u.id} style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '8px 12px', background: 'var(--wa-hover)', borderRadius: '10px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                          width: '32px', height: '32px', borderRadius: '50%', background: 'var(--gradient-brand)',
+                          color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: '12px', fontWeight: 700, position: 'relative'
+                        }}>
+                          {u.fullName?.charAt(0).toUpperCase()}
+                          <span style={{
+                            position: 'absolute', bottom: '-1px', right: '-1px', width: '8px', height: '8px',
+                            borderRadius: '50%', background: u.isOnline ? 'var(--brand-success)' : 'var(--text-tertiary)',
+                            border: '1.5px solid var(--bg-card)'
+                          }} />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>{u.fullName}</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{u.isOnline ? 'Online' : 'Offline'} • {u.department?.name || 'Department'}</div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-xs"
+                        disabled={isAlreadyIn}
+                        onClick={() => inviteTeammateToConference(u)}
+                        style={{ fontSize: '11px', padding: '4px 10px', borderRadius: '6px' }}
+                      >
+                        {isAlreadyIn ? 'In Call' : '+ Add'}
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Active Call Resonance HUD */}
-      {activeCall && (
-        <div style={{
-          position: 'absolute', bottom: '24px', right: '24px',
-          background: 'var(--bg-card)', border: '1px solid var(--border-color)',
-          borderRadius: '16px', padding: '16px 20px', zIndex: 1100, display: 'flex', alignItems: 'center', gap: '20px',
-          boxShadow: '0 12px 40px rgba(99, 102, 241, 0.25)', animation: 'slideUp 0.3s ease-out'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{
-              width: '40px', height: '40px', borderRadius: '50%',
-              background: callingState === 'connected' ? 'var(--brand-success)' : 'var(--brand-primary)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-primary)',
-              animation: 'pulse 1.5s infinite'
-            }}>
-              <Phone size={18} />
+      {/* Room Settings & Preferences Modal */}
+      {showRoomSettingsModal && (
+        <div className="modal-backdrop" style={{ zIndex: 1300 }} onClick={() => setShowRoomSettingsModal(false)}>
+          <div className="modal animate-scale-in" style={{ maxWidth: '440px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Settings size={20} style={{ color: 'var(--brand-primary)' }} />
+                <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 800 }}>Room Settings & Preferences</h4>
+              </div>
+              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setShowRoomSettingsModal(false)}><X size={16} /></button>
             </div>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                {callingState === 'connected' ? 'SECURE NODE ESTABLISHED' : 'INITIATING HANDSHAKE...'}
+            <div className="modal-body" style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>Sound Notifications 🔔</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Play sound on incoming signals and calls</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={roomSettings.soundEnabled}
+                  onChange={e => {
+                    const updated = { ...roomSettings, soundEnabled: e.target.checked };
+                    setRoomSettings(updated);
+                    localStorage.setItem('gsv_room_settings', JSON.stringify(updated));
+                    toast.success(e.target.checked ? 'Sound alerts enabled' : 'Sound alerts muted');
+                  }}
+                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                />
               </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>
-                {callingState === 'connected' ? 'Resonance active.' : 'Handshake active.'}
+              <div style={{ height: '1px', background: 'var(--border-color)' }} />
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>Enter to Send ⌨️</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Press Enter to dispatch messages quickly</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={roomSettings.enterToSend}
+                  onChange={e => {
+                    const updated = { ...roomSettings, enterToSend: e.target.checked };
+                    setRoomSettings(updated);
+                    localStorage.setItem('gsv_room_settings', JSON.stringify(updated));
+                  }}
+                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                />
               </div>
+              <div style={{ height: '1px', background: 'var(--border-color)' }} />
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>Auto Scroll to Latest 📜</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Automatically scroll down when new messages arrive</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={roomSettings.autoScroll}
+                  onChange={e => {
+                    const updated = { ...roomSettings, autoScroll: e.target.checked };
+                    setRoomSettings(updated);
+                    localStorage.setItem('gsv_room_settings', JSON.stringify(updated));
+                  }}
+                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                />
+              </div>
+            </div>
+            <div className="modal-footer" style={{ padding: '12px 20px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="btn btn-primary btn-sm" onClick={() => setShowRoomSettingsModal(false)}>Close & Save</button>
             </div>
           </div>
-          <button
-            type="button"
-            className="btn btn-danger btn-sm btn-icon"
-            onClick={() => { setActiveCall(false); setCallingState('idle'); toast.error('Resonance terminated.'); }}
-            style={{ borderRadius: '50%', width: '32px', height: '32px', padding: 0 }}
-          >
-            <X size={14} />
-          </button>
         </div>
       )}
 
@@ -3654,7 +4737,7 @@ export default function ChatPage() {
               handleSaveToPC(msgContextMenu.msg.file_name || msgContextMenu.msg.fileName || 'file', '', msgContextMenu.msg.file_url || msgContextMenu.msg.fileUrl);
               setMsgContextMenu(null);
             }} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', padding: '8px 12px', cursor: 'pointer', fontWeight: 600 }}>
-              <Download size={15} /> Copy to PC (Download)
+              <Download size={15} /> {isMobileDevice ? 'Download File' : 'Copy to PC (Download)'}
             </div>
           )}
 
@@ -3677,6 +4760,17 @@ export default function ChatPage() {
               <Send size={15} /> Share Link
             </div>
           )}
+
+          <div className="dropdown-item" onClick={() => {
+            handleNativeShare({
+              text: msgContextMenu.msg.content,
+              url: msgContextMenu.msg.file_url || msgContextMenu.msg.fileUrl,
+              title: msgContextMenu.msg.file_name || msgContextMenu.msg.fileName || 'GSV Message'
+            });
+            setMsgContextMenu(null);
+          }} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', padding: '8px 12px', cursor: 'pointer', fontWeight: 600, color: 'var(--brand-primary)' }}>
+            <Share2 size={15} /> Share to External Apps (WhatsApp, etc.)
+          </div>
 
           <div className="dropdown-item" onClick={() => {
             setForwardingMsg(msgContextMenu.msg);
@@ -4149,10 +5243,10 @@ export default function ChatPage() {
           id="scratchpad-popup"
           style={{
             position: 'fixed',
-            left: isScratchpadMaximized ? '5vw' : `${scratchpadPos.x}px`,
-            top: isScratchpadMaximized ? '5vh' : `${scratchpadPos.y}px`,
-            width: isScratchpadMaximized ? '90vw' : '330px',
-            height: isScratchpadMaximized ? '90vh' : '380px',
+            left: isScratchpadMaximized || window.innerWidth <= 768 ? '5vw' : `${scratchpadPos.x}px`,
+            top: isScratchpadMaximized || window.innerWidth <= 768 ? '10vh' : `${scratchpadPos.y}px`,
+            width: isScratchpadMaximized || window.innerWidth <= 768 ? '90vw' : '330px',
+            height: isScratchpadMaximized || window.innerWidth <= 768 ? '80vh' : '380px',
             background: 'var(--bg-card)', 
             border: '1px solid var(--border-color)', 
             borderRadius: '12px',

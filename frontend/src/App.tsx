@@ -32,7 +32,8 @@ const DownloadsPage = lazy(() => import('./features/plugins/DownloadsPage'));
 
 function hasPermission(user: any, module: string, action: string): boolean {
   if (!user) return false;
-  if (user.role?.name === 'Super Admin') return true;
+  if (user.role?.name === 'Super Admin' || user.role?.name === 'Admin' || user.isAdmin || user.isSuperAdmin) return true;
+  if (module === 'chat') return true;
 
   const effective = new Map<string, boolean>();
 
