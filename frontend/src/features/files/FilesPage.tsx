@@ -11,7 +11,7 @@ import {
 import { filesApi, usersApi } from '../../api';
 import { useAuthStore } from '../../store/auth.store';
 import toast from 'react-hot-toast';
-import { copyTextToClipboard } from '../../utils/clipboard';
+import { copyTextToClipboard, copyUrlOrTextToClipboard } from '../../utils/clipboard';
 
 const normalizeFolder = (f: any) => {
   if (!f) return f;
@@ -121,6 +121,7 @@ export default function FilesPage() {
     brandColor?: string;
   } | null>(null);
   const folderUploadInputRef = useRef<HTMLInputElement>(null);
+  const zipUploadInputRef = useRef<HTMLInputElement>(null);
 
   // CRUD & Clipboard states
   const [clipboardItem, setClipboardItem] = useState<{ id: string; type: 'file' | 'folder'; action: 'cut' | 'copy' } | null>(null);
@@ -273,6 +274,61 @@ export default function FilesPage() {
     if (!files.length) return;
     setUploading(true);
     setUploadProgressPercent(0);
+
+    // If single ZIP archive provided for folder upload, route to uploadFolderZip for auto-extraction
+    if (files.length === 1 && (files[0].name.toLowerCase().endsWith('.zip') || files[0].name.toLowerCase().endsWith('.tar') || files[0].name.toLowerCase().endsWith('.gz') || files[0].name.toLowerCase().endsWith('.7z') || files[0].name.toLowerCase().endsWith('.rar'))) {
+      const zipFile = files[0];
+      const baseName = zipFile.name.replace(/\.(zip|tar|gz|7z|rar)$/i, '') || 'Extracted_Folder';
+      const fd = new FormData();
+      fd.append('file', zipFile);
+      fd.append('folderName', baseName);
+      if (folderId) fd.append('folderId', folderId);
+      try {
+        await filesApi.uploadFolderZip(fd, (progressEvent: any) => {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          setUploadProgressPercent(percent);
+        });
+        toast.success(`ZIP Archive "${baseName}" extracted to folder! 📦`);
+      } catch (err: any) {
+        toast.error(`ZIP Folder upload failed: ${err?.message || 'Server error'}`);
+      }
+      setUploading(false);
+      setUploadProgressPercent(null);
+      qc.invalidateQueries({ queryKey: ['folders'] });
+      qc.invalidateQueries({ queryKey: ['files'] });
+      return;
+    }
+
+    // If massive folder with > 200 files
+    if (files.length > 200) {
+      const relativePath = (files[0] as any).webkitRelativePath || '';
+      const folderName = relativePath.split('/')[0] || 'Selected Folder';
+      let totalSize = 0;
+      const sampleLimit = Math.min(files.length, 5000);
+      for (let i = 0; i < sampleLimit; i++) {
+        totalSize += files[i].size || 0;
+      }
+      if (files.length > 5000) {
+        totalSize = Math.round((totalSize / sampleLimit) * files.length);
+      }
+      const sizeMB = (totalSize / 1024 / 1024).toFixed(1);
+
+      setConfirmModal({
+        title: `Massive Folder Detected (${files.length.toLocaleString()} files)`,
+        message: `Folder "${folderName}" contains ${files.length.toLocaleString()} files (~${sizeMB} MB).\n\nDirect browser upload of tens of thousands of loose files causes browser memory crashes.\n\nRecommended: Compress this directory into a .zip archive (Zip File Upload) and upload it for instant automatic server extraction.`,
+        iconType: 'folder',
+        confirmText: '📦 Upload as ZIP Instead',
+        cancelText: 'Cancel',
+        brandColor: '#f59e0b',
+        onConfirm: () => {
+          setTimeout(() => zipUploadInputRef.current?.click(), 100);
+        }
+      });
+      setUploading(false);
+      setUploadProgressPercent(null);
+      return;
+    }
+
     const fd = new FormData();
     files.forEach((file: File) => {
       fd.append('files', file);
@@ -288,7 +344,7 @@ export default function FilesPage() {
         const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
         setUploadProgressPercent(percent);
       });
-      toast.success(`Folder "${folderName}" uploaded successfully!`);
+      toast.success(`Folder "${folderName}" uploaded successfully! 📁`);
     } catch (err) {
       toast.error('Folder upload failed.');
     }
@@ -740,11 +796,67 @@ export default function FilesPage() {
             setContextMenu(null);
           }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><Share2 size={13} /> Share with Teammate</div>
 
+          {contextMenu.itemType === 'folder' && (
+            <>
+              <a 
+                href={filesApi.getFolderDownloadUrl(contextMenu.item.id)} 
+                download={`${contextMenu.item.name || 'Folder'}.zip`} 
+                className="dropdown-item" 
+                onClick={() => setContextMenu(null)} 
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer', color: 'inherit', textDecoration: 'none' }}
+              >
+                <Download size={13} /> Download Folder (ZIP)
+              </a>
+              <div 
+                className="dropdown-item" 
+                onClick={() => {
+                  copyUrlOrTextToClipboard(filesApi.getFolderDownloadUrl(contextMenu.item.id));
+                  toast.success('Folder download link copied! 📋');
+                  setContextMenu(null);
+                }} 
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}
+              >
+                <Copy size={13} /> Copy Folder Link
+              </div>
+            </>
+          )}
+
           {contextMenu.itemType === 'file' && (
             <>
               <div className="dropdown-item" onClick={() => { handleOpenPreview(contextMenu.item); setContextMenu(null); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}><ChevronRight size={13} /> Preview</div>
               <div className="dropdown-item" onClick={() => { window.open(contextMenu.item.storageUrl, '_blank'); setContextMenu(null); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}>🔗 Open in New Tab</div>
               <a href={contextMenu.item.storageUrl} download={contextMenu.item.originalName} className="dropdown-item" onClick={() => setContextMenu(null)} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer', color: 'inherit', textDecoration: 'none' }}><Download size={13} /> Copy to PC (Download)</a>
+              <div 
+                className="dropdown-item" 
+                onClick={() => {
+                  copyUrlOrTextToClipboard(contextMenu.item.storageUrl);
+                  toast.success('Asset URL copied to clipboard! 📋');
+                  setContextMenu(null);
+                }} 
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer' }}
+              >
+                <Copy size={13} /> Copy Asset Link
+              </div>
+              {(contextMenu.item.originalName?.toLowerCase().endsWith('.zip') || contextMenu.item.mime_type?.includes('zip') || contextMenu.item.mimeType?.includes('zip')) && (
+                <div 
+                  className="dropdown-item" 
+                  onClick={async () => {
+                    const toastId = toast.loading('Extracting ZIP Archive to Folder...');
+                    try {
+                      await filesApi.extractZip(contextMenu.item.id);
+                      toast.success('Extracted to Folder successfully! 📦', { id: toastId });
+                      qc.invalidateQueries({ queryKey: ['folders'] });
+                      qc.invalidateQueries({ queryKey: ['files'] });
+                    } catch (err: any) {
+                      toast.error(`Extraction failed: ${err?.message || 'Server error'}`, { id: toastId });
+                    }
+                    setContextMenu(null);
+                  }} 
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px', cursor: 'pointer', color: 'var(--wa-accent)', fontWeight: 600 }}
+                >
+                  <Folder size={13} /> 📦 Extract to Folder
+                </div>
+              )}
             </>
           )}
 
@@ -834,12 +946,20 @@ export default function FilesPage() {
                 <input type="file" multiple style={{ display: 'none' }} onChange={e => { if (e.target.files) onDrop(Array.from(e.target.files)); }} />
               </label>
               <button 
+                className="btn btn-secondary btn-sm"
+                style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                onClick={() => zipUploadInputRef.current?.click()}
+                title="Upload a ZIP archive and automatically extract it into folders and subfolders"
+              >
+                📦 Upload ZIP (Auto-Extract)
+              </button>
+              <button 
                 className="btn btn-primary btn-sm" 
                 style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                 onClick={() => {
                   setConfirmModal({
                     title: 'Upload Directory / Folder?',
-                    message: 'This will stage all files inside the selected directory for upload to your current active folder directory. Do this only if you trust the files.',
+                    message: 'This will stage all files inside the selected directory for upload to your current active folder directory. For large folders (>200 files), use ZIP Upload for instant auto-extraction.',
                     iconType: 'folder',
                     confirmText: 'Select Folder',
                     cancelText: 'Cancel',
@@ -858,6 +978,13 @@ export default function FilesPage() {
                 {...{ webkitdirectory: "", directory: "", multiple: true } as any} 
                 style={{ display: 'none' }} 
                 onChange={e => { if (e.target.files) onDropFolder(Array.from(e.target.files)); }} 
+              />
+              <input
+                type="file"
+                ref={zipUploadInputRef}
+                accept=".zip,.tar,.gz,.7z,.rar"
+                style={{ display: 'none' }}
+                onChange={e => { if (e.target.files && e.target.files[0]) onDropFolder([e.target.files[0]]); }}
               />
             </>
           )}

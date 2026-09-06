@@ -11,7 +11,7 @@ import {
 import { chatApi, usersApi, filesApi } from '../../api';
 import { useAuthStore } from '../../store/auth.store';
 import { SoundManager } from '../../utils/sound';
-import { copyTextToClipboard } from '../../utils/clipboard';
+import { copyTextToClipboard, copyUrlOrTextToClipboard } from '../../utils/clipboard';
 import toast from 'react-hot-toast';
 import styles from './ChatPage.module.css';
 
@@ -744,6 +744,7 @@ export default function ChatPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const zipFolderInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const handleSaveToCloud = async (fileId: string) => {
@@ -814,8 +815,54 @@ export default function ChatPage() {
       }
 
       if (payload.files && payload.files.length > 0) {
-        if (payload.type === 'folder') {
+        if (payload.type === 'folder_zip' || (payload.type === 'folder' && payload.files[0]?.type === 'folder_zip')) {
           const staged = payload.files[0];
+          const fd = new FormData();
+          fd.append('file', staged.blob);
+          const folderName = staged.name.split('/')[0]?.replace(/\s*\(Zip Auto-Extract\)/i, '') || staged.blob.name?.replace(/\.(zip|tar|gz|7z|rar)$/i, '') || 'Extracted Folder';
+          fd.append('folderName', folderName);
+          if (conversationId) {
+            fd.append('conversationId', conversationId);
+          }
+          let folderId = undefined;
+          let fileName = undefined;
+          
+          try {
+            const uploadRes = await filesApi.uploadFolderZip(fd, (progressEvent: any) => {
+              const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+              setUploadProgressPercent(percent);
+            });
+            const fileData = uploadRes.data?.data || uploadRes.data;
+            if (fileData) {
+              folderId = fileData.id;
+              fileName = fileData.name || folderName;
+            }
+          } catch (err: any) {
+            console.error('ZIP Folder upload failed in chat propagation:', err);
+            const errMsg = err?.response?.data?.message || err?.message || 'Folder extraction failed';
+            toast.error(`Folder extraction failed: ${errMsg}`);
+            throw err;
+          }
+
+          if (!folderId) {
+            throw new Error('Folder upload failed to return a valid folder identifier');
+          }
+
+          return chatApi.sendMessage(conversationId!, {
+            content: payload.content,
+            type: 'folder',
+            folderId,
+            fileName,
+          }).then(r => r.data?.data || r.data);
+        } else if (payload.type === 'folder') {
+          const staged = payload.files[0];
+          if (!staged || !staged.files || staged.files.length === 0) {
+            throw new Error('No files provided in staged folder');
+          }
+          if (staged.files.length > 500) {
+            toast.error(`Folder exceeds maximum loose file limit (${staged.files.length} files). Please upload as ZIP archive.`);
+            throw new Error('Folder contains too many loose files for direct HTTP upload. Please use ZIP upload.');
+          }
           const fd = new FormData();
           let folderId = undefined;
           let fileName = undefined;
@@ -826,7 +873,7 @@ export default function ChatPage() {
             });
             const relativePaths = staged.files.map((file: any) => file.webkitRelativePath || file.name);
             fd.append('relativePaths', JSON.stringify(relativePaths));
-            const folderName = staged.name.split('/')[0] || 'Uploaded_Folder';
+            const folderName = staged.name.split('/')[0]?.replace(/\s*\(\d+.*files\)/i, '') || 'Uploaded_Folder';
             fd.append('folderName', folderName);
             if (conversationId) {
               fd.append('conversationId', conversationId);
@@ -1215,8 +1262,8 @@ export default function ChatPage() {
     if (!message.trim() && stagedFiles.length === 0) return;
     
     const tempId = `temp-${Date.now()}`;
-    const isFolder = stagedFiles.some(f => f.type === 'folder');
-    const attachmentType = stagedFiles.length > 0 ? (isFolder ? 'folder' : stagedFiles[0].type) : 'text';
+    const isFolder = stagedFiles.some(f => f.type === 'folder' || f.type === 'folder_zip');
+    const attachmentType = stagedFiles.length > 0 ? (isFolder ? (stagedFiles[0].type === 'folder_zip' ? 'folder_zip' : 'folder') : stagedFiles[0].type) : 'text';
 
     const tempMsg = {
       id: tempId,
@@ -1277,19 +1324,32 @@ export default function ChatPage() {
       if (isFolder) {
         const relativePath = (files[0] as any).webkitRelativePath || '';
         const folderName = relativePath.split('/')[0] || 'Staged Folder';
-        const totalSize = files.reduce((acc, f) => acc + f.size, 0);
         
-        if (files.length > 5000) {
+        let totalSize = 0;
+        const count = files.length;
+        const sampleLimit = Math.min(count, 5000);
+        for (let i = 0; i < sampleLimit; i++) {
+          totalSize += files[i].size || 0;
+        }
+        if (count > 5000) {
+          totalSize = Math.round((totalSize / sampleLimit) * count);
+        }
+        const sizeMB = (totalSize / 1024 / 1024).toFixed(1);
+
+        if (files.length > 200) {
           setConfirmModal({
-            title: 'Massive Folder Detected',
-            message: `This folder contains ${files.length.toLocaleString()} files (${(totalSize / 1024 / 1024).toFixed(1)} MB). Uploading tens of thousands of loose files over a single browser HTTP session causes browser memory exhaustion and network connection timeouts.\n\nRecommended: Compress this directory into a .zip archive (Zip File Upload) or use the connected TrueNAS SMB network share (/mnt/smb).`,
+            title: `Massive Folder Detected (${files.length.toLocaleString()} files)`,
+            message: `Folder "${folderName}" contains ${files.length.toLocaleString()} files (~${sizeMB} MB).\n\nUploading tens of thousands of loose files over a single browser HTTP session causes browser memory exhaustion and network connection timeouts.\n\nRecommended: Compress this directory into a .zip archive (Zip File Upload) or use the connected TrueNAS SMB network share (/mnt/smb).`,
             iconType: 'folder',
-            confirmText: 'Upload as ZIP Instead',
-            cancelText: 'Cancel',
-            brandColor: 'var(--brand-warning)',
+            confirmText: '📦 Upload as ZIP Instead',
+            cancelText: '🔗 Share via TrueNAS SMB',
+            brandColor: '#f59e0b',
             onConfirm: () => {
-              setUploadAccept('.zip,.rar,.tar,.gz,.7z');
-              setTimeout(() => fileInputRef.current?.click(), 100);
+              setTimeout(() => zipFolderInputRef.current?.click(), 100);
+            },
+            onCancel: () => {
+              setSmbForm(prev => ({ ...prev, name: folderName, path: `\\\\192.168.0.177\\GSVR_Movies\\${folderName}` }));
+              setShowSmbModal(true);
             }
           });
           return;
@@ -1297,13 +1357,13 @@ export default function ChatPage() {
 
         const stagedFolder = {
           name: `${folderName}/ (${files.length} files)`,
-          size: (totalSize / 1024 / 1024).toFixed(1) + ' MB',
+          size: `${sizeMB} MB`,
           blob: files[0],
           files: files,
           type: 'folder'
         };
         setStagedFiles(prev => [...prev, stagedFolder]);
-        toast.success(`Folder "${folderName}" (${files.length} files, ${(totalSize / 1024 / 1024).toFixed(1)} MB) staged successfully! 📁`);
+        toast.success(`Folder "${folderName}" (${files.length} files, ${sizeMB} MB) staged successfully! 📁`);
       } else {
         if (files.length > 30) {
           toast.error("You can select a maximum of 30 files at a time. Slicing to the first 30 files.");
@@ -1331,6 +1391,24 @@ export default function ChatPage() {
         toast.success(`${files.length} file(s) staged.`);
       }
     }
+    // Clear input value to allow re-selection
+    e.target.value = '';
+  };
+
+  const handleZipFolderUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const baseName = file.name.replace(/\.(zip|tar|gz|7z|rar)$/i, '') || 'Extracted Folder';
+    const staged = {
+      name: `${baseName}/ (Zip Auto-Extract)`,
+      size: (file.size / 1024 / 1024).toFixed(1) + ' MB',
+      blob: file,
+      files: [file],
+      type: 'folder_zip'
+    };
+    setStagedFiles(prev => [...prev, staged]);
+    toast.success(`Archive "${file.name}" staged as Folder! It will auto-extract on the server into Cloud Files. 📦`);
+    e.target.value = '';
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
@@ -2844,6 +2922,18 @@ export default function ChatPage() {
                       </div>
                       <div className="dropdown-item" onClick={() => {
                         setShowAttachmentsDropdown(false);
+                        setTimeout(() => folderInputRef.current?.click(), 100);
+                      }}>
+                        📁 ⬆️ Upload PC Folder (Direct)
+                      </div>
+                      <div className="dropdown-item" onClick={() => {
+                        setShowAttachmentsDropdown(false);
+                        setTimeout(() => zipFolderInputRef.current?.click(), 100);
+                      }}>
+                        📦 ⚡ Upload ZIP as Folder (Auto-Extract)
+                      </div>
+                      <div className="dropdown-item" onClick={() => {
+                        setShowAttachmentsDropdown(false);
                         setShowSmbModal(true);
                       }}>
                         📁 ⚡ Direct SMB & Cloud Folder Share
@@ -2978,6 +3068,13 @@ export default function ChatPage() {
                   style={{ display: 'none' }}
                   {...{ webkitdirectory: "", directory: "", multiple: true } as any}
                   onChange={e => handleFileUpload(e, true)}
+                />
+                <input
+                  type="file"
+                  ref={zipFolderInputRef}
+                  style={{ display: 'none' }}
+                  accept=".zip,.tar,.gz,.7z,.rar"
+                  onChange={handleZipFolderUpload}
                 />
               </form>
             )}
@@ -3511,12 +3608,64 @@ export default function ChatPage() {
             );
           })()}
 
+          {/* Folder Context Menu Actions */}
+          {(msgContextMenu.msg.type === 'folder' || msgContextMenu.msg.folder_id || msgContextMenu.msg.folderId) && (
+            <>
+              <div className="dropdown-item" onClick={() => {
+                const fid = msgContextMenu.msg.folder_id || msgContextMenu.msg.folderId;
+                if (fid) {
+                  window.open(`/api/files/folders/${fid}/download`, '_blank');
+                  toast.success('Downloading folder as ZIP archive... 📦');
+                } else {
+                  toast.error('Folder ID not available for download');
+                }
+                setMsgContextMenu(null);
+              }} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', padding: '8px 12px', cursor: 'pointer', fontWeight: 600 }}>
+                <Download size={15} /> Download Folder (ZIP)
+              </div>
+              <div className="dropdown-item" onClick={() => {
+                const fid = msgContextMenu.msg.folder_id || msgContextMenu.msg.folderId;
+                if (fid) {
+                  navigate(`/files?folderId=${fid}`);
+                }
+                setMsgContextMenu(null);
+              }} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', padding: '8px 12px', cursor: 'pointer', fontWeight: 600 }}>
+                <Folder size={15} /> View in Cloud Files
+              </div>
+            </>
+          )}
+
+          {/* Windows SMB Folder Actions */}
+          {(msgContextMenu.msg.type === 'smb_folder' || msgContextMenu.msg.metadata?.isSmb) && (
+            <div className="dropdown-item" onClick={() => {
+              const p = msgContextMenu.msg.metadata?.smbPath || (msgContextMenu.msg.content?.includes('\\\\') ? msgContextMenu.msg.content.match(/\\\\[^\n`]+/)?.[0] : '\\\\192.168.0.177\\GSVR_Movies');
+              if (p) {
+                copyTextToClipboard(p);
+                toast.success(`Copied SMB Path "${p}"! 📋`);
+              }
+              setMsgContextMenu(null);
+            }} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', padding: '8px 12px', cursor: 'pointer', fontWeight: 600 }}>
+              <Copy size={15} /> Copy Windows SMB Path
+            </div>
+          )}
+
           {(msgContextMenu.msg.file_url || msgContextMenu.msg.fileUrl) && (
             <div className="dropdown-item" onClick={() => {
               handleSaveToPC(msgContextMenu.msg.file_name || msgContextMenu.msg.fileName || 'file', '', msgContextMenu.msg.file_url || msgContextMenu.msg.fileUrl);
               setMsgContextMenu(null);
             }} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', padding: '8px 12px', cursor: 'pointer', fontWeight: 600 }}>
               <Download size={15} /> Copy to PC (Download)
+            </div>
+          )}
+
+          {(msgContextMenu.msg.file_url || msgContextMenu.msg.fileUrl) && (
+            <div className="dropdown-item" onClick={() => {
+              const url = msgContextMenu.msg.file_url || msgContextMenu.msg.fileUrl;
+              copyUrlOrTextToClipboard(url);
+              toast.success('Asset URL copied to clipboard! 📋');
+              setMsgContextMenu(null);
+            }} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', padding: '8px 12px', cursor: 'pointer', fontWeight: 600 }}>
+              <Copy size={15} /> Copy Asset Link
             </div>
           )}
 
@@ -3832,27 +3981,40 @@ export default function ChatPage() {
 
             {/* Tab Content: Upload Local */}
             {smbForm.tab === 'local' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center', textAlign: 'center', padding: '16px 0' }}>
-                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(99, 102, 241, 0.1)', color: 'var(--brand-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', alignItems: 'center', textAlign: 'center', padding: '12px 0' }}>
+                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(0, 168, 132, 0.12)', color: 'var(--wa-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Folder size={28} />
                 </div>
                 <div>
-                  <h4 style={{ margin: '0 0 6px 0', fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>Upload Local Folder from PC</h4>
-                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)', maxWidth: '360px' }}>
-                    Select a directory from your computer to stage and upload to this chat (up to 5,000 files).
+                  <h4 style={{ margin: '0 0 6px 0', fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>Upload Folder from PC</h4>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)', maxWidth: '380px', lineHeight: 1.4 }}>
+                    Choose to upload an uncompressed directory or upload a compressed .zip archive which the server automatically unpacks into a full folder hierarchy.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  onClick={() => {
-                    setShowSmbModal(false);
-                    folderInputRef.current?.click();
-                  }}
-                  style={{ marginTop: '8px' }}
-                >
-                  📁 Select Folder from PC
-                </button>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'center', marginTop: '4px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={() => {
+                      setShowSmbModal(false);
+                      setTimeout(() => zipFolderInputRef.current?.click(), 100);
+                    }}
+                    style={{ background: 'var(--wa-accent)', borderColor: 'var(--wa-accent)', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    📦 Select .ZIP Archive (Auto-Extracts)
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => {
+                      setShowSmbModal(false);
+                      setTimeout(() => folderInputRef.current?.click(), 100);
+                    }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    📁 Select Directory from PC
+                  </button>
+                </div>
               </div>
             )}
 

@@ -116,6 +116,8 @@ export const filesApi = {
   createFolder: (data: any) => api.post('/files/folders', data),
   upload: (formData: FormData, onUploadProgress?: (progressEvent: any) => void) => api.post('/files/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress }),
   uploadFolder: (formData: FormData, onUploadProgress?: (progressEvent: any) => void) => api.post('/files/upload-folder', formData, { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress }),
+  uploadFolderZip: (formData: FormData, onUploadProgress?: (progressEvent: any) => void) => api.post('/files/upload-folder-zip', formData, { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress }),
+  extractZip: (fileId: string) => api.post(`/files/${fileId}/extract-zip`),
   delete: (id: string) => api.delete(`/files/${id}`),
   deleteFolder: (id: string) => api.delete(`/files/folders/${id}`),
   getAccessRequests: () => api.get('/files/access-requests'),

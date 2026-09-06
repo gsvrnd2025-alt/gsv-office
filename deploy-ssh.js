@@ -26,6 +26,7 @@ console.log('📦 Compressing frontend and backend dist packages...');
 try {
   execSync('tar -czf frontend.tar.gz -C frontend/dist .', { stdio: 'inherit' });
   execSync('tar -czf backend.tar.gz -C backend/dist .', { stdio: 'inherit' });
+  execSync('tar -czf adm-zip.tar.gz -C backend/node_modules adm-zip', { stdio: 'inherit' });
   console.log('  ✓ Dist archives created successfully.');
 } catch (e) {
   console.error('Error creating tar packages:', e);
@@ -40,7 +41,7 @@ conn.on('ready', () => {
   
   // ── Step 1: Create Remote Directories ──────────────────────────
   console.log('\n📁 Step 1: Creating remote directories...');
-  const mkdirCmd = `mkdir -p ${REMOTE_APP_DIR}/database ${REMOTE_APP_DIR}/nginx/conf.d ${REMOTE_APP_DIR}/logs ${REMOTE_APP_DIR}/plugins ${REMOTE_APP_DIR}/uploads ${REMOTE_APP_DIR}/db ${REMOTE_APP_DIR}/redis ${REMOTE_APP_DIR}/minio ${REMOTE_APP_DIR}/downloads ${REMOTE_APP_DIR}/mailserver/config ${REMOTE_APP_DIR}/frontend/dist ${REMOTE_APP_DIR}/backend/dist`;
+  const mkdirCmd = `mkdir -p ${REMOTE_APP_DIR}/database ${REMOTE_APP_DIR}/nginx/conf.d ${REMOTE_APP_DIR}/logs ${REMOTE_APP_DIR}/plugins ${REMOTE_APP_DIR}/uploads ${REMOTE_APP_DIR}/db ${REMOTE_APP_DIR}/redis ${REMOTE_APP_DIR}/minio ${REMOTE_APP_DIR}/downloads ${REMOTE_APP_DIR}/mailserver/config ${REMOTE_APP_DIR}/frontend/dist ${REMOTE_APP_DIR}/backend/dist ${REMOTE_APP_DIR}/backend/node_modules`;
   
   conn.exec(mkdirCmd, (err, stream) => {
     if (err) throw err;
@@ -65,7 +66,8 @@ conn.on('ready', () => {
           { local: './nginx/conf.d/default.conf', remote: `${REMOTE_APP_DIR}/nginx/conf.d/default.conf` },
           { local: './mailserver.env', remote: `${REMOTE_APP_DIR}/mailserver.env` },
           { local: './frontend.tar.gz', remote: `${REMOTE_APP_DIR}/frontend.tar.gz` },
-          { local: './backend.tar.gz', remote: `${REMOTE_APP_DIR}/backend.tar.gz` }
+          { local: './backend.tar.gz', remote: `${REMOTE_APP_DIR}/backend.tar.gz` },
+          { local: './adm-zip.tar.gz', remote: `${REMOTE_APP_DIR}/adm-zip.tar.gz` }
         ];
         
         let uploadedCount = 0;
@@ -104,6 +106,7 @@ function runRemoteDeployment() {
   const deployCmd = [
     `tar -xzf ${REMOTE_APP_DIR}/frontend.tar.gz -C ${REMOTE_APP_DIR}/frontend/dist`,
     `tar -xzf ${REMOTE_APP_DIR}/backend.tar.gz -C ${REMOTE_APP_DIR}/backend/dist`,
+    `tar -xzf ${REMOTE_APP_DIR}/adm-zip.tar.gz -C ${REMOTE_APP_DIR}/backend/node_modules`,
     `docker image pull ghcr.io/gsvrnd2025-alt/gsv-office-api:latest`,
     `docker image pull ghcr.io/gsvrnd2025-alt/gsv-office-nginx:latest`,
     `docker stop gsv_nginx gsv_api gsv_postgres gsv_redis gsv_minio gsv_mailserver || true`,
@@ -113,6 +116,7 @@ function runRemoteDeployment() {
     `sleep 10`,
     `docker cp ${REMOTE_APP_DIR}/frontend/dist/. gsv_nginx:/usr/share/nginx/html/ || true`,
     `docker cp ${REMOTE_APP_DIR}/backend/dist/. gsv_api:/app/dist/ || true`,
+    `docker cp ${REMOTE_APP_DIR}/backend/node_modules/adm-zip gsv_api:/app/node_modules/ || true`,
     `docker exec gsv_nginx nginx -s reload || true`,
     `midclt call app.query`
   ].join(' && ');

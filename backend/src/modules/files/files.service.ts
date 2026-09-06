@@ -3,7 +3,8 @@ import { DataSource } from 'typeorm';
 import { Response } from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as archiver from 'archiver';
+const AdmZip = require('adm-zip');
+import { v4 as uuid } from 'uuid';
 
 @Injectable()
 export class FilesService implements OnModuleInit {
@@ -313,79 +314,298 @@ export class FilesService implements OnModuleInit {
     return topFolder;
   }
 
-  async streamFolderAsZip(folderId: string, userId: string, res: Response) {
-    const [folder] = await this.dataSource.query(
-      `SELECT * FROM folders WHERE id = $1 AND deleted_at IS NULL`,
-      [folderId]
-    );
-    if (!folder) {
-      return res.status(404).json({ message: 'Folder not found' });
+  async extractZipAndSaveFolder(dto: {
+    zipPath: string;
+    originalName: string;
+    folderName?: string;
+    folderId?: string;
+    conversationId?: string;
+    ownerId: string;
+  }) {
+    const uploadDir = process.env.UPLOAD_PATH || '/app/uploads';
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
     }
 
-    // Recursively collect all subfolder IDs
-    const getAllSubfolderIds = async (parentIds: string[]): Promise<string[]> => {
-      if (parentIds.length === 0) return [];
-      const children = await this.dataSource.query(
-        `SELECT id FROM folders WHERE parent_id = ANY($1) AND deleted_at IS NULL`,
-        [parentIds]
-      );
-      if (children.length === 0) return parentIds;
-      const childIds = children.map((c: any) => c.id);
-      const deeper = await getAllSubfolderIds(childIds);
-      return [...parentIds, ...deeper];
-    };
+    const zip = new AdmZip(dto.zipPath);
+    const zipEntries = zip.getEntries();
 
-    const allFolderIds = await getAllSubfolderIds([folderId]);
+    // Determine root folder name
+    let rootFolderName = dto.folderName;
+    if (!rootFolderName || rootFolderName === 'undefined' || rootFolderName === 'null' || rootFolderName.trim() === '') {
+      rootFolderName = path.basename(dto.originalName, path.extname(dto.originalName)) || 'Extracted_Folder';
+    }
 
-    // Fetch all folders to build hierarchy paths
-    const foldersList = await this.dataSource.query(
-      `SELECT id, name, parent_id FROM folders WHERE id = ANY($1)`,
-      [allFolderIds]
-    );
-    const folderMap = new Map<string, { name: string; parentId: string | null }>();
-    foldersList.forEach((f: any) => folderMap.set(f.id, { name: f.name, parentId: f.parent_id }));
-
-    const getFolderPath = (fId: string): string => {
-      let pathSegments: string[] = [];
-      let cur: string | null = fId;
-      while (cur && folderMap.has(cur)) {
-        const item = folderMap.get(cur)!;
-        pathSegments.unshift(item.name);
-        if (cur === folderId) break;
-        cur = item.parentId;
-      }
-      return pathSegments.join('/');
-    };
-
-    // Fetch all files in these folders
-    const files = await this.dataSource.query(
-      `SELECT * FROM files WHERE folder_id = ANY($1) AND deleted_at IS NULL`,
-      [allFolderIds]
-    );
-
-    const safeFolderName = folder.name.replace(/[^a-zA-Z0-9_-]/g, '_') || 'Folder_Download';
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${safeFolderName}.zip"`);
-
-    const archive = archiver('zip', { zlib: { level: 6 } });
-    archive.on('error', (err: any) => {
-      console.error('Archive generation error:', err);
-      if (!res.headersSent) {
-        res.status(500).json({ message: 'Error generating zip archive', error: err.message });
-      }
+    const topFolderParentId = (dto.folderId && dto.folderId !== 'null' && dto.folderId !== 'undefined' && dto.folderId !== '') ? dto.folderId : null;
+    const topFolder = await this.createFolder({
+      name: rootFolderName,
+      parentId: topFolderParentId,
+      ownerId: dto.ownerId
     });
 
-    archive.pipe(res);
+    const folderCache = new Map<string, string>(); // relative dir path -> folderId
+    folderCache.set('', topFolder.id);
 
-    for (const f of files) {
-      if (f.storage_path && fs.existsSync(f.storage_path)) {
-        const subPath = f.folder_id ? getFolderPath(f.folder_id) : folder.name;
-        const entryPath = `${subPath}/${f.original_name || f.name}`;
-        archive.file(f.storage_path, { name: entryPath });
+    const getOrCreateFolderForPath = async (relPath: string): Promise<string> => {
+      const cleanRel = relPath.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+      if (!cleanRel) return topFolder.id;
+
+      const parts = cleanRel.split('/');
+      // If the first segment is already the rootFolderName, skip it to avoid nesting
+      if (parts[0] === rootFolderName) {
+        parts.shift();
+      }
+      if (parts.length === 0) return topFolder.id;
+
+      let currentParentId = topFolder.id;
+      let pathAccum = '';
+
+      for (const segment of parts) {
+        if (!segment || segment === '.' || segment === '..') continue;
+        pathAccum = pathAccum ? `${pathAccum}/${segment}` : segment;
+        if (folderCache.has(pathAccum)) {
+          currentParentId = folderCache.get(pathAccum)!;
+        } else {
+          const newFolder = await this.createFolder({
+            name: segment,
+            parentId: currentParentId,
+            ownerId: dto.ownerId
+          });
+          folderCache.set(pathAccum, newFolder.id);
+          currentParentId = newFolder.id;
+        }
+      }
+      return currentParentId;
+    };
+
+    for (const entry of zipEntries) {
+      // Ignore OS metadata and special system files
+      if (entry.entryName.startsWith('__MACOSX') || entry.entryName.includes('/.DS_Store') || entry.name === '.DS_Store' || entry.name === 'Thumbs.db') {
+        continue;
+      }
+
+      if (entry.isDirectory) {
+        await getOrCreateFolderForPath(entry.entryName);
+      } else {
+        const entryDir = path.dirname(entry.entryName);
+        const targetFolderId = await getOrCreateFolderForPath(entryDir === '.' ? '' : entryDir);
+        const fileName = entry.name || path.basename(entry.entryName);
+        if (!fileName) continue;
+
+        const fileExt = path.extname(fileName);
+        const storedFileName = `${uuid()}${fileExt}`;
+        const storedFilePath = path.join(uploadDir, storedFileName);
+
+        const buffer = entry.getData();
+        fs.writeFileSync(storedFilePath, buffer);
+
+        const extClean = fileExt.replace('.', '').toLowerCase();
+        let mimeType = 'application/octet-stream';
+        if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(extClean)) mimeType = `image/${extClean === 'jpg' ? 'jpeg' : extClean}`;
+        else if (['mp4', 'webm', 'mov', 'avi', 'mkv'].includes(extClean)) mimeType = `video/${extClean}`;
+        else if (['mp3', 'wav', 'ogg', 'm4a'].includes(extClean)) mimeType = `audio/${extClean}`;
+        else if (extClean === 'pdf') mimeType = 'application/pdf';
+        else if (['txt', 'log', 'csv', 'md'].includes(extClean)) mimeType = 'text/plain';
+        else if (['json', 'js', 'ts', 'html', 'css', 'xml'].includes(extClean)) mimeType = `application/${extClean}`;
+
+        await this.saveFile({
+          name: storedFileName,
+          originalName: fileName,
+          mimeType: mimeType,
+          size: buffer.length,
+          storagePath: storedFilePath,
+          storageUrl: `/uploads/${storedFileName}`,
+          ownerId: dto.ownerId,
+          folderId: targetFolderId,
+          conversationId: dto.conversationId,
+        });
       }
     }
 
-    await archive.finalize();
+    // Safely remove the uploaded temporary zip file after extraction
+    try {
+      if (fs.existsSync(dto.zipPath)) {
+        fs.unlinkSync(dto.zipPath);
+      }
+    } catch (cleanErr) {
+      console.warn('Could not remove temporary zip archive:', cleanErr);
+    }
+
+    return topFolder;
+  }
+
+  async extractZipFileById(fileId: string, userId: string) {
+    const [file] = await this.dataSource.query(
+      `SELECT * FROM files WHERE id = $1 AND deleted_at IS NULL`,
+      [fileId]
+    );
+    if (!file) throw new Error('File archive not found');
+
+    const filePath = file.storage_path || path.join(process.env.UPLOAD_PATH || '/app/uploads', file.name);
+    if (!fs.existsSync(filePath)) {
+      throw new Error('File archive storage not found on disk');
+    }
+
+    const zip = new AdmZip(filePath);
+    const zipEntries = zip.getEntries();
+    const folderName = path.basename(file.original_name, path.extname(file.original_name)) || 'Extracted Archive';
+
+    const topFolder = await this.createFolder({
+      name: folderName,
+      parentId: file.folder_id,
+      ownerId: userId
+    });
+
+    const folderCache = new Map<string, string>();
+    folderCache.set('', topFolder.id);
+
+    const getOrCreateFolderForPath = async (relPath: string): Promise<string> => {
+      const cleanRel = relPath.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+      if (!cleanRel) return topFolder.id;
+      const parts = cleanRel.split('/');
+      if (parts[0] === folderName) parts.shift();
+      if (parts.length === 0) return topFolder.id;
+
+      let currentParentId = topFolder.id;
+      let pathAccum = '';
+      for (const segment of parts) {
+        if (!segment || segment === '.' || segment === '..') continue;
+        pathAccum = pathAccum ? `${pathAccum}/${segment}` : segment;
+        if (folderCache.has(pathAccum)) {
+          currentParentId = folderCache.get(pathAccum)!;
+        } else {
+          const newFolder = await this.createFolder({
+            name: segment,
+            parentId: currentParentId,
+            ownerId: userId
+          });
+          folderCache.set(pathAccum, newFolder.id);
+          currentParentId = newFolder.id;
+        }
+      }
+      return currentParentId;
+    };
+
+    const uploadDir = process.env.UPLOAD_PATH || '/app/uploads';
+    for (const entry of zipEntries) {
+      if (entry.entryName.startsWith('__MACOSX') || entry.entryName.includes('/.DS_Store') || entry.name === '.DS_Store' || entry.name === 'Thumbs.db') {
+        continue;
+      }
+      if (entry.isDirectory) {
+        await getOrCreateFolderForPath(entry.entryName);
+      } else {
+        const entryDir = path.dirname(entry.entryName);
+        const targetFolderId = await getOrCreateFolderForPath(entryDir === '.' ? '' : entryDir);
+        const fileName = entry.name || path.basename(entry.entryName);
+        if (!fileName) continue;
+
+        const fileExt = path.extname(fileName);
+        const storedFileName = `${uuid()}${fileExt}`;
+        const storedFilePath = path.join(uploadDir, storedFileName);
+
+        const buffer = entry.getData();
+        fs.writeFileSync(storedFilePath, buffer);
+
+        const extClean = fileExt.replace('.', '').toLowerCase();
+        let mimeType = 'application/octet-stream';
+        if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(extClean)) mimeType = `image/${extClean === 'jpg' ? 'jpeg' : extClean}`;
+        else if (['mp4', 'webm', 'mov', 'avi', 'mkv'].includes(extClean)) mimeType = `video/${extClean}`;
+        else if (['mp3', 'wav', 'ogg', 'm4a'].includes(extClean)) mimeType = `audio/${extClean}`;
+        else if (extClean === 'pdf') mimeType = 'application/pdf';
+        else if (['txt', 'log', 'csv', 'md'].includes(extClean)) mimeType = 'text/plain';
+
+        await this.saveFile({
+          name: storedFileName,
+          originalName: fileName,
+          mimeType: mimeType,
+          size: buffer.length,
+          storagePath: storedFilePath,
+          storageUrl: `/uploads/${storedFileName}`,
+          ownerId: userId,
+          folderId: targetFolderId,
+        });
+      }
+    }
+
+    return topFolder;
+  }
+
+  async streamFolderAsZip(folderId: string, userId: string, res: Response) {
+    try {
+      const [folder] = await this.dataSource.query(
+        `SELECT * FROM folders WHERE id = $1 AND deleted_at IS NULL`,
+        [folderId]
+      );
+      if (!folder) {
+        return res.status(404).json({ message: 'Folder not found' });
+      }
+
+      // Recursively collect all subfolder IDs
+      const getAllSubfolderIds = async (parentIds: string[]): Promise<string[]> => {
+        if (parentIds.length === 0) return [];
+        const children = await this.dataSource.query(
+          `SELECT id FROM folders WHERE parent_id = ANY($1::uuid[]) AND deleted_at IS NULL`,
+          [parentIds]
+        );
+        if (children.length === 0) return parentIds;
+        const childIds = children.map((c: any) => c.id);
+        const deeper = await getAllSubfolderIds(childIds);
+        return [...parentIds, ...deeper];
+      };
+
+      const allFolderIds = await getAllSubfolderIds([folderId]);
+
+      // Fetch all folders to build hierarchy paths
+      const foldersList = await this.dataSource.query(
+        `SELECT id, name, parent_id FROM folders WHERE id = ANY($1::uuid[])`,
+        [allFolderIds]
+      );
+      const folderMap = new Map<string, { name: string; parentId: string | null }>();
+      foldersList.forEach((f: any) => folderMap.set(f.id, { name: f.name, parentId: f.parent_id }));
+
+      const getFolderPath = (fId: string): string => {
+        let pathSegments: string[] = [];
+        let cur: string | null = fId;
+        while (cur && folderMap.has(cur)) {
+          const item = folderMap.get(cur)!;
+          pathSegments.unshift(item.name);
+          if (cur === folderId) break;
+          cur = item.parentId;
+        }
+        return pathSegments.join('/');
+      };
+
+      // Fetch all files in these folders
+      const files = await this.dataSource.query(
+        `SELECT * FROM files WHERE folder_id = ANY($1::uuid[]) AND deleted_at IS NULL`,
+        [allFolderIds]
+      );
+
+      const zip = new AdmZip();
+
+      for (const f of files) {
+        const filePath = f.storage_path || path.join(process.env.UPLOAD_PATH || '/app/uploads', f.name);
+        if (fs.existsSync(filePath)) {
+          const subPath = f.folder_id ? getFolderPath(f.folder_id) : folder.name;
+          const entryPath = `${subPath}/${f.original_name || f.name}`;
+          const fileBuffer = fs.readFileSync(filePath);
+          zip.addFile(entryPath, fileBuffer);
+        }
+      }
+
+      const safeFolderName = folder.name.replace(/[^a-zA-Z0-9_-]/g, '_') || 'Folder_Download';
+      const zipBuffer = zip.toBuffer();
+
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${safeFolderName}.zip"`);
+      res.setHeader('Content-Length', zipBuffer.length.toString());
+      res.end(zipBuffer);
+    } catch (err: any) {
+      console.error('Error in streamFolderAsZip:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ message: 'Failed to stream folder zip archive', error: err.message });
+      }
+    }
   }
 
   async renameFile(id: string, name: string, userId: string) {

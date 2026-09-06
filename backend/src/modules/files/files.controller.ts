@@ -80,9 +80,38 @@ export class FilesController {
     });
   }
 
+  @Post('upload-folder-zip')
+  @RequirePermissions(['files', 'upload'])
+  @UseInterceptors(FileInterceptor('file', {
+    storage: diskStorage({
+      destination: (req, file, cb) => { cb(null, process.env.UPLOAD_PATH || '/app/uploads'); },
+      filename: (req, file, cb) => { cb(null, `${uuid()}${path.extname(file.originalname)}`); },
+    }),
+    limits: { fileSize: 100 * 1024 * 1024 * 1024 }, // 100 GB
+  }))
+  async uploadFolderZip(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('folderName') folderName: string,
+    @Body('folderId') folderId: string,
+    @Body('conversationId') conversationId: string,
+    @CurrentUser('id') userId: string
+  ) {
+    if (!file) {
+      throw new Error('No zip archive file provided');
+    }
+    return this.svc.extractZipAndSaveFolder({
+      zipPath: file.path,
+      originalName: file.originalname,
+      folderName,
+      folderId,
+      conversationId,
+      ownerId: userId
+    });
+  }
+
   @Post('upload-folder')
   @RequirePermissions(['files', 'upload'])
-  @UseInterceptors(FilesInterceptor('files', 5000, {
+  @UseInterceptors(FilesInterceptor('files', 25000, {
     storage: diskStorage({
       destination: (req, file, cb) => { cb(null, process.env.UPLOAD_PATH || '/app/uploads'); },
       filename: (req, file, cb) => { cb(null, `${uuid()}${path.extname(file.originalname)}`); },
@@ -97,6 +126,17 @@ export class FilesController {
     @Body('relativePaths') relativePaths: any,
     @CurrentUser('id') userId: string
   ) {
+    if (files && files.length === 1 && path.extname(files[0].originalname).toLowerCase() === '.zip') {
+      return this.svc.extractZipAndSaveFolder({
+        zipPath: files[0].path,
+        originalName: files[0].originalname,
+        folderName,
+        folderId,
+        conversationId,
+        ownerId: userId
+      });
+    }
+
     return this.svc.saveFolderStructure({
       files,
       folderName,
@@ -105,6 +145,12 @@ export class FilesController {
       relativePaths,
       ownerId: userId
     });
+  }
+
+  @Post(':id/extract-zip')
+  @RequirePermissions(['files', 'upload'])
+  async extractZip(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('id') userId: string) {
+    return this.svc.extractZipFileById(id, userId);
   }
 
   @Delete('folders/:id')

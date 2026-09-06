@@ -130,6 +130,7 @@ services:
       PLUGINS_ENABLED: "true"
     volumes:
       - /mnt/GSVR_Movies/apps/gsv-office/backend/dist:/app/dist:ro
+      - /mnt/GSVR_Movies/apps/gsv-office/backend/node_modules/adm-zip:/app/node_modules/adm-zip:ro
       - uploads_data:/app/uploads
     depends_on:
       postgres:
