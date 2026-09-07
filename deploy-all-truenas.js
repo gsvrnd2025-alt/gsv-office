@@ -27,13 +27,16 @@ console.log('  ✓ Dist archives created.');
 const localFlutterApk = path.join(__dirname, 'e_office_flutter', 'build', 'app', 'outputs', 'flutter-apk', 'app-release.apk');
 const localFlutterExe = path.join(__dirname, 'e_office_flutter', 'build', 'windows', 'x64', 'runner', 'Release', 'e_office_flutter.exe');
 
+const localFlutterZip = path.join(__dirname, 'downloads', 'GSVOffice-Windows.zip');
+
 if (fs.existsSync(localFlutterApk)) {
   fs.copyFileSync(localFlutterApk, path.join(__dirname, 'downloads', 'GSVOffice-Android.apk'));
   console.log('  ✓ Flutter APK copied to downloads/GSVOffice-Android.apk');
 }
 if (fs.existsSync(localFlutterExe)) {
   fs.copyFileSync(localFlutterExe, path.join(__dirname, 'downloads', 'GSVOffice-Portable.exe'));
-  console.log('  ✓ Flutter Windows EXE copied to downloads/GSVOffice-Portable.exe');
+  fs.copyFileSync(localFlutterExe, path.join(__dirname, 'downloads', 'GSVOffice.exe'));
+  console.log('  ✓ Flutter Windows EXE copied to downloads/GSVOffice.exe');
 }
 
 console.log(`\nConnecting to TrueNAS SCALE at ${SSH_CONFIG.host}...`);
@@ -61,6 +64,7 @@ conn.on('ready', () => {
           { local: './backend.tar.gz', remote: `${REMOTE_APP_DIR}/backend.tar.gz` },
           { local: './adm-zip.tar.gz', remote: `${REMOTE_APP_DIR}/adm-zip.tar.gz` },
           { local: './downloads/GSVOffice-Android.apk', remote: `${REMOTE_APP_DIR}/downloads/GSVOffice-Android.apk` },
+          { local: './downloads/GSVOffice-Windows.zip', remote: `${REMOTE_APP_DIR}/downloads/GSVOffice-Windows.zip` },
           { local: './docker-compose-truenas.yml', remote: `${REMOTE_APP_DIR}/docker-compose.yml` },
           { local: './nginx/conf.d/default.conf', remote: `${REMOTE_APP_DIR}/nginx/conf.d/default.conf` },
         ];
@@ -124,7 +128,7 @@ function deployOnServer() {
         console.log('\n🎉 ALL UPDATES PUSHED & DEPLOYED TO TRUENAS SCALE!');
         console.log('🌐 Web Application: http://192.168.0.177:8080');
         console.log('📱 Android Flutter APK: http://192.168.0.177:8080/downloads/GSVOffice-Android.apk');
-        console.log('🖥️ Windows Client: http://192.168.0.177:8080/downloads/GSVOffice-Portable.exe');
+        console.log('🖥️ Windows Client Package: http://192.168.0.177:8080/downloads/GSVOffice-Windows.zip');
       }
     });
   });

@@ -12,7 +12,7 @@ export default function DownloadsPage() {
     setTimeout(() => setCopiedCmd(null), 2000);
   };
 
-  const psCommand = `Invoke-WebRequest -Uri "http://192.168.0.177:8080/downloads/GSVOffice-Portable.exe" -OutFile "$env:TEMP\\GSVOffice.exe"; Start-Process "$env:TEMP\\GSVOffice.exe"`;
+  const psCommand = `Invoke-WebRequest -Uri "http://192.168.0.177:8080/downloads/GSVOffice-Windows.zip" -OutFile "$env:TEMP\\GSVOffice.zip"; Expand-Archive "$env:TEMP\\GSVOffice.zip" -DestinationPath "$env:LOCALAPPDATA\\GSVOffice" -Force; Start-Process "$env:LOCALAPPDATA\\GSVOffice\\GSVOffice.exe"`;
   const bashCommand = `curl -L -o /tmp/gsv-office http://192.168.0.177:8080/downloads/gsv-office-client && chmod +x /tmp/gsv-office && /tmp/gsv-office &`;
 
   return (
@@ -46,14 +46,11 @@ export default function DownloadsPage() {
             </div>
           </div>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-            Run GSV Office directly from your taskbar. Operates silently in the system tray, starts automatically with Windows, and checks server connectivity in the background.
+            Run native GSV Office directly from your taskbar. Includes all dependent audio, video & network DLLs for instant calling, offline sync, and remote desktop control.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: 'auto' }}>
-            <a href="/downloads/GSVOffice-Setup.exe" download className="btn btn-primary" style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', border: 'none', justifyContent: 'center', fontWeight: 700 }} onClick={() => toast.success('Downloading GSV Office Setup... 📥')}>
-              <Download size={16} /> GSVOffice-Setup.exe (Installer)
-            </a>
-            <a href="/downloads/GSVOffice-Portable.exe" download className="btn btn-secondary" style={{ justifyContent: 'center', fontWeight: 600 }} onClick={() => toast.success('Downloading GSV Office Portable... 📥')}>
-              <Download size={16} /> GSVOffice-Portable.exe (Standalone)
+            <a href="/downloads/GSVOffice-Windows.zip" download className="btn btn-primary" style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', border: 'none', justifyContent: 'center', fontWeight: 700 }} onClick={() => toast.success('Downloading GSV Office Windows Package... 📥')}>
+              <Download size={16} /> GSVOffice-Windows.zip (Portable Package)
             </a>
           </div>
         </div>
