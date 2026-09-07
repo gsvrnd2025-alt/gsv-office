@@ -69,8 +69,102 @@ class _ChatScreenState extends State<ChatScreen> {
     Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
   }
 
-  void _handlePickAndShareFile() async {
-    final result = await FilePicker.pickFiles();
+  void _handlePickAndShareFile() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return Container(
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkCard : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(color: Colors.grey.withValues(alpha: 0.4), borderRadius: BorderRadius.circular(2)),
+              ),
+              const Text('Share to Conversation', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildAttachOption(
+                    icon: Icons.camera_alt_rounded,
+                    label: 'Camera',
+                    color: AppColors.rose,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _pickAndSend(FileType.image);
+                    },
+                  ),
+                  _buildAttachOption(
+                    icon: Icons.photo_library_rounded,
+                    label: 'Gallery',
+                    color: AppColors.primaryLight,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _pickAndSend(FileType.media);
+                    },
+                  ),
+                  _buildAttachOption(
+                    icon: Icons.insert_drive_file_rounded,
+                    label: 'Document',
+                    color: AppColors.emerald,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _pickAndSend(FileType.custom, allowedExtensions: ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'json', 'py', 'zip']);
+                    },
+                  ),
+                  _buildAttachOption(
+                    icon: Icons.folder_zip_rounded,
+                    label: 'All Files',
+                    color: AppColors.amber,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _pickAndSend(FileType.any);
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildAttachOption({required IconData icon, required String label, required Color color, required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircleAvatar(
+              radius: 26,
+              backgroundColor: color.withValues(alpha: 0.15),
+              child: Icon(icon, color: color, size: 24),
+            ),
+            const SizedBox(height: 6),
+            Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _pickAndSend(FileType type, {List<String>? allowedExtensions}) async {
+    final result = await FilePicker.pickFiles(type: type, allowedExtensions: allowedExtensions);
     if (result != null && result.files.isNotEmpty && mounted) {
       final file = result.files.first;
       final chat = context.read<ChatProvider>();
@@ -91,11 +185,158 @@ class _ChatScreenState extends State<ChatScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('File shared: ${file.name}')),
+          SnackBar(content: Text('Sent: ${file.name}')),
         );
       }
       Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
     }
+  }
+
+  void _openImageLightbox(BuildContext context, ChatMessage currentMsg, List<ChatMessage> allMessages) {
+    final imageMessages = allMessages.where((m) => m.type == MessageType.image).toList();
+    if (imageMessages.isEmpty) return;
+    int initialIdx = imageMessages.indexWhere((m) => m.id == currentMsg.id);
+    if (initialIdx == -1) initialIdx = 0;
+
+    final pageController = PageController(initialPage: initialIdx);
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        int currentIdx = initialIdx;
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final photo = imageMessages[currentIdx];
+            return Dialog(
+              backgroundColor: Colors.black.withValues(alpha: 0.95),
+              insetPadding: EdgeInsets.zero,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // PageView for swipe left/right
+                  PageView.builder(
+                    controller: pageController,
+                    itemCount: imageMessages.length,
+                    onPageChanged: (idx) {
+                      setModalState(() {
+                        currentIdx = idx;
+                      });
+                    },
+                    itemBuilder: (context, i) {
+                      final item = imageMessages[i];
+                      return Center(
+                        child: item.fileUrl != null && item.fileUrl!.startsWith('http')
+                            ? Image.network(
+                                item.fileUrl!,
+                                fit: BoxFit.contain,
+                                errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_rounded, color: Colors.white54, size: 64),
+                              )
+                            : Container(
+                                padding: const EdgeInsets.all(32),
+                                decoration: BoxDecoration(
+                                  color: Colors.white10,
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.image_rounded, color: AppColors.primaryLight, size: 72),
+                                    const SizedBox(height: 12),
+                                    Text(item.fileName ?? 'Image Preview', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                              ),
+                      );
+                    },
+                  ),
+
+                  // Top App Bar in Lightbox
+                  Positioned(
+                    top: 16,
+                    left: 16,
+                    right: 16,
+                    child: SafeArea(
+                      child: Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.close_rounded, color: Colors.white, size: 28),
+                            onPressed: () => Navigator.pop(ctx),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  photo.fileName ?? 'Photo Preview',
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  '${currentIdx + 1} of ${imageMessages.length}',
+                                  style: const TextStyle(color: Colors.white70, fontSize: 11),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.share_rounded, color: Colors.white),
+                            onPressed: () {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Sharing ${photo.fileName ?? "image"}...')),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // Left arrow navigation button
+                  if (imageMessages.length > 1 && currentIdx > 0)
+                    Positioned(
+                      left: 16,
+                      top: 0,
+                      bottom: 0,
+                      child: Center(
+                        child: CircleAvatar(
+                          backgroundColor: Colors.black54,
+                          child: IconButton(
+                            icon: const Icon(Icons.chevron_left_rounded, color: Colors.white, size: 28),
+                            onPressed: () {
+                              pageController.previousPage(duration: const Duration(milliseconds: 250), curve: Curves.easeInOut);
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+
+                  // Right arrow navigation button
+                  if (imageMessages.length > 1 && currentIdx < imageMessages.length - 1)
+                    Positioned(
+                      right: 16,
+                      top: 0,
+                      bottom: 0,
+                      child: Center(
+                        child: CircleAvatar(
+                          backgroundColor: Colors.black54,
+                          child: IconButton(
+                            icon: const Icon(Icons.chevron_right_rounded, color: Colors.white, size: 28),
+                            onPressed: () {
+                              pageController.nextPage(duration: const Duration(milliseconds: 250), curve: Curves.easeInOut);
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   void _showMissedCallsDialog(BuildContext context, ChatProvider chat, bool isDark) {
@@ -489,68 +730,77 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildMessageBubble(ChatMessage msg, bool isMe, bool isDark) {
     final timeStr = DateFormat('hh:mm a').format(msg.createdAt);
+    final chat = context.read<ChatProvider>();
 
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        constraints: const BoxConstraints(maxWidth: 460),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: isMe
-              ? AppColors.primary
-              : (isDark ? AppColors.darkCard : AppColors.lightCardHover),
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(14),
-            topRight: const Radius.circular(14),
-            bottomLeft: Radius.circular(isMe ? 14 : 2),
-            bottomRight: Radius.circular(isMe ? 2 : 14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () {
+          if (msg.type == MessageType.image) {
+            _openImageLightbox(context, msg, chat.messages);
+          }
+        },
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          constraints: const BoxConstraints(maxWidth: 460),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: isMe
+                ? AppColors.primary
+                : (isDark ? AppColors.darkCard : AppColors.lightCardHover),
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(14),
+              topRight: const Radius.circular(14),
+              bottomLeft: Radius.circular(isMe ? 14 : 2),
+              bottomRight: Radius.circular(isMe ? 2 : 14),
+            ),
+            border: isMe ? null : Border.all(color: isDark ? AppColors.darkBorder.withValues(alpha: 0.5) : AppColors.lightBorder),
           ),
-          border: isMe ? null : Border.all(color: isDark ? AppColors.darkBorder.withValues(alpha: 0.5) : AppColors.lightBorder),
-        ),
-        child: Column(
-          crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-          children: [
-            if (msg.type == MessageType.file || msg.type == MessageType.image) ...[
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    msg.type == MessageType.image ? Icons.image_rounded : Icons.insert_drive_file_rounded,
-                    color: isMe ? Colors.white : AppColors.primaryLight,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      msg.fileName ?? 'Shared File',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: isMe ? Colors.white : (isDark ? Colors.white : AppColors.lightTextPrimary),
-                        fontSize: 12,
+          child: Column(
+            crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            children: [
+              if (msg.type == MessageType.file || msg.type == MessageType.image) ...[
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      msg.type == MessageType.image ? Icons.image_rounded : Icons.insert_drive_file_rounded,
+                      color: isMe ? Colors.white : AppColors.primaryLight,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        msg.fileName ?? (msg.type == MessageType.image ? 'Photo (Tap to view)' : 'Shared File'),
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: isMe ? Colors.white : (isDark ? Colors.white : AppColors.lightTextPrimary),
+                          fontSize: 12,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
+                const SizedBox(height: 4),
+              ],
+              Text(
+                msg.content ?? '',
+                style: TextStyle(
+                  color: isMe ? Colors.white : (isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary),
+                  fontSize: 13,
+                ),
               ),
               const SizedBox(height: 4),
+              Text(
+                timeStr,
+                style: TextStyle(
+                  fontSize: 9,
+                  color: isMe ? Colors.white70 : (isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary),
+                ),
+              ),
             ],
-            Text(
-              msg.content ?? '',
-              style: TextStyle(
-                color: isMe ? Colors.white : (isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary),
-                fontSize: 13,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              timeStr,
-              style: TextStyle(
-                fontSize: 9,
-                color: isMe ? Colors.white70 : (isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

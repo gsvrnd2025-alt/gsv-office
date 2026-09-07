@@ -10,9 +10,10 @@
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
-        android:label="GSV E-Office"
+        android:label="GSV Office"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"

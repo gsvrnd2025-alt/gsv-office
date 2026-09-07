@@ -243,6 +243,8 @@ export default function ChatPage() {
   const [fileCategory, setFileCategory] = useState<'all' | 'image' | 'doc' | 'zip' | 'folder'>('all');
   const [sendingMessages, setSendingMessages] = useState<any[]>([]);
   const [uploadAccept, setUploadAccept] = useState('*');
+  const [lightboxImageIndex, setLightboxImageIndex] = useState<number | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   
   // 1. Mentions (@) popup
   const [showMentions, setShowMentions] = useState(false);
@@ -306,6 +308,7 @@ export default function ChatPage() {
   useEffect(() => {
     localStorage.setItem('gsv_scratchpad', scratchpadText);
   }, [scratchpadText]);
+
 
   const handleScratchpadHeaderMouseDown = (e: React.MouseEvent) => {
     if (isScratchpadMaximized) return;
@@ -840,17 +843,32 @@ export default function ChatPage() {
         return;
       }
 
-      throw new Error('Web Share API not supported on this browser');
     } catch (err: any) {
       toast.dismiss(toastId);
       if (err.name === 'AbortError') return; // User cancelled share sheet
-      // Final fallback — copy link to clipboard
-      console.warn('Share failed, copying link:', err.message);
-      const ok = copyTextToClipboard(absoluteUrl);
-      if (ok) {
-        toast.success('Link copied to clipboard! 📋 (File sharing not supported on this browser)');
-      } else {
-        toast.error('Could not share file. Try a different browser.');
+      
+      // Fallback: Download file directly to device & copy link
+      console.warn('Native share failed, downloading to device:', err.message);
+      try {
+        const response = await fetch(absoluteUrl, { mode: 'cors' });
+        const blob = await response.blob();
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(downloadUrl);
+        copyTextToClipboard(absoluteUrl);
+        toast.success(`"${name}" saved to device & link copied! 💾`);
+      } catch (dlErr) {
+        const ok = copyTextToClipboard(absoluteUrl);
+        if (ok) {
+          toast.success('Link copied to clipboard! 📋');
+        } else {
+          toast.error('Could not share or download file.');
+        }
       }
     }
   };
@@ -930,6 +948,23 @@ export default function ChatPage() {
     enabled: !!conversationId,
     refetchInterval: 2000,
   });
+
+  // Lightbox keyboard navigation (ArrowLeft, ArrowRight, Escape)
+  useEffect(() => {
+    if (lightboxImageIndex === null) return;
+    const photoMsgs = (messages || []).filter((m: any) => m.type === 'photo' && (m.file_url || m.fileUrl));
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setLightboxImageIndex(null);
+      } else if (e.key === 'ArrowLeft') {
+        setLightboxImageIndex(prev => (prev !== null && prev > 0 ? prev - 1 : photoMsgs.length - 1));
+      } else if (e.key === 'ArrowRight') {
+        setLightboxImageIndex(prev => (prev !== null && prev < photoMsgs.length - 1 ? prev + 1 : 0));
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [lightboxImageIndex, messages]);
 
   // Use /users/directory — no 'users:read' permission required, available to all logged-in users
   const { data: usersData } = useQuery({
@@ -1276,6 +1311,10 @@ export default function ChatPage() {
   // Recording Visualizer Trigger
   const startRecording = async () => {
     try {
+      if (!navigator?.mediaDevices?.getUserMedia) {
+        setShowMicWarningModal(true);
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       setMicPermission('granted');
       const mediaRecorder = new MediaRecorder(stream);
@@ -1655,6 +1694,10 @@ export default function ChatPage() {
   /** Get microphone/camera stream. Returns null and shows mic warning if blocked. */
   const getMediaStream = async (video: boolean): Promise<MediaStream | null> => {
     try {
+      if (!navigator?.mediaDevices?.getUserMedia) {
+        setShowMicWarningModal(true);
+        return null;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -3295,7 +3338,11 @@ export default function ChatPage() {
                                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                                   <div
                                     style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)', maxWidth: '420px', cursor: 'zoom-in', position: 'relative' }}
-                                    onClick={() => setPreviewFile({ url: msg.file_url || msg.fileUrl, name: msg.file_name || msg.fileName || 'photo.jpg', type: 'photo' })}
+                                    onClick={() => {
+                                      const photoMsgs = sortedMessages.filter((m: any) => m.type === 'photo' && (m.file_url || m.fileUrl));
+                                      const idx = photoMsgs.findIndex((p: any) => (p.id === msg.id) || ((p.file_url || p.fileUrl) === (msg.file_url || msg.fileUrl)));
+                                      setLightboxImageIndex(idx !== -1 ? idx : 0);
+                                    }}
                                     onDoubleClick={(e) => { e.stopPropagation(); window.open(msg.file_url || msg.fileUrl, '_blank'); }}
                                   >
                                     <img
@@ -3526,12 +3573,15 @@ export default function ChatPage() {
                           }} style={{ display: 'inline-flex', cursor: 'pointer', color: isOwn ? 'var(--wa-own-text)' : 'var(--wa-other-text)' }}>
                             <Copy size={18} strokeWidth={2.4} />
                           </span>
-                          <span title="Share to External Apps (WhatsApp, Drive, etc.)" onClick={() => {
-                            handleNativeShare({
-                              text: msg.content,
-                              url: msg.file_url || msg.fileUrl,
-                              title: msg.file_name || 'GSV Message'
-                            });
+                          <span title="Share to External Apps (WhatsApp, Telegram, etc.)" onClick={() => {
+                            if (msg.file_url || msg.fileUrl || msg.fileName) {
+                              handleShareFile(msg);
+                            } else {
+                              handleNativeShare({
+                                text: msg.content,
+                                title: 'GSV Message'
+                              });
+                            }
                           }} style={{ display: 'inline-flex', cursor: 'pointer', color: isOwn ? 'var(--wa-own-text)' : 'var(--wa-other-text)' }}>
                             <Share2 size={18} strokeWidth={2.4} />
                           </span>
@@ -3765,14 +3815,20 @@ export default function ChatPage() {
                     </button>
                     {showAttachmentsDropdown && (
                       <div className="dropdown-menu" style={{ bottom: '100%', top: 'auto', right: 0, left: 'auto', marginBottom: '10px', display: 'block', background: 'var(--bg-card)', border: '1.5px solid var(--border-color)', borderRadius: '14px', boxShadow: '0 12px 36px rgba(0,0,0,0.5)', zIndex: 1100 }}>
-                        <div className="dropdown-item" onClick={() => { setUploadAccept('image/*'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
-                          📸 Photos
+                        <div className="dropdown-item" onClick={() => {
+                          setShowAttachmentsDropdown(false);
+                          setTimeout(() => cameraInputRef.current?.click(), 100);
+                        }}>
+                          📷 Take Photo (Camera)
                         </div>
-                        <div className="dropdown-item" onClick={() => { setUploadAccept('video/*'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
-                          🎥 Videos
+                        <div className="dropdown-item" onClick={() => { setUploadAccept('image/*,video/*'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
+                          🖼️ Photos & Videos
                         </div>
-                        <div className="dropdown-item" onClick={() => { setUploadAccept('.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.js,.jsx,.ts,.tsx,.json,.py,.java,.html,.css,.xml,.yaml,.yml,.sh,.bat,.ini,.log'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
+                        <div className="dropdown-item" onClick={() => { setUploadAccept('.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.json,.py,.js,.ts,.html,.css'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
                           📄 Documents
+                        </div>
+                        <div className="dropdown-item" onClick={() => { setUploadAccept('audio/*'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
+                          🎵 Audio Files
                         </div>
                         <div className="dropdown-item" onClick={() => { setUploadAccept('.zip,.rar,.tar,.gz,.7z'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
                           🤐 Zip File Upload
@@ -3780,24 +3836,28 @@ export default function ChatPage() {
                         <div className="dropdown-item" onClick={() => { setUploadAccept('*'); setShowAttachmentsDropdown(false); setTimeout(() => fileInputRef.current?.click(), 100); }}>
                           📁 Files (All Types)
                         </div>
-                        <div className="dropdown-item" onClick={() => {
-                          setShowAttachmentsDropdown(false);
-                          setTimeout(() => folderInputRef.current?.click(), 100);
-                        }}>
-                          📁 ⬆️ Upload PC Folder (Direct)
-                        </div>
-                        <div className="dropdown-item" onClick={() => {
-                          setShowAttachmentsDropdown(false);
-                          setTimeout(() => zipFolderInputRef.current?.click(), 100);
-                        }}>
-                          📦 ⚡ Upload ZIP as Folder (Auto-Extract)
-                        </div>
-                        <div className="dropdown-item" onClick={() => {
-                          setShowAttachmentsDropdown(false);
-                          setShowSmbModal(true);
-                        }}>
-                          📁 ⚡ Direct SMB & Cloud Folder Share
-                        </div>
+                        {!isMobileDevice && (
+                          <>
+                            <div className="dropdown-item" onClick={() => {
+                              setShowAttachmentsDropdown(false);
+                              setTimeout(() => folderInputRef.current?.click(), 100);
+                            }}>
+                              📁 ⬆️ Upload PC Folder (Direct)
+                            </div>
+                            <div className="dropdown-item" onClick={() => {
+                              setShowAttachmentsDropdown(false);
+                              setTimeout(() => zipFolderInputRef.current?.click(), 100);
+                            }}>
+                              📦 ⚡ Upload ZIP as Folder (Auto-Extract)
+                            </div>
+                            <div className="dropdown-item" onClick={() => {
+                              setShowAttachmentsDropdown(false);
+                              setShowSmbModal(true);
+                            }}>
+                              📁 ⚡ Direct SMB & Cloud Folder Share
+                            </div>
+                          </>
+                        )}
                         <div className="dropdown-item" onClick={() => {
                           setShowAttachmentsDropdown(false);
                           setShowNoteEditor(true);
@@ -3902,6 +3962,7 @@ export default function ChatPage() {
                   </button>
                 )}
 
+                <input type="file" ref={cameraInputRef} style={{ display: 'none' }} accept="image/*" capture="environment" onChange={e => handleFileUpload(e, false)} />
                 <input type="file" ref={fileInputRef} style={{ display: 'none' }} multiple accept={uploadAccept === '*' ? undefined : uploadAccept} onChange={e => handleFileUpload(e, false)} />
                 <input
                   type="file"
@@ -5603,64 +5664,331 @@ export default function ChatPage() {
         </div>
       )}
 
+      {/* Full-Screen Image Lightbox Viewer with Left/Right Navigation */}
+      {(() => {
+        const photoMsgs = (messages || []).filter((m: any) => m.type === 'photo' && (m.file_url || m.fileUrl));
+        if (lightboxImageIndex === null || !photoMsgs[lightboxImageIndex]) return null;
+        const currentPhoto = photoMsgs[lightboxImageIndex];
+        const photoUrl = currentPhoto.file_url || currentPhoto.fileUrl;
+        const photoName = currentPhoto.file_name || currentPhoto.fileName || `Photo_${lightboxImageIndex + 1}.jpg`;
+        const senderName = currentPhoto.sender?.fullName || currentPhoto.sender_name || 'Teammate';
+
+        return (
+          <div
+            className="modal-overlay animate-fade-in"
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0, 0, 0, 0.95)',
+              backdropFilter: 'blur(12px)',
+              zIndex: 2000,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              padding: '16px',
+              userSelect: 'none'
+            }}
+            onClick={() => setLightboxImageIndex(null)}
+          >
+            {/* Top Toolbar */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                color: '#fff',
+                padding: '8px 14px',
+                background: 'rgba(255, 255, 255, 0.1)',
+                borderRadius: '12px',
+                backdropFilter: 'blur(8px)',
+                zIndex: 2005
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-icon btn-sm"
+                  onClick={() => setLightboxImageIndex(null)}
+                  style={{ color: '#fff', width: '36px', height: '36px', borderRadius: '50%', background: 'rgba(255,255,255,0.12)' }}
+                  title="Close (Esc)"
+                >
+                  <X size={20} />
+                </button>
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 700, maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {photoName}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>
+                    {senderName} • {formatTime(currentPhoto.created_at || currentPhoto.createdAt)} • ({lightboxImageIndex + 1} of {photoMsgs.length})
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => handleShareFile(currentPhoto)}
+                  style={{ color: '#fff', display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255,255,255,0.12)', borderRadius: '8px', padding: '6px 12px' }}
+                  title="Share to WhatsApp, Telegram, etc."
+                >
+                  <Share2 size={16} /> <span>Share</span>
+                </button>
+                <a
+                  href={photoUrl}
+                  download={photoName}
+                  className="btn btn-primary btn-sm"
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '8px', padding: '6px 12px', background: 'var(--wa-accent, #00a884)', borderColor: 'var(--wa-accent, #00a884)' }}
+                  onClick={e => e.stopPropagation()}
+                  title="Download Image to Device"
+                >
+                  <Download size={16} /> <span>Download</span>
+                </a>
+              </div>
+            </div>
+
+            {/* Main Stage with Navigation Arrows */}
+            <div
+              style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                position: 'relative',
+                overflow: 'hidden',
+                margin: '12px 0'
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Previous Button */}
+              {photoMsgs.length > 1 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setLightboxImageIndex(prev => (prev !== null && prev > 0 ? prev - 1 : photoMsgs.length - 1));
+                  }}
+                  style={{
+                    position: 'absolute',
+                    left: '16px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    zIndex: 2010,
+                    width: '48px',
+                    height: '48px',
+                    borderRadius: '50%',
+                    background: 'rgba(0, 0, 0, 0.65)',
+                    border: '1.5px solid rgba(255, 255, 255, 0.3)',
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+                    transition: 'all 0.2s ease'
+                  }}
+                  title="Previous Image (Left Arrow)"
+                >
+                  <ChevronLeft size={28} />
+                </button>
+              )}
+
+              {/* Main Image */}
+              <img
+                src={photoUrl}
+                alt={photoName}
+                style={{
+                  maxWidth: '92vw',
+                  maxHeight: '78vh',
+                  objectFit: 'contain',
+                  borderRadius: '10px',
+                  boxShadow: '0 12px 48px rgba(0,0,0,0.8)',
+                  animation: 'fadeIn 0.2s ease'
+                }}
+              />
+
+              {/* Next Button */}
+              {photoMsgs.length > 1 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setLightboxImageIndex(prev => (prev !== null && prev < photoMsgs.length - 1 ? prev + 1 : 0));
+                  }}
+                  style={{
+                    position: 'absolute',
+                    right: '16px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    zIndex: 2010,
+                    width: '48px',
+                    height: '48px',
+                    borderRadius: '50%',
+                    background: 'rgba(0, 0, 0, 0.65)',
+                    border: '1.5px solid rgba(255, 255, 255, 0.3)',
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+                    transition: 'all 0.2s ease'
+                  }}
+                  title="Next Image (Right Arrow)"
+                >
+                  <ChevronRight size={28} />
+                </button>
+              )}
+            </div>
+
+            {/* Bottom Caption */}
+            {currentPhoto.content && (
+              <div
+                style={{
+                  textAlign: 'center',
+                  color: '#fff',
+                  fontSize: '14px',
+                  background: 'rgba(0, 0, 0, 0.75)',
+                  padding: '10px 20px',
+                  borderRadius: '12px',
+                  maxWidth: '600px',
+                  margin: '0 auto',
+                  border: '1px solid rgba(255, 255, 255, 0.15)'
+                }}
+                onClick={e => e.stopPropagation()}
+              >
+                {renderMessageContent(currentPhoto.content)}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Document / File Preview Modal */}
+      {previewFile && (
+        <div
+          className="modal-overlay animate-fade-in"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.8)',
+            backdropFilter: 'blur(8px)',
+            zIndex: 1900,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px'
+          }}
+          onClick={() => setPreviewFile(null)}
+        >
+          <div
+            className="card card-body animate-scale-in"
+            style={{
+              width: '720px',
+              maxWidth: '95vw',
+              maxHeight: '90vh',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '16px'
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {getFileIcon(previewFile.name)}
+                <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', maxWidth: '400px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {previewFile.name}
+                </div>
+              </div>
+              <button type="button" className="btn btn-ghost btn-icon btn-sm" onClick={() => setPreviewFile(null)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ flex: 1, minHeight: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-secondary)', borderRadius: '10px', overflow: 'hidden' }}>
+              {previewFile.type === 'pdf' ? (
+                <iframe src={previewFile.url} style={{ width: '100%', height: '500px', border: 'none' }} title={previewFile.name} />
+              ) : (
+                <div style={{ textAlign: 'center', padding: '30px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                  {getFileIcon(previewFile.name)}
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>{previewFile.name}</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Document is ready for viewing and download.</div>
+                  <a href={previewFile.url} download={previewFile.name} className="btn btn-primary" style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Download size={16} /> Download Document
+                  </a>
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setPreviewFile(null)}>
+                Close
+              </button>
+              <a href={previewFile.url} download={previewFile.name} className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Download size={16} /> Download
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Mic Access Blocked Custom Warning Dialog */}
       {showMicWarningModal && (
         <div className="modal-overlay animate-fade-in" style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)',
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
           backdropFilter: 'blur(8px)', zIndex: 1500, display: 'flex',
           alignItems: 'center', justifyContent: 'center'
         }} onClick={() => setShowMicWarningModal(false)}>
           <div className="card animate-scale-in" style={{
-            width: '440px', background: 'var(--bg-card)',
-            border: '2.5px solid var(--brand-danger)', borderRadius: '16px',
-            boxShadow: '0 20px 50px rgba(0,0,0,0.4)', padding: '24px',
+            width: '460px', maxWidth: '92vw', background: 'var(--bg-card)',
+            border: '2px solid var(--brand-warning, #f59e0b)', borderRadius: '16px',
+            boxShadow: '0 20px 50px rgba(0,0,0,0.5)', padding: '24px',
             display: 'flex', flexDirection: 'column', gap: '16px'
           }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{
                 width: '44px', height: '44px', borderRadius: '50%',
-                background: 'rgba(239, 68, 68, 0.1)', color: 'var(--brand-danger)',
+                background: 'rgba(245, 158, 11, 0.15)', color: 'var(--brand-warning, #f59e0b)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center'
               }}>
                 <Mic size={24} />
               </div>
               <div>
-                <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>Microphone Access Blocked</h3>
-                <p style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Action Required: Allow site permissions in your browser settings</p>
+                <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>Microphone & Calling Notice</h3>
+                <p style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Hardware access restricted on mobile browser HTTP</p>
               </div>
             </div>
             
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.6, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <p>The application could not access your microphone. If you are using an IP address (HTTP), browsers block microphone access by default. To enable secure voice note recordings, please follow these steps:</p>
-              <div style={{ background: 'rgba(239, 68, 68, 0.1)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
-                <strong style={{ color: 'var(--brand-danger)' }}>🌐 Using Local Network IP (e.g. 192.168.x.x)?</strong><br/>
-                Chrome blocks microphones on non-HTTPS sites. To fix this:<br/>
-                1. Open a new tab and go to <code style={{ userSelect: 'all', background: 'rgba(0,0,0,0.2)', padding: '2px 4px', borderRadius: '4px' }}>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code><br/>
-                2. Enter <code style={{ userSelect: 'all', background: 'rgba(0,0,0,0.2)', padding: '2px 4px', borderRadius: '4px' }}>{window.location.origin}</code> in the box.<br/>
-                3. Change the dropdown to <strong>Enabled</strong> and click <strong>Relaunch</strong>.
+              <p>Android Chrome restricts microphone and camera permissions on plain HTTP (<code>192.168.0.177</code>) for security.</p>
+              <div style={{ background: 'rgba(0, 168, 132, 0.1)', padding: '12px', borderRadius: '10px', border: '1px solid rgba(0, 168, 132, 0.25)' }}>
+                <strong style={{ color: 'var(--wa-accent, #00a884)' }}>📱 Recommended: Use GSV Office Android APK</strong><br/>
+                The native Android App has full direct access to microphone, camera, ringtones, and instant calling with no browser policy blocks!
               </div>
-              <p>Otherwise (if using HTTPS), ensure you clicked "Allow" in the URL bar.</p>
+              <div style={{ background: 'rgba(245, 158, 11, 0.08)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(245, 158, 11, 0.2)', fontSize: '12px' }}>
+                <strong>🌐 To enable in Chrome Mobile browser:</strong><br/>
+                1. Open <code style={{ userSelect: 'all', background: 'rgba(0,0,0,0.2)', padding: '2px 4px', borderRadius: '4px' }}>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code><br/>
+                2. Enter <code>{window.location.origin}</code>, set to <strong>Enabled</strong> and tap <strong>Relaunch</strong>.
+              </div>
             </div>
             
-            <div style={{ display: 'flex', gap: '12px', marginTop: '8px', justifyContent: 'flex-end' }}>
-              <button className="btn btn-secondary btn-sm" style={{ padding: '8px 16px' }} onClick={() => setShowMicWarningModal(false)}>
+            <div style={{ display: 'flex', gap: '10px', marginTop: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary btn-sm" style={{ padding: '8px 14px' }} onClick={() => setShowMicWarningModal(false)}>
                 Dismiss
               </button>
-              <button className="btn btn-primary btn-sm" style={{ padding: '8px 16px', background: 'var(--wa-accent)', borderColor: 'var(--wa-accent)' }} onClick={async () => {
-                setShowMicWarningModal(false);
-                try {
-                  await startRecording();
-                } catch {
-                  setShowMicWarningModal(true);
-                }
-              }}>
-                🎤 Try Again
-              </button>
-              <button className="btn btn-primary btn-sm" style={{ padding: '8px 16px', background: 'var(--brand-primary)', borderColor: 'var(--brand-primary)' }} onClick={() => {
-                window.location.reload();
-              }}>
-                🔄 Reload Page
-              </button>
+              <a
+                href="/downloads/GSVOffice-Android.apk"
+                download="GSVOffice-Android.apk"
+                className="btn btn-primary btn-sm"
+                style={{ padding: '8px 16px', background: 'var(--wa-accent, #00a884)', borderColor: 'var(--wa-accent, #00a884)', display: 'flex', alignItems: 'center', gap: '6px' }}
+                onClick={() => setShowMicWarningModal(false)}
+              >
+                <Download size={14} /> 📱 Download Android APK
+              </a>
             </div>
           </div>
         </div>
