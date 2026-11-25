@@ -43,7 +43,7 @@
 #endif
 
 // ==================== CONFIGURATION ====================
-#define FIRMWARE_VERSION "v7.0.1-ELITE"
+#define FIRMWARE_VERSION "v7.0.2-ELITE"
 #define DEVICE_NAME "vvarma-rfid"
 #define AP_SSID "VARMA RFID SYSTEM"
 #define AP_PASS "GSVRF001"
@@ -136,6 +136,7 @@ HardwareSerial rfidSerial(2); // Use Serial2
 // ==================== GLOBALS ====================
 volatile SystemState currentState = BOOT_INTRO;
 OperationMode currentMode = MODE_IN;
+unsigned long lastManualModeSwitch = 0; // Tracks manual override to avoid auto-switching
 ProcessStep currentStep = STEP_NONE;
 volatile bool hasInternet = false;
 volatile bool deviceVerified = false;
@@ -585,6 +586,33 @@ void loop() {
   // Mode/Info Buttons - only when not processing
   if (!cardProcessing && !scanLocked) {
     handleButtons();
+  }
+
+  // ⭐️ AUTO-MODE SWITCHER (IST Time Based)
+  // Automatically switches to MODE_OUT in the evening (>= 16:30) and MODE_IN in the morning (06:00 - 14:00)
+  // Respects manual button presses for 15 minutes.
+  static unsigned long lastAutoModeCheck = 0;
+  if (!cardProcessing && !scanLocked && (millis() - lastAutoModeCheck > 20000)) {
+    lastAutoModeCheck = millis();
+    if (timeSynced && (millis() - lastManualModeSwitch > 900000)) {
+      struct tm ti;
+      if (getLocalTime(&ti, 50)) {
+        int currentMins = ti.tm_hour * 60 + ti.tm_min;
+        if (currentMins >= 16 * 60 + 30 || ti.tm_hour >= 17) {
+          if (currentMode == MODE_IN) {
+            currentMode = MODE_OUT;
+            updateLCDRow1();
+            webLog("AUTO-MODE: Switched to MODE_OUT for evening checkout");
+          }
+        } else if (ti.tm_hour >= 6 && ti.tm_hour < 14) {
+          if (currentMode == MODE_OUT) {
+            currentMode = MODE_IN;
+            updateLCDRow1();
+            webLog("AUTO-MODE: Switched to MODE_IN for morning checkin");
+          }
+        }
+      }
+    }
   }
 
   // ⭐️ FIX: Restore command display timeout (15 sec)
@@ -1867,6 +1895,7 @@ void handleButtons() {
   if (modePressed && !lastModeState)
     modePressStart = millis();
   if (!modePressed && lastModeState && modePressStart > 0) {
+    lastManualModeSwitch = millis(); // Track manual user override
     if (millis() - modePressStart > 3000) {
       currentMode = MODE_INV;
       beep(1500, 200);
