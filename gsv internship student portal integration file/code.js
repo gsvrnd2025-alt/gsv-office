@@ -11534,9 +11534,13 @@ if (e && e.parameter && (e.parameter.action === 'generate_app_form_pdf' || e.par
 
       const template = HtmlService.createTemplateFromFile('Index');
 
-      template.initialPage = e.parameter.page || 'home';
+      template.initialPage = (e && e.parameter && e.parameter.page) ? e.parameter.page : 'home';
 
-      template.initialSection = e.parameter.s || '';
+      template.initialSection = (e && e.parameter && e.parameter.s) ? e.parameter.s : '';
+
+      template.certNo = (e && e.parameter) ? (e.parameter.certNo || e.parameter.cert || '') : '';
+
+      template.regNo = (e && e.parameter) ? (e.parameter.regno || e.parameter.regId || e.parameter.registrationId || e.parameter.id || '') : '';
 
       const htmlOutput = template.evaluate();
 

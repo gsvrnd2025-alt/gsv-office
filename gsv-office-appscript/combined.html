@@ -2,6 +2,62 @@
 <html lang="en">
 
 <head>
+<!-- START GOOGLE SCRIPT RUN SHIM -->
+<script>
+(function() {
+  if (typeof google === 'undefined') {
+    function createRunProxy(onSuccess, onFailure) {
+      return new Proxy({}, {
+        get(target, prop) {
+          if (prop === 'withSuccessHandler') {
+            return function(newSuccess) {
+              return createRunProxy(newSuccess, onFailure);
+            };
+          }
+          if (prop === 'withFailureHandler') {
+            return function(newFailure) {
+              return createRunProxy(onSuccess, newFailure);
+            };
+          }
+          return function(...args) {
+            console.log('[google.script.run] Calling function:', prop, 'with arguments:', args);
+            fetch('/api/internship/run', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ functionName: prop, arguments: args })
+            })
+            .then(res => {
+              if (!res.ok) throw new Error('Network response not OK');
+              return res.json();
+            })
+            .then(data => {
+              const isErr = data && (data.status === 'error' || data.success === false || (data.data && data.data.status === 'error'));
+              if (isErr) {
+                const errMsg = (data.data && (data.data.message || data.data.error)) || data.message || data.error || 'Server error';
+                if (onFailure) onFailure(new Error(errMsg));
+              } else {
+                const payload = data !== null && data.data !== undefined ? data.data : data;
+                if (onSuccess) onSuccess(payload);
+              }
+            })
+            .catch(err => {
+              if (onFailure) onFailure(err.message || err);
+            });
+          };
+        }
+      });
+    }
+
+    window.google = {
+      script: {
+        run: createRunProxy(console.log, console.error)
+      }
+    };
+  }
+})();
+</script>
+<!-- END GOOGLE SCRIPT RUN SHIM -->
+
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GSV Electrical Enterprises Internship Portal</title>
@@ -500,6 +556,11 @@
 
         .password-toggle-btn {
             position: absolute;
+            right: 1px;
+            top: 1px;
+            bottom: 1px;
+            width: 40px;
+            background: transparent;
             right: 4px;
             top: 50%;
             transform: translateY(-50%);
@@ -1646,9 +1707,9 @@
             }
 
             let initialPage = '<?= initialPage ?>';
-            if (initialPage.indexOf('<' + '?=') !== -1) initialPage = '';
+            if (initialPage.indexOf('<?=') !== -1) initialPage = '';
             let initialSection = '<?= initialSection ?>';
-            if (initialSection.indexOf('<' + '?=') !== -1) initialSection = '';
+            if (initialSection.indexOf('<?=') !== -1) initialSection = '';
             const startTab = initialSection || initialPage || 'verify';
 
             if (startTab && startTab !== 'verify') {
