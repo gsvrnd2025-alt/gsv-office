@@ -42762,9 +42762,12 @@ function getStudentAttendance(registrationId) {
 
 
       if (attRecord) {
-
+        const inVal = String(attRecord.InTime || '').trim();
+        const hasValidIn = inVal && inVal !== '--' && inVal !== '-' && inVal !== '--:--' && inVal !== 'N/A';
         status = attRecord.Status;
-
+        if (!status || status === 'Absent' || status === 'Missed') {
+          if (hasValidIn) status = 'Present';
+        }
         label = status;
 
         if (status === 'Present' && attRecord.InTime && slotEnd) {
@@ -52336,11 +52339,17 @@ function processAttendanceRecordApproval(attendanceId, action) {
           sheet.getRange(i + 1, approvalCol + 1).setValue('Approved');
 
         } else {
-
-          sheet.getRange(i + 1, statusCol + 1).setValue('Absent');
-
-          sheet.getRange(i + 1, approvalCol + 1).setValue('Rejected');
-
+          // If the student already checked in (InTime exists), preserve their presence (Present / Late)!
+          const currentStatus = String(data[i][statusCol] || '').trim();
+          const inColIdx = headers.indexOf("InTime");
+          const inVal = inColIdx !== -1 ? String(data[i][inColIdx] || '').trim() : '';
+          const hasIn = inVal && inVal !== '--' && inVal !== '-' && inVal !== '--:--' && inVal !== 'N/A';
+          if (hasIn && (currentStatus.toLowerCase().includes('present') || currentStatus.toLowerCase().includes('late'))) {
+            sheet.getRange(i + 1, approvalCol + 1).setValue('Rejected');
+          } else {
+            sheet.getRange(i + 1, statusCol + 1).setValue('Absent');
+            sheet.getRange(i + 1, approvalCol + 1).setValue('Rejected');
+          }
         }
 
         return { status: 'success', message: `Attendance ${action}d successfully.` };
@@ -73075,15 +73084,13 @@ function getCurrentStudentStatus(regId) {
 
 
     // ⭐️ Exclude "Denied" records — a denied scan must NOT block a later valid scan
+    const todayIso = (typeof formatDateISO === 'function') ? formatDateISO(today) : String(today).trim();
+    const targetReg = String(regId || '').trim().toUpperCase();
 
     const todayRecords = data.filter(r =>
-
-      r.StudentRegistrationID === regId &&
-
-      r.Date === today &&
-
+      String(r.StudentRegistrationID || '').trim().toUpperCase() === targetReg &&
+      ((typeof formatDateISO === 'function' ? formatDateISO(r.Date) : String(r.Date).trim()) === todayIso || String(r.Date || '').trim() === String(today).trim()) &&
       String(r.Status || '').toUpperCase() !== 'DENIED'
-
     );
 
     if (todayRecords.length > 0) {
@@ -73373,7 +73380,16 @@ function recordWebCheckout(regId) {
     if (!current.record || !current.record.InTime) return { status: 'error', message: 'Not checked in today.' };
 
     const curOutVal = String(current.record.OutTime || '').trim();
-    const isAlreadyOut = Boolean(curOutVal && curOutVal !== '--' && curOutVal !== '-' && curOutVal !== '--:--' && !(curOutVal === '05:30 PM' && String(current.record.Remarks || '').indexOf('Check-Out') === -1 && String(current.record.Remarks || '').indexOf('Admin') === -1));
+    const curRemarks = String(current.record.Remarks || '').trim();
+    const isAutoCheckout = (curRemarks.indexOf('Auto Checked-Out') !== -1);
+    const isAlreadyOut = Boolean(
+      curOutVal &&
+      curOutVal !== '--' &&
+      curOutVal !== '-' &&
+      curOutVal !== '--:--' &&
+      !(curOutVal === '05:30 PM' && curRemarks.indexOf('Check-Out') === -1 && curRemarks.indexOf('Admin') === -1) &&
+      !isAutoCheckout
+    );
     if (isAlreadyOut) return { status: 'error', message: 'Already checked out today.' };
 
 
@@ -73491,9 +73507,13 @@ function recordWebCheckout(regId) {
     }
 
     const sheet = getSheet(SHEET_NAMES.ATTENDANCE);
+    let cleanRemarks = String(current.record.Remarks || '');
+    cleanRemarks = cleanRemarks.replace(/\|\s*Auto Checked-Out\s*\([^\)]*\)/gi, '').replace(/Auto Checked-Out\s*\([^\)]*\)/gi, '').trim();
+    cleanRemarks = cleanRemarks ? cleanRemarks + ' | Web Check-Out (' + nowStr + ')' : 'Web Check-Out (' + nowStr + ')';
+
     let updated = updateObjectInSheet(sheet, "AttendanceID", current.record.AttendanceID, {
       OutTime: nowStr,
-      Remarks: `${current.record.Remarks ? current.record.Remarks + ' | ' : ''}Web Check-Out (${nowStr})`
+      Remarks: cleanRemarks
     });
 
     if (!updated) {
@@ -74182,14 +74202,19 @@ function markRfidAttendance(rawUid, typeOverride = null, deviceMac = 'UNKNOWN') 
     // Only consider OutTime real if it is not '--' and not placeholder '05:30 PM' with no checkout recorded
     const curOutVal = String((current.record && current.record.OutTime) || '').trim();
     const curRemarks = String((current.record && current.record.Remarks) || '').trim();
+    const isAutoCheckout = (curRemarks.indexOf('Auto Checked-Out') !== -1);
     const isPlaceholderOut = (curOutVal === '05:30 PM' && curRemarks.indexOf('Check-Out') === -1 && curRemarks.indexOf('Admin') === -1);
+    
+    // ⭐️ USER RULE: If OutTime was set by automated auto-checkout (system robot),
+    // hasOutTime is considered false to allow the student's REAL card punch or web checkout to OVERRIDE it!
     const hasOutTime = Boolean(
       current.record &&
       curOutVal &&
       curOutVal !== '--' &&
       curOutVal !== '-' &&
       curOutVal !== '--:--' &&
-      !isPlaceholderOut
+      !isPlaceholderOut &&
+      !isAutoCheckout
     );
 
     const nowMins = timeToMinutes(nowStr);
@@ -74227,8 +74252,8 @@ function markRfidAttendance(rawUid, typeOverride = null, deviceMac = 'UNKNOWN') 
         }
         action = 'checkin';
       }
-    } else if (hasInTime && !hasOutTime) {
-      // 2. Student already checked in, but NOT yet checked out:
+    } else if (hasInTime && (!hasOutTime || isAutoCheckout)) {
+      // 2. Student checked in, and either not checked out OR only auto-checked out:
       if (action === 'checkout') {
         // Explicit checkout requested -> proceed to checkout
       } else if (isCheckoutPeriod) {
@@ -74252,8 +74277,8 @@ function markRfidAttendance(rawUid, typeOverride = null, deviceMac = 'UNKNOWN') 
           message: 'Already Punched'
         };
       }
-    } else if (hasInTime && hasOutTime) {
-      // 3. Both check-in and check-out already completed today:
+    } else if (hasInTime && hasOutTime && !isAutoCheckout) {
+      // 3. Both check-in and REAL check-out already completed today:
       logDeviceEvent(deviceMac, 'RFID_Scan_Fail', `Student: ${studentName} (${regId}) - Already Done Today`);
       logDeniedAttendance(regId, studentName, 'Already Done Today (Both Scans)', deviceMac, uid);
       return { 
@@ -74468,10 +74493,15 @@ function markRfidAttendance(rawUid, typeOverride = null, deviceMac = 'UNKNOWN') 
         const sheet = getSheet(SHEET_NAMES.ATTENDANCE);
         let updated = false;
 
+        // Clean previous auto-checkout remarks if any
+        let cleanRemarks = String((current.record && current.record.Remarks) || '');
+        cleanRemarks = cleanRemarks.replace(/\|\s*Auto Checked-Out\s*\([^\)]*\)/gi, '').replace(/Auto Checked-Out\s*\([^\)]*\)/gi, '').trim();
+        cleanRemarks = cleanRemarks ? cleanRemarks + ' | RFID Check-Out (' + nowStr + ')' : 'RFID Check-Out (' + nowStr + ')';
+
         if (current.record && current.record.AttendanceID) {
           updated = updateObjectInSheet(sheet, "AttendanceID", current.record.AttendanceID, {
             OutTime: nowStr,
-            Remarks: `${current.record.Remarks ? current.record.Remarks + ' | ' : ''}RFID Check-Out (${nowStr})`
+            Remarks: cleanRemarks
           });
         }
 
@@ -74493,8 +74523,10 @@ function markRfidAttendance(rawUid, typeOverride = null, deviceMac = 'UNKNOWN') 
               if (rReg === targetRegClean && rDate === targetNormDate) {
                 if (outCol !== -1) sheet.getRange(i + 1, outCol + 1).setValue(nowStr);
                 if (remarksCol !== -1) {
-                  const existingRem = String(attData[i][remarksCol] || '');
-                  sheet.getRange(i + 1, remarksCol + 1).setValue(`${existingRem ? existingRem + ' | ' : ''}RFID Check-Out (${nowStr})`);
+                  let existingRem = String(attData[i][remarksCol] || '');
+                  existingRem = existingRem.replace(/\|\s*Auto Checked-Out\s*\([^\)]*\)/gi, '').replace(/Auto Checked-Out\s*\([^\)]*\)/gi, '').trim();
+                  existingRem = existingRem ? existingRem + ' | RFID Check-Out (' + nowStr + ')' : 'RFID Check-Out (' + nowStr + ')';
+                  sheet.getRange(i + 1, remarksCol + 1).setValue(existingRem);
                 }
                 updated = true;
                 break;
@@ -80674,7 +80706,11 @@ function calculateStudentAttendedDays_(registrationId, studentData) {
       } else if (attRecord) {
         const s = String(attRecord.Status || '').trim();
         const sLower = s.toLowerCase();
-        if (sLower.includes('present') || sLower.includes('late') || sLower.includes('early') || sLower === 'od' || sLower === 'wfh' || sLower.includes('medical') || sLower.includes('ml')) {
+        const inVal = inTime || (attRecord && attRecord.InTime ? String(attRecord.InTime).trim() : '');
+        const hasValidIn = inVal && inVal !== '-' && inVal !== '--' && inVal !== '--:--' && inVal !== 'N/A';
+        if (hasValidIn || sLower.includes('present') || sLower.includes('late') || sLower.includes('early') || sLower === 'od' || sLower === 'wfh' || sLower.includes('medical') || sLower.includes('ml')) {
+          isAttended = true;
+          displayStatus = sLower.includes('late') ? (s || 'Late with Present') : (s && !sLower.includes('absent') && !sLower.includes('missed') ? s : 'Present');
           isAttended = true;
           displayStatus = s;
           if (sLower === 'late with present') lateWithPresentCount++;
@@ -88994,12 +89030,7 @@ function autoCheckoutStudents(targetDate) {
     let autoCheckedCount = 0;
     const todayNorm = formatDate(today);
 
-    // Auto-checkout threshold: 18:00 (6:00 PM = 1080 mins)
-    const AUTO_CHECKOUT_MINS = 18 * 60;
     const isToday = (todayNorm === formatDate(new Date()));
-    if (isToday && nowMins < AUTO_CHECKOUT_MINS) {
-      return { status: 'info', message: 'Before auto-checkout threshold (6:00 PM). Skipped.', count: 0 };
-    }
 
     for (let i = 1; i < data.length; i++) {
       const rowDate = formatDate(data[i][dateCol]);
@@ -89015,12 +89046,23 @@ function autoCheckoutStudents(targetDate) {
 
       if (hasIn && !hasOut && rowStatus !== 'DENIED' && rowStatus !== 'ABSENT') {
         let defaultOut = '05:00 PM';
+        let slotEndMins = 17 * 60; // default 5:00 PM (1020 mins)
         try {
           const studentInfo = getStudentFullData(rReg);
           const batchId = (studentInfo && studentInfo.studentData) ? (studentInfo.studentData.Batch || '') : '';
           const slot = getSlotTiming(batchId, today, rReg);
-          if (slot && slot.end) defaultOut = slot.end;
+          if (slot && slot.end) {
+            defaultOut = slot.end;
+            slotEndMins = timeToMinutes(slot.end);
+          }
         } catch (eSlot) {}
+
+        // ⭐️ USER RULE: Auto-checkout must ONLY run 4 hours (240 mins) after student's slot end!
+        // (e.g. for a 5:00 PM slot end, auto-checkout runs only after 9:00 PM / 21:00)
+        // If today and within 4 hours after slot end, skip so student can punch manually anytime freely!
+        if (isToday && nowMins < (slotEndMins + 240)) {
+          continue;
+        }
 
         const rowNum = i + 1;
         sheet.getRange(rowNum, outCol + 1).setValue(defaultOut);
