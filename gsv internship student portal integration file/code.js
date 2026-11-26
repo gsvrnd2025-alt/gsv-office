@@ -11532,17 +11532,7 @@ if (e && e.parameter && (e.parameter.action === 'generate_app_form_pdf' || e.par
 
     } else {
 
-      const template = HtmlService.createTemplateFromFile('Index');
-
-      template.initialPage = (e && e.parameter && e.parameter.page) ? e.parameter.page : 'home';
-
-      template.initialSection = (e && e.parameter && e.parameter.s) ? e.parameter.s : '';
-
-      template.certNo = (e && e.parameter) ? (e.parameter.certNo || e.parameter.cert || '') : '';
-
-      template.regNo = (e && e.parameter) ? (e.parameter.regno || e.parameter.regId || e.parameter.registrationId || e.parameter.id || '') : '';
-
-      const htmlOutput = template.evaluate();
+      const htmlOutput = HtmlService.createHtmlOutputFromFile('Index');
 
       htmlOutput.setTitle('GSV Electrical Enterprises Internship Portal')
 
@@ -11558,7 +11548,7 @@ if (e && e.parameter && (e.parameter.action === 'generate_app_form_pdf' || e.par
 
     Logger.log('Error in doGet: ' + error.toString() + ' Stack: ' + error.stack);
 
-    return HtmlService.createHtmlOutput('An error occurred: ' + error.toString());
+    const safeErr = String(error.message || error).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); return HtmlService.createHtmlOutput('<h3>An error occurred</h3><p>' + safeErr + '</p>');
 
   }
 
@@ -59904,7 +59894,7 @@ function saveDiaryEntry(regId, dateStr, content) {
 
             if (st.includes('present') || st === 'approved' || st.includes('wfh') || st.includes('od') || 
 
-                st.includes('leave') || app === 'approved' || (inT && inT !== '--' && inT !== 'N/A')) {
+                st.includes('late') || st.includes('leave') || app === 'approved' || (inT && inT !== '--' && inT !== 'N/A')) {
 
               isAttValid = true;
 
@@ -74207,17 +74197,17 @@ function markRfidAttendance(rawUid, typeOverride = null, deviceMac = 'UNKNOWN') 
     const curOutVal = String((current.record && current.record.OutTime) || '').trim();
     const curRemarks = String((current.record && current.record.Remarks) || '').trim();
     const isAutoCheckout = (curRemarks.indexOf('Auto Checked-Out') !== -1);
-    const isPlaceholderOut = (curOutVal === '05:30 PM' && curRemarks.indexOf('Check-Out') === -1 && curRemarks.indexOf('Admin') === -1);
+    const hasRealCheckout = (curRemarks.indexOf('Check-Out') !== -1 || curRemarks.indexOf('Checked-Out') !== -1);
     
-    // ⭐️ USER RULE: If OutTime was set by automated auto-checkout (system robot),
-    // hasOutTime is considered false to allow the student's REAL card punch or web checkout to OVERRIDE it!
+    // ⭐️ USER RULE: A real checkout requires confirmed checkout in Remarks (not placeholder slot end/auto-checkout)
     const hasOutTime = Boolean(
       current.record &&
       curOutVal &&
       curOutVal !== '--' &&
       curOutVal !== '-' &&
       curOutVal !== '--:--' &&
-      !isPlaceholderOut &&
+      curOutVal !== 'N/A' &&
+      hasRealCheckout &&
       !isAutoCheckout
     );
 
@@ -74521,16 +74511,25 @@ function markRfidAttendance(rawUid, typeOverride = null, deviceMac = 'UNKNOWN') 
             const targetNormDate = formatDate(today);
             const targetRegClean = String(regId).trim().toUpperCase();
 
+            const targetIsoDate = (typeof formatDateISO === 'function') ? formatDateISO(today) : today;
             for (let i = 1; i < attData.length; i++) {
               const rReg = String(attData[i][regCol] || '').trim().toUpperCase();
-              const rDate = formatDate(attData[i][dateCol]);
-              if (rReg === targetRegClean && rDate === targetNormDate) {
+              const rawD = attData[i][dateCol];
+              const rDate = formatDate(rawD);
+              const rIso = (typeof formatDateISO === 'function') ? formatDateISO(rawD) : String(rawD || '').trim();
+              if (rReg === targetRegClean && (rDate === targetNormDate || rIso === targetIsoDate || String(rawD).trim() === today)) {
                 if (outCol !== -1) sheet.getRange(i + 1, outCol + 1).setValue(nowStr);
                 if (remarksCol !== -1) {
                   let existingRem = String(attData[i][remarksCol] || '');
                   existingRem = existingRem.replace(/\|\s*Auto Checked-Out\s*\([^\)]*\)/gi, '').replace(/Auto Checked-Out\s*\([^\)]*\)/gi, '').trim();
                   existingRem = existingRem ? existingRem + ' | RFID Check-Out (' + nowStr + ')' : 'RFID Check-Out (' + nowStr + ')';
                   sheet.getRange(i + 1, remarksCol + 1).setValue(existingRem);
+                }
+                if (statusCol !== -1) {
+                  const curSt = String(attData[i][statusCol] || '').trim();
+                  if (!curSt || curSt.toLowerCase() === 'absent' || curSt.toLowerCase() === 'missed') {
+                    sheet.getRange(i + 1, statusCol + 1).setValue('Present');
+                  }
                 }
                 updated = true;
                 break;

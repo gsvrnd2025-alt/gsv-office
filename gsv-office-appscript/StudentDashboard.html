@@ -9922,7 +9922,8 @@
             let attStatus = (attObj && attObj.status) ? attObj.status : (isSunday ? 'Weekly Off' : (isPast ? 'Absent (Missed)' : 'Upcoming'));
             let attInTime = (attObj && attObj.inTime && attObj.inTime !== 'N/A' && attObj.inTime !== '--:--') ? ` (${attObj.inTime})` : '';
             let attOutTime = (attObj && attObj.outTime && attObj.outTime !== 'N/A' && attObj.outTime !== '--:--') ? ` (${attObj.outTime})` : '';
-            const isConfirmedPresent = attStatus.toLowerCase().includes('present') || attStatus.toLowerCase().includes('approved');
+            const attLower = attStatus.toLowerCase();
+            const isConfirmedPresent = attLower.includes('present') || attLower.includes('approved') || attLower.includes('wfh') || attLower.includes('late') || attLower.includes('leave') || attLower.includes('od');
             const attBadgeClass = isConfirmedPresent ? 'bg-success' : (attStatus.toLowerCase().includes('late') ? 'bg-primary' : (isSunday ? 'bg-secondary' : (isPast ? 'bg-danger' : 'bg-info')));
 
             // Diary Status Info
@@ -15470,7 +15471,7 @@
                 else c.classList.remove('active');
             });
 
-            const isConfirmedPresent = record.Status === 'Present' || record.ApprovalStatus === 'Approved' || (record.Label && record.Label.includes('Present'));
+            const isConfirmedPresent = record.Status === 'Present' || (record.Status && (record.Status.includes('Present') || record.Status.includes('Late') || record.Status.includes('WFH') || record.Status.includes('OD') || record.Status.includes('Leave'))) || record.ApprovalStatus === 'Approved' || (record.Label && (record.Label.includes('Present') || record.Label.includes('Late')));
             let isPendingOrOtp = !isConfirmedPresent && record.Indicators && (record.Indicators.hasPending || record.Indicators.otpRequired);
             let statusColor = record.Status === 'Present' ? 'success' : (record.Status === 'Absent' ? 'danger' : 'primary');
             if ((record.ApprovalStatus === 'Pending' || isPendingOrOtp) && !isConfirmedPresent) statusColor = 'warning';
